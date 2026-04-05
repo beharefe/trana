@@ -1,35 +1,41 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCredential, storeChallenge } from "@/lib/db"
+import { storeChallenge } from "@/lib/db"
 import { createAuthenticationOptions } from "@/lib/webauthn"
 
 /**
  * POST /api/approve/options
- * Body: { wallet: string, payloadHash: string (hex) }
+ * Body: { payloadHash: string (hex), wallet?: string }
  *
- * The payloadHash becomes the WebAuthn challenge so that the authenticator
- * signs exactly the payload that the bridge will later verify and countersign.
+ * The payloadHash is used as the WebAuthn challenge so the authenticator
+ * signs exactly the payload the bridge will later countersign with Ed25519.
+ *
+ * wallet is optional — used to find the credential ID for allowCredentials
+ * (avoids "choose authenticator" UI in browsers that support it).
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { wallet, payloadHash } = body as {
-      wallet: string
+    const { payloadHash, wallet } = body as {
       payloadHash: string
+      wallet?: string
     }
 
-    if (!wallet || !payloadHash) {
-      return NextResponse.json({ error: "wallet and payloadHash required" }, { status: 400 })
+    if (!payloadHash) {
+      return NextResponse.json({ error: "payloadHash required" }, { status: 400 })
     }
 
-    const cred = await getCredential(wallet)
-    if (!cred) {
-      return NextResponse.json({ error: "No passkey registered for this wallet" }, { status: 404 })
+    // Store the challenge so /approve/verify can retrieve and invalidate it.
+    await storeChallenge(wallet ?? "__global__", payloadHash)
+
+    // If wallet provided, pass its credential ID for allowCredentials hint.
+    let credentialId: string | undefined
+    if (wallet) {
+      const { getCredential } = await import("@/lib/db")
+      const cred = await getCredential(wallet)
+      credentialId = cred?.credential_id
     }
 
-    // Store the challenge (= payloadHash) so /approve/verify can retrieve it.
-    await storeChallenge(wallet, payloadHash)
-
-    const options = await createAuthenticationOptions(payloadHash, cred.credential_id)
+    const options = await createAuthenticationOptions(payloadHash, credentialId)
 
     return NextResponse.json({ options })
   } catch (err) {

@@ -1,19 +1,41 @@
-import type { StatusResponse } from "./types"
+import type { StatusResponse, VaultStatusResponse } from "./types"
 
-/** Fetch passkey status for a wallet. UX signal only — not used for enforcement. */
+// ── Status ────────────────────────────────────────────────────────────────────
+
+/** Fetch passkey status for a wallet. UX signal — not used for enforcement. */
 export async function getPasskeyStatus(
   wallet: string,
   serverUrl: string
 ): Promise<StatusResponse> {
-  const url = `${serverUrl}/api/status?wallet=${encodeURIComponent(wallet)}`
-  const res = await fetch(url)
-  if (!res.ok) {
+  try {
+    const res = await fetch(
+      `${serverUrl}/api/status?wallet=${encodeURIComponent(wallet)}`
+    )
+    if (!res.ok) return { has_passkey: false, opt_in: false }
+    return res.json() as Promise<StatusResponse>
+  } catch {
     return { has_passkey: false, opt_in: false }
   }
-  return res.json() as Promise<StatusResponse>
 }
 
-/** Fetch registration options from the bridge. */
+/** Fetch vault status for a wallet. */
+export async function getVaultStatus(
+  wallet: string,
+  serverUrl: string
+): Promise<VaultStatusResponse> {
+  try {
+    const res = await fetch(
+      `${serverUrl}/api/vault?wallet=${encodeURIComponent(wallet)}`
+    )
+    if (!res.ok) return { initialized: false, balance_sol: 0, next_nonce: 0, opt_in: false }
+    return res.json() as Promise<VaultStatusResponse>
+  } catch {
+    return { initialized: false, balance_sol: 0, next_nonce: 0, opt_in: false }
+  }
+}
+
+// ── Registration ──────────────────────────────────────────────────────────────
+
 export async function fetchRegistrationOptions(
   wallet: string,
   serverUrl: string
@@ -27,7 +49,6 @@ export async function fetchRegistrationOptions(
   return res.json()
 }
 
-/** Send registration verification to the bridge. */
 export async function verifyRegistration(
   wallet: string,
   response: unknown,
@@ -42,31 +63,37 @@ export async function verifyRegistration(
   return res.json()
 }
 
-/** Fetch approval (authentication) options from the bridge. */
+// ── Approval ──────────────────────────────────────────────────────────────────
+
+/** Fetch WebAuthn authentication options. Challenge = payloadHashHex. */
 export async function fetchApprovalOptions(
-  wallet: string,
-  payloadHash: string,
+  payloadHashHex: string,
   serverUrl: string
 ): Promise<unknown> {
   const res = await fetch(`${serverUrl}/api/approve/options`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet, payloadHash }),
+    body: JSON.stringify({ payloadHash: payloadHashHex }),
   })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
 
-/** Send approval verification to the bridge and receive the server signature. */
+/**
+ * Verify WebAuthn assertion and receive bridge Ed25519 signature.
+ *
+ * `canonicalJson` — the canonical JSON string of the ProofPayload (or VaultProofPayload).
+ * The bridge recomputes sha256(canonicalJson) and signs it.
+ */
 export async function verifyApproval(
   assertion: unknown,
-  payload: unknown,
+  canonicalJson: string,
   serverUrl: string
 ): Promise<{ signature: string; serverPubkey: string }> {
   const res = await fetch(`${serverUrl}/api/approve/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assertion, payload }),
+    body: JSON.stringify({ assertion, canonicalJson }),
   })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
