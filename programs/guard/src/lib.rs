@@ -1,11 +1,14 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{
-    ed25519_program,
-    sysvar::instructions::{load_instruction_at_checked, ID as INSTRUCTIONS_ID},
+use anchor_lang::solana_program::sysvar::instructions::{
+    load_instruction_at_checked, ID as INSTRUCTIONS_ID,
 };
 use sha2::{Digest, Sha256};
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+/// The Ed25519 signature-verification precompile program ID.
+/// "Ed25519SigVerify111111111111111111111111111"
+const ED25519_PROGRAM_ID: &str = "Ed25519SigVerify111111111111111111111111111";
+
+declare_id!("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6");
 
 // ────────────────────────────────────────────────────────────────────────────
 //  Transaction Authorization Guard — Onchain Authorization Primitive
@@ -291,8 +294,9 @@ fn verify_ed25519_proof(
         load_instruction_at_checked(0, ix_sysvar)
             .map_err(|_| error!(GuardError::MissingProof))?;
 
+    let ed25519_id: Pubkey = ED25519_PROGRAM_ID.parse().unwrap();
     require!(
-        verify_ix.program_id == ed25519_program::id(),
+        verify_ix.program_id == ed25519_id,
         GuardError::MissingProof
     );
 

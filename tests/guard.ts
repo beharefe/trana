@@ -18,13 +18,15 @@
  *   8. Large transfer + valid proof                  → Success
  *   9. Replay nonce from scenario 8                  → NonceAlreadyUsed
  */
-import * as anchor from "@coral-xyz/anchor"
-import { AnchorError, Program }  from "@coral-xyz/anchor"
+import pkg from "@coral-xyz/anchor"
+const { AnchorError, BN, AnchorProvider, workspace, setProvider } = pkg
+type Program<T extends pkg.Idl> = pkg.Program<T>
 import {
   Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   Ed25519Program,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   sendAndConfirmTransaction,
@@ -33,6 +35,12 @@ import { createHash, randomBytes } from "crypto"
 import nacl from "tweetnacl"
 import assert from "assert"
 import type { Guard } from "../target/types/guard"
+
+// ── Shared state (both test suites must use the same server keypair) ──────────
+
+// Single server keypair — Config PDA is initialised once by the vault suite.
+// The protected_transfer suite reuses it without re-initialising.
+const SHARED_SERVER_KP = nacl.sign.keyPair()
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +90,7 @@ function makeNonce32(): { bytes: Buffer; hex: string } {
 function buildVerifyIx(
   kp: nacl.SignKeyPair,
   payloadHash: Buffer
-): anchor.web3.TransactionInstruction {
+): TransactionInstruction {
   const sig = nacl.sign.detached(payloadHash, kp.secretKey)
   return Ed25519Program.createInstructionWithPublicKey({
     publicKey:  Buffer.from(kp.publicKey),
@@ -94,14 +102,14 @@ function buildVerifyIx(
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 describe("guard — vault path", () => {
-  const provider = anchor.AnchorProvider.env()
-  anchor.setProvider(provider)
+  const provider = AnchorProvider.env()
+  setProvider(provider)
 
-  const program    = anchor.workspace.Guard as Program<Guard>
+  const program    = workspace.Guard as Program<Guard>
   const connection = provider.connection
-  const payer      = provider.wallet as anchor.Wallet
+  const payer      = provider.wallet as pkg.Wallet
 
-  const serverKp   = nacl.sign.keyPair()
+  const serverKp   = SHARED_SERVER_KP
   const serverKey  = new PublicKey(serverKp.publicKey)
 
   const THRESHOLD  = 20 * SOL
@@ -126,7 +134,7 @@ describe("guard — vault path", () => {
     )
 
     await program.methods
-      .initialize(new anchor.BN(THRESHOLD), true)
+      .initialize(new BN(THRESHOLD), true)
       .accounts({ config: configPda, serverKey, authority: payer.publicKey, systemProgram: SystemProgram.programId })
       .rpc()
 
@@ -136,7 +144,7 @@ describe("guard — vault path", () => {
       .rpc()
 
     await program.methods
-      .deposit(new anchor.BN(FUND_VAULT))
+      .deposit(new BN(FUND_VAULT))
       .accounts({ vault: vaultPda, owner: payer.publicKey, systemProgram: SystemProgram.programId })
       .rpc()
   })
@@ -153,10 +161,10 @@ describe("guard — vault path", () => {
 
     const ix = await program.methods
       .vaultWithdraw(
-        new anchor.BN(amount),
-        new anchor.BN(nonce),
+        new BN(amount),
+        new BN(nonce),
         Array.from(payloadHash),
-        new anchor.BN(expiry)
+        new BN(expiry)
       )
       .accounts({
         config:       configPda,
@@ -262,14 +270,14 @@ describe("guard — vault path", () => {
 })
 
 describe("guard — protected_transfer path", () => {
-  const provider = anchor.AnchorProvider.env()
-  anchor.setProvider(provider)
+  const provider = AnchorProvider.env()
+  setProvider(provider)
 
-  const program    = anchor.workspace.Guard as Program<Guard>
+  const program    = workspace.Guard as Program<Guard>
   const connection = provider.connection
-  const payer      = provider.wallet as anchor.Wallet
+  const payer      = provider.wallet as pkg.Wallet
 
-  const serverKp   = nacl.sign.keyPair()
+  const serverKp   = SHARED_SERVER_KP
   const serverKey  = new PublicKey(serverKp.publicKey)
 
   const THRESHOLD = 20 * SOL
@@ -287,7 +295,7 @@ describe("guard — protected_transfer path", () => {
     // Config already initialised by vault suite above — call update if needed
     try {
       await program.methods
-        .initialize(new anchor.BN(THRESHOLD), true)
+        .initialize(new BN(THRESHOLD), true)
         .accounts({ config: configPda, serverKey, authority: payer.publicKey, systemProgram: SystemProgram.programId })
         .rpc()
     } catch { /* already initialised */ }
@@ -308,10 +316,10 @@ describe("guard — protected_transfer path", () => {
     const to = Keypair.generate().publicKey
     const ix = await program.methods
       .protectedTransfer(
-        new anchor.BN(amount),
+        new BN(amount),
         Array.from(nonce),
         Array.from(payloadHash),
-        new anchor.BN(expiry),
+        new BN(expiry),
         optIn
       )
       .accounts({

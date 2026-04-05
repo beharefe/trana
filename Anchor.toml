@@ -5,10 +5,10 @@ resolution = true
 seeds = true
 
 [programs.devnet]
-guard = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
 
 [programs.localnet]
-guard = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
 
 [registry]
 url = "https://api.apr.dev"
