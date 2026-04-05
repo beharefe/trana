@@ -5,13 +5,17 @@ import { Button } from "./Button"
 
 export function Hero() {
   return (
-    <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center relative overflow-hidden">
-      {/* Subtle radial gradient */}
+    <section
+      aria-label="Hero"
+      className="min-h-screen flex flex-col items-center justify-center px-6 text-center relative overflow-hidden"
+    >
+      {/* Subtle radial glow */}
       <div
+        aria-hidden
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168,85,247,0.08) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168,85,247,0.10) 0%, transparent 70%)",
         }}
       />
 
@@ -45,11 +49,11 @@ export function Hero() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed"
+          className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed"
         >
-          Even if your private key is compromised,
+          Your private key gets stolen.
           <br className="hidden sm:block" />
-          high-risk actions still cannot execute.
+          <span className="text-white">Your funds don&apos;t have to move.</span>
         </motion.p>
 
         {/* Supporting copy */}
@@ -57,12 +61,13 @@ export function Hero() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3 }}
-          className="text-base text-gray-500 max-w-xl mx-auto"
+          className="text-base text-gray-500 max-w-lg mx-auto leading-relaxed"
         >
-          Trana enforces second-factor authorization at execution time — not signing time.
+          Trana enforces a second-factor approval at the exact moment a transaction
+          executes — not when it was signed. A compromised key is no longer enough.
         </motion.p>
 
-        {/* CTA buttons */}
+        {/* CTAs */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -71,13 +76,17 @@ export function Hero() {
         >
           <Button
             variant="primary"
-            onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+            onClick={() =>
+              document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })
+            }
           >
             Try Live Demo
           </Button>
           <Button
             variant="ghost"
-            onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+            onClick={() =>
+              document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })
+            }
           >
             View How It Works
           </Button>
@@ -89,6 +98,7 @@ export function Hero() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1.2, duration: 0.5 }}
+        aria-hidden
         className="absolute bottom-10 left-1/2 -translate-x-1/2"
       >
         <motion.div
