@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+body {
+  font-family: var(--font-mono);
+  background: #0a0a0a;
+  color: #e5e7eb;
+}
+
+/* Wallet adapter button overrides */
+.wallet-adapter-button {
+  font-family: var(--font-mono) !important;
+}

@@ -1,0 +1,28 @@
+{
+  "name": "trana-guard",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:web": "pnpm --filter web dev",
+    "test": "pnpm -r test",
+    "anchor:build": "anchor build",
+    "anchor:test": "anchor test",
+    "anchor:deploy": "anchor deploy --provider.cluster devnet",
+    "anchor:deploy:local": "anchor deploy"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.32.0",
+    "@solana/web3.js": "^1.98.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "mocha": "^10.0.0",
+    "ts-mocha": "^10.0.0",
+    "tweetnacl": "^1.0.3",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  }
+}
