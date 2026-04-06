@@ -71,7 +71,7 @@ function Rule() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-medium tracking-widest uppercase text-faint mb-5">
+    <p className="text-xs font-medium tracking-widest uppercase text-faint mb-6">
       {children}
     </p>
   )
@@ -92,7 +92,7 @@ export default function Home() {
           aria-label="Main navigation"
           className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg/90 backdrop-blur-md"
         >
-          <div className="max-w-5xl mx-auto px-6 h-13 flex items-center justify-between">
+          <div className="max-w-5xl mx-auto px-8 h-20 flex items-center justify-between">
             <span className="font-serif text-lg text-ink">Trana</span>
             <div className="flex items-center gap-6 text-sm text-muted">
               <a href="#how-it-works" className="hover:text-ink transition-colors hidden sm:block">How it works</a>
@@ -101,7 +101,7 @@ export default function Home() {
                 href="https://github.com/beharefe/trana-guard"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-1.5 rounded-full border border-border text-ink text-xs font-medium hover:bg-card transition-colors"
+                className="px-5 py-2 rounded-full border border-border text-ink text-xs font-medium hover:bg-card transition-colors"
               >
                 GitHub
               </a>
@@ -114,7 +114,7 @@ export default function Home() {
 
         {/* ── Problem ──────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="problem" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="problem" className="max-w-5xl mx-auto px-6 py-32">
           <Label>The problem</Label>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
             <div>
@@ -155,7 +155,7 @@ export default function Home() {
 
         {/* ── Solution ─────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="solution" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="solution" className="max-w-5xl mx-auto px-6 py-32">
           <Label>The solution</Label>
           <div className="max-w-2xl">
             <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-6">
@@ -200,7 +200,7 @@ export default function Home() {
 
         {/* ── How it works ─────────────────────────────────────────────────── */}
         <Rule />
-        <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-32">
           <Label>How it works</Label>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
             <div>
@@ -241,7 +241,7 @@ export default function Home() {
 
         {/* ── Demo ─────────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="demo" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="demo" className="max-w-5xl mx-auto px-6 py-32">
           <div className="mb-10">
             <Label>Interactive demo</Label>
             <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-3">
@@ -256,7 +256,7 @@ export default function Home() {
 
         {/* ── Comparison ───────────────────────────────────────────────────── */}
         <Rule />
-        <section id="comparison" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="comparison" className="max-w-5xl mx-auto px-6 py-32">
           <Label>Comparison</Label>
           <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-3">
             Other approaches protect keys.
@@ -300,7 +300,7 @@ export default function Home() {
 
         {/* ── Use cases ────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="use-cases" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="use-cases" className="max-w-5xl mx-auto px-6 py-32">
           <Label>Use cases</Label>
           <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-3">
             Built for actions you can&apos;t afford
@@ -340,7 +340,7 @@ export default function Home() {
 
         {/* ── Developer ────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="developer" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="developer" className="max-w-5xl mx-auto px-6 py-32">
           <Label>For developers</Label>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
             <div>
@@ -400,7 +400,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
 
         {/* ── FAQ ──────────────────────────────────────────────────────────── */}
         <Rule />
-        <section id="faq" className="max-w-5xl mx-auto px-6 py-24">
+        <section id="faq" className="max-w-5xl mx-auto px-6 py-32">
           <Label>FAQ</Label>
           <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-12">
             Common questions
@@ -445,7 +445,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
 
         {/* ── Philosophy / Closing ─────────────────────────────────────────── */}
         <Rule />
-        <section className="max-w-5xl mx-auto px-6 py-32 text-center">
+        <section className="max-w-5xl mx-auto px-6 py-44 text-center">
           <blockquote className="max-w-2xl mx-auto">
             <p className="font-serif text-3xl sm:text-4xl lg:text-5xl leading-tight tracking-tight text-ink">
               &ldquo;Keys get stolen while you sleep.
@@ -461,13 +461,13 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
               href="https://github.com/beharefe/trana-guard"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-6 py-2.5 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
+              className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
             >
               View on GitHub
             </a>
             <a
               href="#demo"
-              className="px-6 py-2.5 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
+              className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
             >
               Try the demo
             </a>

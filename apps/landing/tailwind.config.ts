@@ -9,21 +9,24 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans:  ["Inter", "system-ui", "sans-serif"],
-        serif: ["Instrument Serif", "Georgia", "serif"],
+        serif: ["DM Serif Display", "Georgia", "serif"],
       },
       colors: {
-        bg:      "#F5F0E8",
-        card:    "#EFEBE2",
-        border:  "#DDD8CF",
-        ink:     "#141414",
-        muted:   "#6B6560",
-        faint:   "#A09890",
-        accent:  "#CC785C",
-        "accent-light": "#E8C4B0",
+        bg:     "#F7F6F3",
+        card:   "#EEECEA",
+        border: "#D8D4CE",
+        ink:    "#111111",
+        muted:  "#5C5855",
+        faint:  "#9E9A96",
+        accent: "#1B4FD8",
+        "accent-light": "#DBEAFE",
+      },
+      spacing: {
+        "18": "4.5rem",
+        "22": "5.5rem",
       },
       animation: {
         shake: "shake 0.4s ease-in-out",
-        "fade-up": "fadeUp 0.5s ease both",
       },
       keyframes: {
         shake: {
@@ -32,10 +35,6 @@ const config: Config = {
           "40%": { transform: "translateX(6px)" },
           "60%": { transform: "translateX(-4px)" },
           "80%": { transform: "translateX(4px)" },
-        },
-        fadeUp: {
-          from: { opacity: "0", transform: "translateY(12px)" },
-          to:   { opacity: "1", transform: "translateY(0)" },
         },
       },
     },

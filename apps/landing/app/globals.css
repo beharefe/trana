@@ -1,17 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg:      #F5F0E8;
-  --bg-card: #EFEBE2;
-  --fg:      #141414;
-  --fg-muted: #6B6560;
-  --fg-faint: #A09890;
-  --border:  #DDD8CF;
-  --accent:  #CC785C;
+  --bg:       #F7F6F3;
+  --bg-card:  #EEECEA;
+  --fg:       #111111;
+  --fg-muted: #5C5855;
+  --fg-faint: #9E9A96;
+  --border:   #D8D4CE;
+  --accent:   #1B4FD8;
 }
 
 * {
@@ -31,18 +31,10 @@ body {
 }
 
 ::selection {
-  background: #CC785C22;
-  color: #CC785C;
+  background: #1B4FD820;
+  color: #1B4FD8;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-}
-::-webkit-scrollbar-track {
-  background: var(--bg);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

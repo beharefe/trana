@@ -8,38 +8,38 @@ export function Hero() {
   return (
     <section
       aria-label="Hero"
-      className="min-h-screen flex flex-col items-center justify-center px-6 text-center"
+      className="min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-16 text-center"
     >
-      <div className="max-w-3xl mx-auto space-y-7">
+      <div className="max-w-3xl mx-auto space-y-9">
 
         {/* Eyebrow */}
         <motion.p
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease }}
-          className="text-xs font-medium tracking-widest uppercase text-muted"
+          className="text-xs font-medium tracking-[0.2em] uppercase text-faint"
         >
           Onchain Authorization · Solana
         </motion.p>
 
         {/* Heading */}
         <motion.h1
-          initial={{ opacity: 0, y: 14 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.65, delay: 0.08, ease }}
-          className="font-serif text-6xl sm:text-7xl lg:text-8xl leading-[1.05] tracking-[-0.02em] text-ink"
+          transition={{ duration: 0.7, delay: 0.08, ease }}
+          className="font-serif text-6xl sm:text-7xl lg:text-[5.5rem] leading-[1.06] tracking-[-0.025em] text-ink"
         >
           Your key gets stolen.
           <br />
-          <span className="italic text-accent">Your funds don&apos;t move.</span>
+          <span className="italic">Your funds don&apos;t move.</span>
         </motion.h1>
 
         {/* Sub */}
         <motion.p
-          initial={{ opacity: 0, y: 14 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.65, delay: 0.18, ease }}
-          className="text-lg sm:text-xl text-muted max-w-xl mx-auto leading-relaxed"
+          transition={{ duration: 0.7, delay: 0.18, ease }}
+          className="text-xl text-muted max-w-xl mx-auto leading-[1.7]"
         >
           Trana enforces a second-factor approval at the exact moment a transaction
           executes onchain — not when it was signed.
@@ -48,40 +48,40 @@ export function Hero() {
 
         {/* CTAs */}
         <motion.div
-          initial={{ opacity: 0, y: 14 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.65, delay: 0.28, ease }}
-          className="flex flex-wrap gap-3 justify-center pt-1"
+          transition={{ duration: 0.7, delay: 0.28, ease }}
+          className="flex flex-wrap gap-3 justify-center pt-2"
         >
           <button
             onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
-            className="px-6 py-2.5 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
+            className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/85 transition-colors"
           >
             Try live demo
           </button>
           <button
             onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
-            className="px-6 py-2.5 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
+            className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
           >
             How it works
           </button>
         </motion.div>
 
-        {/* Proof stat */}
+        {/* Stats row */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.55, ease }}
-          className="flex flex-wrap justify-center gap-8 pt-4 text-faint text-xs"
+          className="flex flex-wrap justify-center gap-10 pt-6 border-t border-border"
         >
           {[
-            ["15", "Anchor test scenarios"],
+            ["15", "Test scenarios passing"],
             ["secp256r1", "Native passkey curve"],
             ["Anchor 0.32", "Zero new dependencies"],
           ].map(([val, label]) => (
-            <div key={label} className="flex flex-col items-center gap-0.5">
-              <span className="text-ink text-sm font-medium">{val}</span>
-              <span>{label}</span>
+            <div key={label} className="flex flex-col items-center gap-1">
+              <span className="text-ink text-sm font-semibold tracking-tight">{val}</span>
+              <span className="text-faint text-xs">{label}</span>
             </div>
           ))}
         </motion.div>
@@ -99,7 +99,7 @@ export function Hero() {
         <motion.div
           animate={{ y: [0, 5, 0] }}
           transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-          className="w-px h-8 bg-gradient-to-b from-transparent via-muted/30 to-transparent mx-auto"
+          className="w-px h-8 bg-gradient-to-b from-transparent via-border to-transparent mx-auto"
         />
       </motion.div>
     </section>

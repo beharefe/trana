@@ -31,7 +31,7 @@ export function DemoPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-8 space-y-8">
+    <div className="rounded-2xl border border-border bg-card p-10 space-y-10">
       <div>
         <p className="text-xs text-faint font-mono uppercase tracking-widest mb-2">
           Attack simulation
@@ -102,7 +102,7 @@ export function DemoPanel() {
           <button
             onClick={approve}
             disabled={loading}
-            className="px-5 py-2.5 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 py-2.5 rounded-full bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Approve with passkey
           </button>
