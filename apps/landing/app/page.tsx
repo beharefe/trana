@@ -123,25 +123,29 @@ export default function Home() {
                 <br />
                 <span className="italic">It was an unconditional signature.</span>
               </h2>
-              <p className="text-muted text-lg leading-relaxed">
-                A single compromised signer moved hundreds of millions from
-                onchain protocols. The signatures were cryptographically valid.
-                The protocols had no mechanism to say no at execution time.
+              <p className="text-muted text-lg leading-relaxed mb-4">
+                The Drift $285M drain (April 2026) proved it. The signatures
+                were cryptographically valid. The chain had no mechanism to say
+                no at the moment the transaction actually ran.
+              </p>
+              <p className="text-muted text-base leading-relaxed">
+                This is not a key-strength problem. It is an authorization
+                timing problem.
               </p>
             </div>
             <div className="space-y-4">
               {[
                 {
-                  title: "Signatures can be phished",
-                  body: "Valid signatures can be collected through social engineering, deception, or key extraction. Weeks may pass before they are used.",
+                  title: "Signatures can be collected in advance",
+                  body: "Valid signatures are gathered through social engineering or key extraction, sometimes weeks before they are used.",
                 },
                 {
-                  title: "Durable nonces enable pre-signing",
-                  body: "Attackers pre-sign transactions with a valid durable nonce, wait for the right moment, then execute.",
+                  title: "Durable nonces enable pre-signed attacks",
+                  body: "Attackers pre-sign with a valid durable nonce, wait for the right moment, then execute without further interaction.",
                 },
                 {
-                  title: "Nothing on the execution path objects",
-                  body: "Once a valid signature exists, the chain executes unconditionally. No further approval required.",
+                  title: "The chain executes unconditionally",
+                  body: "Once a valid signature exists, execution is automatic. No mechanism on the execution path can object.",
                 },
               ].map(({ title, body }) => (
                 <div key={title} className="p-5 rounded-2xl border border-border bg-card">
@@ -165,9 +169,9 @@ export default function Home() {
             </h2>
             <p className="text-muted text-lg leading-relaxed mb-10">
               Trana closes the gap between signing and execution. Every protected
-              transaction must carry a passkey proof generated for that specific
-              action, amount, vault address, and nonce, moments before the
-              transaction lands. No proof, no execution.
+              transaction must carry a passkey proof generated for that exact
+              action, amount, vault, and nonce, moments before it lands onchain.
+              No proof. No execution. Period.
             </p>
           </div>
 
@@ -219,9 +223,9 @@ export default function Home() {
             <ol className="space-y-0" aria-label="How Trana works">
               {[
                 "Transaction constructed and signed by the user's wallet",
-                "Trana evaluates against the configured policy (amount threshold, opt-in)",
+                "Trana evaluates the configured policy: high-value threshold, admin action, or opt-in",
                 "If policy triggers, a passkey approval is required, bound to this exact transaction",
-                "The program verifies the proof onchain. No valid proof → transaction fails atomically.",
+                "Onchain verification of the proof. No valid proof means the transaction fails atomically.",
               ].map((label, i) => (
                 <li key={i} className="flex gap-5 text-left list-none">
                   <div className="flex flex-col items-center shrink-0">
@@ -237,6 +241,10 @@ export default function Home() {
               ))}
             </ol>
           </div>
+          <p className="mt-10 text-base font-medium text-ink border-t border-border pt-8 max-w-lg">
+            Signatures can be collected early.
+            <span className="text-accent"> Execution must be approved late.</span>
+          </p>
         </section>
 
         {/* ── Demo ─────────────────────────────────────────────────────────── */}
@@ -453,7 +461,10 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
               <span className="italic">Execution only happens when the guard says yes.&rdquo;</span>
             </p>
           </blockquote>
-          <p className="text-faint text-sm mt-8">
+          <p className="text-muted text-base mt-8 font-medium">
+            Signatures can be collected early. Execution must be approved late.
+          </p>
+          <p className="text-faint text-sm mt-3">
             Trana · Onchain Authorization Primitive for Solana
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-10">
@@ -491,7 +502,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
                 GitHub
               </a>
               <span className="text-faint text-xs">
-                Solana Frontier Hackathon 2025
+                Colosseum Frontier Hackathon · April 2026
               </span>
             </div>
           </div>

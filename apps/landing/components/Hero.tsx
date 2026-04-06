@@ -41,9 +41,8 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.18, ease }}
           className="text-xl text-muted max-w-xl mx-auto leading-[1.7]"
         >
-          Trana enforces a second-factor approval at the exact moment a transaction
-          executes onchain, not at signing time.
-          A compromised key is no longer sufficient.
+          Trana enforces second-factor authorization at execution time, not signing time.
+          A stolen key alone is no longer sufficient to execute protected transactions.
         </motion.p>
 
         {/* CTAs */}
