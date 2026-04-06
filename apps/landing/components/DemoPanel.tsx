@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Button } from "./Button"
 import { AnimatedFlow } from "./AnimatedFlow"
 
 type State = "idle" | "failed" | "success"
@@ -32,16 +31,17 @@ export function DemoPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-8 space-y-8">
+    <div className="rounded-2xl border border-border bg-card p-8 space-y-8">
       <div>
-        <p className="text-xs text-purple-400 uppercase tracking-widest font-medium mb-2">
-          Attack Simulation — Drift-style
+        <p className="text-xs text-faint font-mono uppercase tracking-widest mb-2">
+          Attack simulation
         </p>
-        <h3 className="text-xl font-semibold text-white">
+        <h3 className="text-xl font-medium text-ink">
           See what happens when a key is compromised
         </h3>
-        <p className="text-gray-500 text-sm mt-2">
+        <p className="text-muted text-sm mt-2 leading-relaxed">
           The attacker has the private key. Watch the guard reject execution.
+          Then approve with a passkey to see authorized execution.
         </p>
       </div>
 
@@ -52,17 +52,17 @@ export function DemoPanel() {
         {state === "failed" && (
           <motion.div
             key="fail-msg"
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3"
+            transition={{ duration: 0.2 }}
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3"
           >
-            <p className="text-red-400 text-sm font-medium">
-              ❌ Execution blocked — missing authorization
+            <p className="text-red-700 text-sm font-medium">
+              Execution blocked — missing authorization
             </p>
-            <p className="text-red-400/60 text-xs mt-1">
-              Program error: <span className="font-mono">MissingProof</span>. Private key alone is not sufficient.
+            <p className="text-red-500 text-xs mt-1 font-mono">
+              Program error: MissingProof. Private key alone is not sufficient.
             </p>
           </motion.div>
         )}
@@ -70,16 +70,16 @@ export function DemoPanel() {
         {state === "success" && (
           <motion.div
             key="success-msg"
-            initial={{ opacity: 0, scale: 0.97 }}
+            initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3"
+            transition={{ duration: 0.25 }}
+            className="rounded-xl border border-green-200 bg-green-50 px-4 py-3"
           >
-            <p className="text-green-400 text-sm font-medium">
-              ✅ Transaction executed successfully
+            <p className="text-green-800 text-sm font-medium">
+              Transaction executed successfully
             </p>
-            <p className="text-green-400/60 text-xs mt-1">
+            <p className="text-green-600 text-xs mt-1">
               Passkey proof verified onchain. Execution authorized.
             </p>
           </motion.div>
@@ -89,33 +89,33 @@ export function DemoPanel() {
       {/* Buttons */}
       <div className="flex flex-wrap gap-3">
         {state !== "failed" && (
-          <Button
-            variant="ghost"
+          <button
             onClick={simulate}
             disabled={loading}
-            className="flex items-center gap-2"
+            className="px-5 py-2.5 rounded-full border border-border bg-bg text-ink text-sm font-medium hover:bg-card transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <span className="text-red-400">⚡</span>
-            Simulate malicious transaction
-          </Button>
+            Simulate attack
+          </button>
         )}
 
         {state === "failed" && (
-          <Button
-            variant="primary"
+          <button
             onClick={approve}
             disabled={loading}
-            className="flex items-center gap-2"
+            className="px-5 py-2.5 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <span>🔑</span>
             Approve with passkey
-          </Button>
+          </button>
         )}
 
         {state !== "idle" && (
-          <Button variant="ghost" onClick={reset} disabled={loading}>
+          <button
+            onClick={reset}
+            disabled={loading}
+            className="px-5 py-2.5 rounded-full border border-border text-muted text-sm hover:text-ink hover:bg-card transition-colors disabled:opacity-40"
+          >
             Reset
-          </Button>
+          </button>
         )}
       </div>
     </div>

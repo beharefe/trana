@@ -1,110 +1,105 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Button } from "./Button"
+
+const ease = [0.16, 1, 0.3, 1]
 
 export function Hero() {
   return (
     <section
       aria-label="Hero"
-      className="min-h-screen flex flex-col items-center justify-center px-6 text-center relative overflow-hidden"
+      className="min-h-screen flex flex-col items-center justify-center px-6 text-center"
     >
-      {/* Subtle radial glow */}
-      <div
-        aria-hidden
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168,85,247,0.10) 0%, transparent 70%)",
-        }}
-      />
+      <div className="max-w-3xl mx-auto space-y-7">
 
-      <div className="relative max-w-4xl mx-auto space-y-8">
-        {/* Badge */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/5 text-purple-400 text-xs font-medium tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-            Built for Solana Frontier Hackathon
-          </span>
-        </motion.div>
-
-        {/* Title */}
-        <motion.h1
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-5xl sm:text-6xl font-bold tracking-tight leading-[1.1]"
-        >
-          Unstealable
-          <br />
-          <span className="text-purple-400">Transactions</span>
-        </motion.h1>
-
-        {/* Subtitle */}
+        {/* Eyebrow */}
         <motion.p
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed"
+          transition={{ duration: 0.5, ease }}
+          className="text-xs font-medium tracking-widest uppercase text-muted"
         >
-          Your private key gets stolen.
-          <br className="hidden sm:block" />
-          <span className="text-white">Your funds don&apos;t have to move.</span>
+          Onchain Authorization · Solana
         </motion.p>
 
-        {/* Supporting copy */}
-        <motion.p
-          initial={{ opacity: 0, y: 16 }}
+        {/* Heading */}
+        <motion.h1
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="text-base text-gray-500 max-w-lg mx-auto leading-relaxed"
+          transition={{ duration: 0.65, delay: 0.08, ease }}
+          className="font-serif text-6xl sm:text-7xl lg:text-8xl leading-[1.05] tracking-[-0.02em] text-ink"
+        >
+          Your key gets stolen.
+          <br />
+          <span className="italic text-accent">Your funds don&apos;t move.</span>
+        </motion.h1>
+
+        {/* Sub */}
+        <motion.p
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.18, ease }}
+          className="text-lg sm:text-xl text-muted max-w-xl mx-auto leading-relaxed"
         >
           Trana enforces a second-factor approval at the exact moment a transaction
-          executes — not when it was signed. A compromised key is no longer enough.
+          executes onchain — not when it was signed.
+          A compromised key is no longer sufficient.
         </motion.p>
 
         {/* CTAs */}
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-          className="flex flex-wrap gap-4 justify-center pt-2"
+          transition={{ duration: 0.65, delay: 0.28, ease }}
+          className="flex flex-wrap gap-3 justify-center pt-1"
         >
-          <Button
-            variant="primary"
-            onClick={() =>
-              document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })
-            }
+          <button
+            onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+            className="px-6 py-2.5 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
           >
-            Try Live Demo
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() =>
-              document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })
-            }
+            Try live demo
+          </button>
+          <button
+            onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+            className="px-6 py-2.5 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
           >
-            View How It Works
-          </Button>
+            How it works
+          </button>
         </motion.div>
+
+        {/* Proof stat */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.55, ease }}
+          className="flex flex-wrap justify-center gap-8 pt-4 text-faint text-xs"
+        >
+          {[
+            ["15", "Anchor test scenarios"],
+            ["secp256r1", "Native passkey curve"],
+            ["Anchor 0.32", "Zero new dependencies"],
+          ].map(([val, label]) => (
+            <div key={label} className="flex flex-col items-center gap-0.5">
+              <span className="text-ink text-sm font-medium">{val}</span>
+              <span>{label}</span>
+            </div>
+          ))}
+        </motion.div>
+
       </div>
 
-      {/* Scroll indicator */}
+      {/* Scroll nudge */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 1.2, duration: 0.5 }}
+        transition={{ delay: 1.4, duration: 0.5 }}
         aria-hidden
         className="absolute bottom-10 left-1/2 -translate-x-1/2"
       >
         <motion.div
-          animate={{ y: [0, 6, 0] }}
-          transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-          className="w-px h-10 bg-gradient-to-b from-transparent via-white/20 to-transparent mx-auto"
+          animate={{ y: [0, 5, 0] }}
+          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+          className="w-px h-8 bg-gradient-to-b from-transparent via-muted/30 to-transparent mx-auto"
         />
       </motion.div>
     </section>
