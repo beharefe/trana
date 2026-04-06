@@ -90,6 +90,28 @@ export function computePayloadHash(
   return sha256Bytes(new TextEncoder().encode(json))
 }
 
+/**
+ * Build the WebAuthn signing message for the secp256r1 precompile.
+ *
+ * WebAuthn authenticators sign: `authenticatorData || SHA256(clientDataJSON)`.
+ * This is the message that must be passed to `buildSecp256r1Ix` when using
+ * a real passkey, and the same message the onchain program reconstructs to
+ * verify the proof.
+ *
+ * @param authenticatorData raw authenticatorData bytes from WebAuthn assertion
+ * @param clientDataJSON    raw clientDataJSON bytes from WebAuthn assertion
+ */
+export function buildWebAuthnMessage(
+  authenticatorData: Uint8Array,
+  clientDataJSON:    Uint8Array
+): Uint8Array {
+  const clientDataHash = sha256Bytes(clientDataJSON)
+  const message = new Uint8Array(authenticatorData.length + 32)
+  message.set(authenticatorData, 0)
+  message.set(clientDataHash, authenticatorData.length)
+  return message
+}
+
 function sha256Bytes(data: Uint8Array): Uint8Array {
   if (typeof process !== "undefined" && process.versions?.node) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

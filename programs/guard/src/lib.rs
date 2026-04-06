@@ -61,31 +61,20 @@ pub mod guard {
     /// the entire transaction fails atomically — your logic never runs.
     ///
     /// # Arguments
-    /// * `policy`       — which policy rule triggered enforcement (for event log).
+    /// * `policy`       — which policy rule triggered enforcement (emitted in event).
     /// * `payload_hash` — sha256 of any canonical JSON your program defines.
-    ///                    The registered passkey must have signed this exact hash.
     /// * `expiry`       — unix timestamp after which the proof is rejected.
-    ///
-    /// # Integration (external Anchor program)
-    /// ```rust
-    /// guard::cpi::enforce(
-    ///     CpiContext::new(
-    ///         ctx.accounts.trana_program.to_account_info(),
-    ///         guard::cpi::accounts::Enforce {
-    ///             registry:     ctx.accounts.trana_registry.to_account_info(),
-    ///             instructions: ctx.accounts.instructions.to_account_info(),
-    ///         },
-    ///     ),
-    ///     Policy::AdminAction,
-    ///     payload_hash,
-    ///     expiry,
-    /// )?;
-    /// ```
+    /// * `webauthn`     — optional WebAuthn assertion data for full passkey binding.
+    ///                    When Some: verifies authenticatorData || SHA256(clientDataJSON)
+    ///                    message format, UP flag, and challenge == payload_hash.
+    ///                    When None: verifies message == payload_hash directly
+    ///                    (for tests and direct P-256 signing).
     pub fn enforce(
         ctx: Context<Enforce>,
         policy: Policy,
         payload_hash: [u8; 32],
         expiry: i64,
+        webauthn: Option<WebAuthnData>,
     ) -> Result<()> {
         let registry = &ctx.accounts.registry;
 
@@ -96,6 +85,7 @@ pub mod guard {
                     registry,
                     &payload_hash,
                     expiry,
+                    webauthn.as_ref(),
                 )?;
             }
             KeyKind::Ed25519 => {
@@ -356,6 +346,7 @@ pub mod guard {
                     &ctx.accounts.registry,
                     &payload_hash,
                     expiry,
+                    None,   // direct mode: vault uses payload_hash as message
                 )?;
             }
             KeyKind::Ed25519 => {
@@ -530,13 +521,23 @@ fn verify_ed25519_proof(
 ///     [12..14] msg_size
 ///     [14..16] msg_ix_idx
 ///
-/// The precompile calls verify_prehash — no internal hashing.
-/// We pass the payload hash as the message and sign it directly.
+/// Two verification modes (selected by `webauthn` parameter):
+///
+/// **WebAuthn mode** (`webauthn = Some(...)`):
+///   message in precompile == authenticatorData || SHA256(clientDataJSON)
+///   clientDataJSON.challenge (base64url) == payload_hash
+///   authenticatorData flags bit 0 (user presence) must be set
+///   This is the production path for real passkeys (Touch ID, Face ID, YubiKey).
+///
+/// **Direct mode** (`webauthn = None`):
+///   message in precompile == payload_hash (32 bytes)
+///   This is the test / direct P-256 signing path.
 fn verify_secp256r1_proof(
-    ix_sysvar: &AccountInfo,
-    registry: &TwoFactorRegistry,
+    ix_sysvar:             &AccountInfo,
+    registry:              &TwoFactorRegistry,
     expected_payload_hash: &[u8; 32],
-    expiry: i64,
+    expiry:                i64,
+    webauthn:              Option<&WebAuthnData>,
 ) -> Result<()> {
     let clock = Clock::get()?;
     require!(clock.unix_timestamp < expiry, GuardError::ProofExpired);
@@ -561,19 +562,110 @@ fn verify_secp256r1_proof(
     let proof_pubkey  = &data[pk_offset..pk_offset + 33];
     let proof_message = &data[msg_offset..msg_offset + msg_size];
 
-    // Pubkey must match the caller's registered 2FA key
+    // Pubkey must match the caller's registered 2FA key.
     require!(
         proof_pubkey == registry.pubkey_bytes.as_slice(),
         GuardError::WrongSigner
     );
 
-    // Message must be exactly the expected 32-byte payload hash
-    require!(
-        proof_message == expected_payload_hash.as_ref(),
-        GuardError::PayloadMismatch
-    );
+    if let Some(wa) = webauthn {
+        // ── WebAuthn mode: full passkey binding verification ──────────────────
+        //
+        // The precompile message is: authenticatorData || SHA256(clientDataJSON)
+        // (this is exactly what a WebAuthn authenticator signs)
+
+        require!(wa.authenticator_data.len() >= 37, GuardError::InvalidProof);
+
+        // 1. Verify user presence flag (bit 0 of authenticatorData[32])
+        let flags = wa.authenticator_data[32];
+        require!((flags & 0x01) != 0, GuardError::MissingProof);
+
+        // 2. Reconstruct expected message and compare against precompile
+        let client_data_hash = sha256_bytes(&wa.client_data_json);
+        let mut expected_message = Vec::with_capacity(
+            wa.authenticator_data.len() + 32
+        );
+        expected_message.extend_from_slice(&wa.authenticator_data);
+        expected_message.extend_from_slice(&client_data_hash);
+
+        require!(
+            proof_message == expected_message.as_slice(),
+            GuardError::PayloadMismatch
+        );
+
+        // 3. Verify challenge binding: clientDataJSON.challenge == base64url(payload_hash)
+        let challenge_bytes = extract_challenge_from_client_data(&wa.client_data_json)
+            .ok_or_else(|| error!(GuardError::InvalidProof))?;
+        require!(
+            challenge_bytes.as_slice() == expected_payload_hash.as_ref(),
+            GuardError::PayloadMismatch
+        );
+
+    } else {
+        // ── Direct mode: message == payload_hash (32 bytes) ──────────────────
+        // Used for tests and non-WebAuthn P-256 signing.
+        require!(
+            proof_message == expected_payload_hash.as_ref(),
+            GuardError::PayloadMismatch
+        );
+    }
 
     Ok(())
+}
+
+// ── WebAuthn helpers ──────────────────────────────────────────────────────────
+
+/// SHA-256 hash of arbitrary bytes.
+fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize().into()
+}
+
+/// Extract and base64url-decode the `challenge` field from WebAuthn clientDataJSON.
+///
+/// clientDataJSON is UTF-8 JSON:
+///   `{"type":"webauthn.get","challenge":"<base64url>","origin":"...",...}`
+///
+/// This uses a simple byte-scan rather than a full JSON parser to stay
+/// dependency-free.  The Trana payload hash was set as the challenge, so
+/// decoding it gives us the 32-byte payload hash to compare against.
+fn extract_challenge_from_client_data(client_data_json: &[u8]) -> Option<Vec<u8>> {
+    let json = core::str::from_utf8(client_data_json).ok()?;
+    let marker = r#""challenge":""#;
+    let start = json.find(marker)? + marker.len();
+    let end   = json[start..].find('"')? + start;
+    base64url_decode(json[start..end].as_bytes())
+}
+
+/// Minimal base64url decoder (RFC 4648 §5, no padding required).
+fn base64url_decode(input: &[u8]) -> Option<Vec<u8>> {
+    // Build lookup table: value for each ASCII byte, 0xFF = invalid
+    let mut lut = [0xFF_u8; 256];
+    for (i, &c) in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        .iter()
+        .enumerate()
+    {
+        lut[c as usize] = i as u8;
+    }
+
+    let mut out   = Vec::with_capacity((input.len() * 3 + 3) / 4);
+    let mut bits  = 0u32;
+    let mut count = 0u32;
+
+    for &c in input {
+        if c == b'=' { break; }
+        let v = lut[c as usize];
+        if v == 0xFF { return None; }
+        bits   = (bits << 6) | v as u32;
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            out.push(((bits >> count) & 0xFF) as u8);
+        }
+    }
+
+    Some(out)
 }
 
 /// Canonical payload hash for `protected_transfer`.
@@ -850,6 +942,25 @@ pub struct VaultState {
 pub struct NonceAccount {
     pub used: bool, // 1
     pub bump: u8,   // 1
+}
+
+/// WebAuthn assertion data for full passkey proof verification.
+///
+/// Pass this to `enforce` when the proof was produced by a real WebAuthn
+/// authenticator (Touch ID, Face ID, YubiKey).  The program will verify:
+///   - precompile message == authenticatorData || SHA256(clientDataJSON)
+///   - clientDataJSON.challenge (base64url) == payload_hash
+///   - authenticatorData flags include user presence (bit 0)
+///
+/// Pass `None` for tests / direct P-256 signing (message == payload_hash).
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct WebAuthnData {
+    /// Raw authenticatorData bytes from the WebAuthn assertion response.
+    /// Layout: rpIdHash(32) | flags(1) | signCount(4) | extensions(var)
+    pub authenticator_data: Vec<u8>,
+    /// Raw clientDataJSON bytes (UTF-8 JSON).
+    /// Must contain: {"type":"webauthn.get","challenge":"<base64url>","origin":"..."}
+    pub client_data_json: Vec<u8>,
 }
 
 /// Which policy rule the calling program passed to `enforce`.

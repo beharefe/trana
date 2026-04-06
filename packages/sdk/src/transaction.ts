@@ -73,19 +73,65 @@ function buildEd25519Ix(proof: Ed25519BridgeProof): ReturnType<typeof Ed25519Pro
 }
 
 /**
- * Redirect-based approve flow.
+ * Build the URL for the redirect-based passkey registration flow.
  *
- * Navigates the user to the Trana helper app to complete the WebAuthn ceremony,
- * then redirects back with the proof. The helper never holds secrets — it only
- * runs the WebAuthn ceremony and returns the raw P-256 signature.
+ * Navigates the user to the Trana helper to:
+ *   1. Run the WebAuthn create() ceremony
+ *   2. Submit register_two_fa onchain
+ *   3. Redirect back to returnUrl with status + tx signature
  *
- * @param payload   The canonical payload to be signed
+ * @param wallet    base58 wallet pubkey (the user registering)
  * @param helperUrl Base URL of the Trana helper (e.g. "https://trana.network")
- * @param redirectUrl Where to redirect after approval (defaults to current page)
+ * @param returnUrl Where to redirect after registration
+ * @param state     CSRF token — verify this on the callback page
+ */
+export function buildRegisterRedirectUrl(
+  wallet:     string,
+  helperUrl:  string,
+  returnUrl:  string,
+  state:      string
+): string {
+  return (
+    `${helperUrl}/register` +
+    `?wallet=${encodeURIComponent(wallet)}` +
+    `&return_url=${encodeURIComponent(returnUrl)}` +
+    `&state=${encodeURIComponent(state)}`
+  )
+}
+
+/**
+ * Build the URL for the redirect-based passkey approval flow.
+ *
+ * Navigates the user to the Trana helper to:
+ *   1. Run the WebAuthn get() ceremony (biometric prompt)
+ *   2. Redirect back with the raw P-256 signature
+ *
+ * @param payload    The canonical payload to be signed
+ * @param helperUrl  Base URL of the Trana helper (e.g. "https://trana.network")
+ * @param returnUrl  Where to redirect after approval
+ * @param state      CSRF token — verify this on the callback page
+ */
+export function buildApprovalRedirectUrl(
+  payload:    TranaPayload,
+  helperUrl:  string,
+  returnUrl:  string,
+  state:      string
+): string {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url")
+  return (
+    `${helperUrl}/approve` +
+    `?payload=${encoded}` +
+    `&redirect=${encodeURIComponent(returnUrl)}` +
+    `&state=${encodeURIComponent(state)}`
+  )
+}
+
+/**
+ * @deprecated Use buildApprovalRedirectUrl (adds required state/CSRF param)
  */
 export function buildApproveRedirectUrl(
-  payload:     TranaPayload,
-  helperUrl:   string,
+  payload:      TranaPayload,
+  helperUrl:    string,
   redirectUrl?: string
 ): string {
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url")

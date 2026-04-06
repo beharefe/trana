@@ -35,6 +35,7 @@ export { isSecp256r1Proof } from "./types"
 // ── secp256r1 helpers ─────────────────────────────────────────────────────────
 export {
   buildSecp256r1Ix,
+  buildWebAuthnMessage,
   computePayloadHash,
   SECP256R1_PROGRAM_ID,
 } from "./secp256r1"
@@ -43,7 +44,9 @@ export {
 export {
   prepareTransaction,
   attachProofToTransaction,
-  buildApproveRedirectUrl,
+  buildRegisterRedirectUrl,
+  buildApprovalRedirectUrl,
+  buildApproveRedirectUrl,       // @deprecated
   parseApproveRedirectResult,
 } from "./transaction"
 

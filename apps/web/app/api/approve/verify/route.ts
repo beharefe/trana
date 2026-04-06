@@ -82,11 +82,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       verified:          true,
-      // 64-byte compact P-256 signature (r ‖ s) for secp256r1 precompile
+      // 64-byte compact P-256 sig (r ‖ s) — for secp256r1 precompile instruction
       p256Signature:     Buffer.from(compactSig).toString("base64"),
-      // Raw authenticatorData bytes — the client may need this to reconstruct
-      // the signed message: authenticatorData ‖ SHA256(clientDataJSON)
-      authenticatorData: authenticatorData,
+      // authenticatorData + clientDataJSON — client passes these to enforce()
+      // as WebAuthnData so the onchain program can do full binding verification:
+      //   message = authenticatorData || SHA256(clientDataJSON)
+      //   challenge in clientDataJSON must match payloadHash
+      authenticatorData: assertion.response.authenticatorData,
+      clientDataJSON:    assertion.response.clientDataJSON,
     })
   } catch (err) {
     console.error("[approve/verify]", err)
