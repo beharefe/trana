@@ -14,7 +14,7 @@ guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
