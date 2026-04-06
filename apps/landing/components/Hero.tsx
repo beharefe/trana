@@ -42,7 +42,7 @@ export function Hero() {
           className="text-xl text-muted max-w-xl mx-auto leading-[1.7]"
         >
           Trana enforces a second-factor approval at the exact moment a transaction
-          executes onchain — not when it was signed.
+          executes onchain, not at signing time.
           A compromised key is no longer sufficient.
         </motion.p>
 
@@ -65,25 +65,6 @@ export function Hero() {
           >
             How it works
           </button>
-        </motion.div>
-
-        {/* Stats row */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.55, ease }}
-          className="flex flex-wrap justify-center gap-10 pt-6 border-t border-border"
-        >
-          {[
-            ["15", "Test scenarios passing"],
-            ["secp256r1", "Native passkey curve"],
-            ["Anchor 0.32", "Zero new dependencies"],
-          ].map(([val, label]) => (
-            <div key={label} className="flex flex-col items-center gap-1">
-              <span className="text-ink text-sm font-semibold tracking-tight">{val}</span>
-              <span className="text-faint text-xs">{label}</span>
-            </div>
-          ))}
         </motion.div>
 
       </div>

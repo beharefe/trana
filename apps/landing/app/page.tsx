@@ -33,7 +33,7 @@ const faqJsonLd = {
       name: "What is Trana?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Trana is an onchain authorization primitive for Solana. It enforces a second-factor passkey approval at the moment a transaction executes — not when it was signed.",
+        text: "Trana is an onchain authorization primitive for Solana. It enforces a second-factor passkey approval at the moment a transaction executes, not when it was signed.",
       },
     },
     {
@@ -133,7 +133,7 @@ export default function Home() {
               {[
                 {
                   title: "Signatures can be phished",
-                  body: "Valid signatures can be collected through social engineering, deception, or key extraction — days or weeks before use.",
+                  body: "Valid signatures can be collected through social engineering, deception, or key extraction. Weeks may pass before they are used.",
                 },
                 {
                   title: "Durable nonces enable pre-signing",
@@ -166,7 +166,7 @@ export default function Home() {
             <p className="text-muted text-lg leading-relaxed mb-10">
               Trana closes the gap between signing and execution. Every protected
               transaction must carry a passkey proof generated for that specific
-              action, amount, vault address, and nonce — moments before the
+              action, amount, vault address, and nonce, moments before the
               transaction lands. No proof, no execution.
             </p>
           </div>
@@ -176,7 +176,7 @@ export default function Home() {
               {
                 n: "01",
                 title: "Proof at execution",
-                body: "The program verifies a cryptographic proof at the exact moment it runs — not at signing time.",
+                body: "The program verifies a cryptographic proof at the exact moment it runs, not at signing time.",
               },
               {
                 n: "02",
@@ -220,7 +220,7 @@ export default function Home() {
               {[
                 "Transaction constructed and signed by the user's wallet",
                 "Trana evaluates against the configured policy (amount threshold, opt-in)",
-                "If policy triggers, a passkey approval is required — bound to this exact tx",
+                "If policy triggers, a passkey approval is required, bound to this exact transaction",
                 "The program verifies the proof onchain. No valid proof → transaction fails atomically.",
               ].map((label, i) => (
                 <li key={i} className="flex gap-5 text-left list-none">
@@ -279,7 +279,7 @@ export default function Home() {
               <tbody className="bg-bg">
                 {(
                   [
-                    ["UI warning",       "Never — client only",             false],
+                    ["UI warning",       "Client only, never enforced",       false],
                     ["Hardware wallet",  "At signing time",                  false],
                     ["Multisig",         "At signing time",                  false],
                     ["Trana",            "At execution time, onchain",       true],
@@ -315,7 +315,7 @@ export default function Home() {
             {[
               {
                 title: "Protocol administration",
-                body: "Upgrade authority, migration instructions, parameter changes — all protected by passkey.",
+                body: "Upgrade authority, migration instructions, and parameter changes. All require passkey approval at execution time.",
               },
               {
                 title: "DAO treasury",
@@ -351,7 +351,7 @@ export default function Home() {
               </h2>
               <p className="text-muted text-base leading-relaxed mb-6">
                 Two paths: the registry path registers a secp256r1 P-256 key
-                onchain — no trusted server required. The bridge path uses an
+                onchain. No trusted server required. The bridge path uses an
                 Ed25519 server key for WebAuthn flows.
               </p>
               <div className="space-y-2 text-sm">
@@ -410,7 +410,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
             {[
               {
                 q: "What is Trana?",
-                a: "Trana is an onchain authorization primitive for Solana. It enforces a second-factor passkey approval at the moment a transaction executes — not when it was signed. A stolen private key alone cannot trigger high-risk actions protected by the guard.",
+                a: "Trana is an onchain authorization primitive for Solana. It enforces a second-factor passkey approval at the moment a transaction executes, not when it was signed. A stolen private key alone cannot trigger high-risk actions protected by the guard.",
               },
               {
                 q: "How is Trana different from multisig?",
@@ -422,7 +422,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
               },
               {
                 q: "What is execution-time authorization?",
-                a: "It means the approval is verified at the moment the transaction executes onchain — not when it was signed. The passkey proof is cryptographically bound to the specific action, amount, recipient, and nonce, so it cannot be reused or tampered with.",
+                a: "It means the approval is verified at the moment the transaction executes onchain, not when it was signed. The passkey proof is cryptographically bound to the specific action, amount, recipient, and nonce. It cannot be reused or tampered with.",
               },
               {
                 q: "Who is Trana for?",
@@ -454,7 +454,7 @@ await sendAndConfirmTransaction(connection, tx, [owner])`}
             </p>
           </blockquote>
           <p className="text-faint text-sm mt-8">
-            Trana — Onchain Authorization Primitive for Solana
+            Trana · Onchain Authorization Primitive for Solana
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-10">
             <a

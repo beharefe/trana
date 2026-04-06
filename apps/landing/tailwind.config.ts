@@ -18,8 +18,8 @@ const config: Config = {
         ink:    "#111111",
         muted:  "#5C5855",
         faint:  "#9E9A96",
-        accent: "#1B4FD8",
-        "accent-light": "#DBEAFE",
+        accent: "#16A34A",
+        "accent-light": "#DCFCE7",
       },
       spacing: {
         "18": "4.5rem",

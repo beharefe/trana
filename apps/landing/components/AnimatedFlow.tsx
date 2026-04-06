@@ -37,7 +37,7 @@ export function AnimatedFlow({ state }: AnimatedFlowProps) {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, delay: 0.15 }}
-        className="flex items-center gap-2.5 px-5 py-3 rounded-xl border border-accent/30 bg-blue-50 text-sm text-accent font-medium"
+        className="flex items-center gap-2.5 px-5 py-3 rounded-xl border border-accent/30 bg-green-50 text-sm text-accent font-medium"
       >
         <span className="w-2 h-2 rounded-full bg-accent" />
         <span>Trana Guard</span>

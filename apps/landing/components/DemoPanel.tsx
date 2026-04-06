@@ -59,7 +59,7 @@ export function DemoPanel() {
             className="rounded-xl border border-red-200 bg-red-50 px-4 py-3"
           >
             <p className="text-red-700 text-sm font-medium">
-              Execution blocked — missing authorization
+              Execution blocked: missing authorization
             </p>
             <p className="text-red-500 text-xs mt-1 font-mono">
               Program error: MissingProof. Private key alone is not sufficient.

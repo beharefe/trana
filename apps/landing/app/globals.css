@@ -11,7 +11,7 @@
   --fg-muted: #5C5855;
   --fg-faint: #9E9A96;
   --border:   #D8D4CE;
-  --accent:   #1B4FD8;
+  --accent:   #16A34A;
 }
 
 * {
@@ -31,8 +31,8 @@ body {
 }
 
 ::selection {
-  background: #1B4FD820;
-  color: #1B4FD8;
+  background: #16A34A20;
+  color: #16A34A;
 }
 
 ::-webkit-scrollbar { width: 4px; }
