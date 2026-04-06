@@ -14,25 +14,22 @@ const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111"
 declare_id!("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6");
 
 // ────────────────────────────────────────────────────────────────────────────
-//  Transaction Authorization Guard — Onchain Authorization Primitive
+//  Trana Guard — Onchain Authorization Primitive for Solana
 //
 //  Core guarantee:
-//    "This instruction cannot execute unless a valid second-factor
-//     authorization proof is present in the same transaction."
+//    Any instruction calling `guard::cpi::enforce` cannot execute unless a
+//    valid second-factor passkey proof is present in the same transaction.
 //
 //  Trust model:
-//    Passkey proves approval to the bridge.
-//    Bridge proves approval to the chain.
-//    The program trusts the bridge's Ed25519 signature, not WebAuthn directly.
+//    The onchain registry PDA is the trust anchor.
+//    No trusted backend. No trusted bridge. No server key.
+//    Authorization is enforced entirely by the Solana program and precompiles.
 //
 //  Enforcement:
-//    A protected instruction reads the Instructions sysvar, locates the
-//    Ed25519 precompile verify instruction at index 0, and validates:
-//      - signer  == config.server_key
-//      - message == sha256(canonical ProofPayload bound to this tx's params)
-//      - clock   < expiry
-//    If absent or invalid → tx fails.  Period.
-//    Crafting a raw transaction without the proof does not help the attacker.
+//    The guard reads the Instructions sysvar at execution time.
+//    A secp256r1 or Ed25519 precompile instruction must be present at index 0,
+//    signed by the authority's registered key, covering the exact payload hash.
+//    If absent or invalid the transaction fails atomically.
 // ────────────────────────────────────────────────────────────────────────────
 
 #[program]
@@ -59,12 +56,17 @@ pub mod guard {
 
     /// Enforce passkey authorization via CPI from any Anchor program.
     ///
+    /// This is the core integration point. Call it at the start of any
+    /// instruction you want protected. If the proof is absent or invalid
+    /// the entire transaction fails atomically — your logic never runs.
+    ///
     /// # Arguments
-    /// * `payload_hash` — sha256 of the canonical JSON the calling program
-    ///   defined.  The passkey must have signed this exact hash.
+    /// * `policy`       — which policy rule triggered enforcement (for event log).
+    /// * `payload_hash` — sha256 of any canonical JSON your program defines.
+    ///                    The registered passkey must have signed this exact hash.
     /// * `expiry`       — unix timestamp after which the proof is rejected.
     ///
-    /// # Integration
+    /// # Integration (external Anchor program)
     /// ```rust
     /// guard::cpi::enforce(
     ///     CpiContext::new(
@@ -74,12 +76,14 @@ pub mod guard {
     ///             instructions: ctx.accounts.instructions.to_account_info(),
     ///         },
     ///     ),
+    ///     Policy::AdminAction,
     ///     payload_hash,
     ///     expiry,
     /// )?;
     /// ```
     pub fn enforce(
         ctx: Context<Enforce>,
+        policy: Policy,
         payload_hash: [u8; 32],
         expiry: i64,
     ) -> Result<()> {
@@ -107,6 +111,13 @@ pub mod guard {
                 )?;
             }
         }
+
+        emit!(EnforceEvent {
+            authority:    registry.owner,
+            registry:     ctx.accounts.registry.key(),
+            policy,
+            payload_hash,
+        });
 
         Ok(())
     }
@@ -841,6 +852,24 @@ pub struct NonceAccount {
     pub bump: u8,   // 1
 }
 
+/// Which policy rule the calling program passed to `enforce`.
+///
+/// The program does not make behavioral changes based on the policy variant
+/// in V1 — all variants result in mandatory proof verification.  The policy
+/// is stored in the emitted event for audit / analytics purposes, and gives
+/// integrators a structured label for why enforcement was triggered.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub enum Policy {
+    /// An administrative instruction: upgrade authority, parameter change, migration.
+    AdminAction,
+    /// A high-value transfer.  `amount` is lamports.
+    HighValueTransfer { amount: u64 },
+    /// A vault withdrawal.
+    VaultWithdraw,
+    /// Always enforce regardless of context.
+    Always,
+}
+
 /// Which curve / protocol the registered 2FA key uses.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum KeyKind {
@@ -876,6 +905,16 @@ impl TwoFactorRegistry {
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
+
+/// Emitted every time `enforce` is called and the proof is valid.
+/// Provides an onchain audit trail of what was authorized, by whom, and why.
+#[event]
+pub struct EnforceEvent {
+    pub authority:    Pubkey,
+    pub registry:     Pubkey,
+    pub policy:       Policy,
+    pub payload_hash: [u8; 32],
+}
 
 #[event]
 pub struct DepositEvent {
