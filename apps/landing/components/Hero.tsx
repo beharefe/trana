@@ -19,7 +19,7 @@ export function Hero() {
           transition={{ duration: 0.5, ease }}
           className="text-xs font-medium tracking-[0.2em] uppercase text-faint"
         >
-          Onchain Authorization · Solana
+          Policy Engine · Client Layer
         </motion.p>
 
         {/* Heading */}
@@ -29,9 +29,9 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.08, ease }}
           className="font-serif text-6xl sm:text-7xl lg:text-[5.5rem] leading-[1.06] tracking-[-0.025em] text-ink"
         >
-          Your key gets stolen.
+          Deterministic policy execution
           <br />
-          <span className="italic">Your funds don&apos;t move.</span>
+          <span className="italic">at the client layer.</span>
         </motion.h1>
 
         {/* Sub */}
@@ -41,8 +41,8 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.18, ease }}
           className="text-xl text-muted max-w-xl mx-auto leading-[1.7]"
         >
-          Trana enforces second-factor authorization at execution time, not signing time.
-          A stolen key alone is no longer sufficient to execute protected transactions.
+          Evaluate access and behavior locally. No remote trust assumptions.
+          No runtime ambiguity.
         </motion.p>
 
         {/* CTAs */}
@@ -52,18 +52,18 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.28, ease }}
           className="flex flex-wrap gap-3 justify-center pt-2"
         >
-          <button
-            onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+          <a
+            href="#spec"
             className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/85 transition-colors"
           >
-            Try live demo
-          </button>
-          <button
-            onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+            Read the spec
+          </a>
+          <a
+            href="#architecture"
             className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
           >
-            How it works
-          </button>
+            View architecture
+          </a>
         </motion.div>
 
       </div>
