@@ -39,6 +39,78 @@ declare_id!("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6");
 pub mod guard {
     use super::*;
 
+    // ── Core enforcement primitive (CPI endpoint) ─────────────────────────────
+    //
+    //  This is the main integration point for external Anchor programs.
+    //
+    //  Any program can add Trana's execution-time 2FA to any instruction by
+    //  calling this via CPI — one line, no vault required, no custody change.
+    //
+    //  External program Cargo.toml:
+    //    guard = { git = "...", features = ["cpi"] }
+    //
+    //  In the external instruction:
+    //    guard::cpi::enforce(cpi_ctx, payload_hash, expiry)?;
+    //
+    //  Trana reads the Instructions sysvar, finds the secp256r1 / Ed25519
+    //  precompile proof at index 0, and verifies it against the authority's
+    //  registered passkey PDA.  If missing or invalid → the entire transaction
+    //  fails atomically.  The calling program never executes its own logic.
+
+    /// Enforce passkey authorization via CPI from any Anchor program.
+    ///
+    /// # Arguments
+    /// * `payload_hash` — sha256 of the canonical JSON the calling program
+    ///   defined.  The passkey must have signed this exact hash.
+    /// * `expiry`       — unix timestamp after which the proof is rejected.
+    ///
+    /// # Integration
+    /// ```rust
+    /// guard::cpi::enforce(
+    ///     CpiContext::new(
+    ///         ctx.accounts.trana_program.to_account_info(),
+    ///         guard::cpi::accounts::Enforce {
+    ///             registry:     ctx.accounts.trana_registry.to_account_info(),
+    ///             instructions: ctx.accounts.instructions.to_account_info(),
+    ///         },
+    ///     ),
+    ///     payload_hash,
+    ///     expiry,
+    /// )?;
+    /// ```
+    pub fn enforce(
+        ctx: Context<Enforce>,
+        payload_hash: [u8; 32],
+        expiry: i64,
+    ) -> Result<()> {
+        let registry = &ctx.accounts.registry;
+
+        match registry.key_kind {
+            KeyKind::Secp256r1Passkey => {
+                verify_secp256r1_proof(
+                    &ctx.accounts.instructions,
+                    registry,
+                    &payload_hash,
+                    expiry,
+                )?;
+            }
+            KeyKind::Ed25519 => {
+                let pk: [u8; 32] = registry.pubkey_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| error!(GuardError::InvalidPubkeyLen))?;
+                verify_ed25519_proof(
+                    &ctx.accounts.instructions,
+                    &Pubkey::from(pk),
+                    &payload_hash,
+                    expiry,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
     // ── Configuration ─────────────────────────────────────────────────────────
 
     /// Initialise the global guard config.  Called once by the deployer.
@@ -664,6 +736,30 @@ pub struct ProtectedTransfer<'info> {
     pub instructions: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+// ── Enforce (CPI endpoint) ────────────────────────────────────────────────────
+
+/// Accounts required when calling `guard::cpi::enforce` from an external program.
+///
+/// The calling program must pass:
+///   - `registry`     — the authority's Trana registry PDA: `[b"2fa", authority]`
+///   - `instructions` — `SYSVAR_INSTRUCTIONS_PUBKEY`
+#[derive(Accounts)]
+pub struct Enforce<'info> {
+    /// The authority's 2FA registry PDA.
+    /// Derived by the calling program: `[b"2fa", authority.key()]`
+    #[account(
+        seeds = [b"2fa", registry.owner.as_ref()],
+        bump,
+        constraint = registry.enabled @ GuardError::RegistryDisabled,
+    )]
+    pub registry: Account<'info, TwoFactorRegistry>,
+
+    /// CHECK: Solana Instructions sysvar.
+    /// Trana reads this to locate the precompile proof at instruction index 0.
+    #[account(address = INSTRUCTIONS_ID)]
+    pub instructions: UncheckedAccount<'info>,
 }
 
 // ── 2FA Registry accounts ─────────────────────────────────────────────────────

@@ -1,212 +1,223 @@
-# Trana Guard — Developer Integration Guide
+# Trana Guard — Integration Guide
 
-Trana Guard enforces a cryptographic second factor **onchain, at execution time**. No matter how a transaction is crafted, it cannot execute a protected instruction without a valid proof attached.
-
----
-
-## Two integration paths
-
-| | **Registry path** (recommended) | **Bridge path** |
-|--|--|--|
-| Trust anchor | Onchain PDA — no server | Off-chain Ed25519 server |
-| Key type | secp256r1 / P-256 (WebAuthn, Touch ID, Face ID) | Ed25519 (any signing service) |
-| Bridge required | No | Yes |
-| Instructions | `register_two_fa` + `registry_vault_withdraw` | `vault_withdraw` / `protected_transfer` |
+Trana is an onchain authorization library for Solana. Any Anchor program can
+add execution-time passkey enforcement to any of its instructions via a single
+CPI call — no custody change, no vault, no new infrastructure.
 
 ---
 
-## Path 1 — Registry (secp256r1 passkey, no bridge)
+## How it works
 
-### Step 1: Register a passkey key onchain
+1. The authority registers a passkey (Touch ID, Face ID, YubiKey) once onchain
+   in a Trana registry PDA.
+2. You add `guard` as a Rust dependency and call `guard::cpi::enforce(...)` at
+   the top of any instruction you want protected.
+3. At execution time, Trana reads the Instructions sysvar, finds the
+   secp256r1 precompile proof at index 0, and verifies it against the
+   registered key. No proof or wrong proof → the transaction fails atomically.
 
-Call once per user when they register their authenticator.
+Your program's logic never runs without a valid proof. No UI bypass possible.
+
+---
+
+## Step 1 — Add Trana as a dependency
+
+```toml
+# programs/your-program/Cargo.toml
+[dependencies]
+guard = { git = "https://github.com/beharefe/trana-guard", features = ["cpi"] }
+```
+
+---
+
+## Step 2 — Add accounts to your instruction
+
+```rust
+use guard::cpi::accounts::Enforce;
+use guard::program::Guard;
+
+#[derive(Accounts)]
+pub struct YourProtectedInstruction<'info> {
+    // ... your existing accounts ...
+
+    /// The authority's Trana registry PDA.
+    /// Seeds: [b"2fa", authority.key()] on the Trana program.
+    /// CHECK: validated by Trana's enforce instruction.
+    pub trana_registry: UncheckedAccount<'info>,
+
+    /// Trana Guard program.
+    pub trana_program: Program<'info, Guard>,
+
+    /// CHECK: Solana Instructions sysvar.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
+```
+
+---
+
+## Step 3 — Call enforce in your instruction
+
+```rust
+pub fn your_protected_instruction(
+    ctx: Context<YourProtectedInstruction>,
+    amount: u64,
+    expiry: i64,
+) -> Result<()> {
+    // 1. Compute the payload hash — whatever canonical JSON your app defines.
+    //    The user's passkey must have signed this exact hash.
+    let payload_hash = your_payload_hash(
+        ctx.program_id,
+        &ctx.accounts.vault.key(),
+        amount,
+        expiry,
+    );
+
+    // 2. Enforce — Trana verifies the proof at instruction index 0.
+    //    This line fails the entire transaction if proof is absent or invalid.
+    guard::cpi::enforce(
+        CpiContext::new(
+            ctx.accounts.trana_program.to_account_info(),
+            Enforce {
+                registry:     ctx.accounts.trana_registry.to_account_info(),
+                instructions: ctx.accounts.instructions.to_account_info(),
+            },
+        ),
+        payload_hash,
+        expiry,
+    )?;
+
+    // 3. Only reached if proof was valid.
+    //    Execute your instruction logic here.
+    // ...
+
+    Ok(())
+}
+```
+
+---
+
+## Step 4 — Register the passkey (once per authority)
+
+Call this once when the authority sets up their passkey. This writes a PDA on
+the Trana program that `enforce` reads on every protected call.
 
 ```typescript
-import { p256 } from "@noble/curves/nist.js"
-import * as anchor from "@coral-xyz/anchor"
 import { PublicKey, SystemProgram } from "@solana/web3.js"
+import { p256 } from "@noble/curves/nist.js"
 
-const program = anchor.workspace.Guard
-
-// Derive registry PDA
+// Derive the registry PDA
 const [registryPda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("2fa"), owner.publicKey.toBuffer()],
-  program.programId
+  [Buffer.from("2fa"), authority.publicKey.toBuffer()],
+  TRANA_PROGRAM_ID
 )
 
-// p256PubKey = 33-byte compressed public key from the authenticator
-await program.methods
+// p256PubKey = 33-byte compressed public key from the WebAuthn authenticator
+await tranaProgram.methods
   .registerTwoFa(
-    { secp256R1Passkey: {} },          // KeyKind enum variant
-    Buffer.from(p256PubKey),           // 33-byte compressed P-256 pubkey
-    Buffer.from(credentialId)          // WebAuthn credential ID (for UX lookup)
+    { secp256R1Passkey: {} },
+    Buffer.from(p256PubKey),   // 33-byte compressed P-256 key
+    Buffer.from(credentialId)  // WebAuthn credential ID (for UX lookup)
   )
-  .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
-  .signers([owner])
+  .accounts({
+    registry: registryPda,
+    owner: authority.publicKey,
+    systemProgram: SystemProgram.programId,
+  })
   .rpc()
 ```
 
-### Step 2: Withdraw with passkey proof
+---
+
+## Step 5 — Build and send a protected transaction
+
+On every call to your protected instruction, the client must:
+1. Compute the same payload hash
+2. Sign it with the passkey
+3. Prepend the secp256r1 precompile instruction at index 0
 
 ```typescript
+import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js"
 import { p256 } from "@noble/curves/nist.js"
-import {
-  Transaction, TransactionInstruction, PublicKey,
-  SYSVAR_INSTRUCTIONS_PUBKEY, sendAndConfirmTransaction
-} from "@solana/web3.js"
 import { createHash } from "crypto"
 
-const SECP256R1_PROGRAM_ID = "Secp256r1SigVerify1111111111111111111111111"
-
-// 1. Build canonical payload hash (must match what the program computes)
-function vaultPayloadHash(programId, vault, amount, nonce, expiry) {
-  const json = JSON.stringify({ programId, instruction: "vault_withdraw", vault, amount, nonce, expiry })
+// Must match what your program computes onchain
+function payloadHash(programId, vault, amount, expiry) {
+  const json = JSON.stringify({ programId, vault, amount, expiry })
   return createHash("sha256").update(json).digest()
 }
 
-// 2. Sign with P-256 private key
-//    (precompile uses verify_prehash — sign the hash directly, no double-hashing)
-function signP256(privKey, payloadHash) {
-  return p256.sign(payloadHash, privKey) // returns 64-byte compact r‖s
-}
+const hash   = payloadHash(YOUR_PROGRAM_ID, vaultAddr, amount, expiry)
+const privKey = /* P-256 private key from authenticator */
+const sig    = p256.sign(hash, privKey)          // sign the hash directly
+const pubKey = p256.getPublicKey(privKey, true)  // 33-byte compressed
 
-// 3. Build secp256r1 precompile instruction
-function buildSecp256r1Ix(pubkey, sig, message) {
-  const HEADER = 16                        // count(1) + padding(1) + offsets(14)
-  const pkOffset  = HEADER                 // 16
-  const sigOffset = HEADER + 33            // 49
-  const msgOffset = HEADER + 33 + 64       // 113
+const proofIx = buildSecp256r1Ix(pubKey, sig, hash)  // see below
+const yourIx  = await yourProgram.methods
+  .yourProtectedInstruction(new BN(amount), new BN(expiry))
+  .accounts({ ..., tranaRegistry: registryPda, tranaProgram: TRANA_PROGRAM_ID })
+  .instruction()
+
+const tx = new Transaction()
+tx.add(proofIx)  // MUST be instruction index 0
+tx.add(yourIx)
+await sendAndConfirmTransaction(connection, tx, [authority])
+```
+
+### buildSecp256r1Ix
+
+```typescript
+import { TransactionInstruction, PublicKey } from "@solana/web3.js"
+
+const SECP256R1_PROGRAM_ID = "Secp256r1SigVerify1111111111111111111111111"
+
+function buildSecp256r1Ix(pubkey: Uint8Array, sig: Uint8Array, message: Uint8Array) {
+  const HEADER    = 16                        // count(1) + padding(1) + offsets(14)
+  const pkOffset  = HEADER                    // 16
+  const sigOffset = HEADER + 33              // 49
+  const msgOffset = HEADER + 33 + 64         // 113
   const data = Buffer.alloc(msgOffset + message.length)
-  data[0] = 1                              // num_signatures
-  data[1] = 0                              // padding byte (required)
-  data.writeUInt16LE(sigOffset, 2)
-  data.writeUInt16LE(0xffff,    4)
-  data.writeUInt16LE(pkOffset,  6)
-  data.writeUInt16LE(0xffff,    8)
-  data.writeUInt16LE(msgOffset, 10)
+  data[0] = 1                                // num_signatures
+  data[1] = 0                                // padding byte (required)
+  data.writeUInt16LE(sigOffset,      2)
+  data.writeUInt16LE(0xffff,         4)
+  data.writeUInt16LE(pkOffset,       6)
+  data.writeUInt16LE(0xffff,         8)
+  data.writeUInt16LE(msgOffset,      10)
   data.writeUInt16LE(message.length, 12)
-  data.writeUInt16LE(0xffff,    14)
+  data.writeUInt16LE(0xffff,         14)
   Buffer.from(pubkey).copy(data, pkOffset)
   Buffer.from(sig).copy(data, sigOffset)
   Buffer.from(message).copy(data, msgOffset)
-  return new TransactionInstruction({ keys: [], programId: new PublicKey(SECP256R1_PROGRAM_ID), data })
-}
-
-// 4. Build and send the transaction
-const vault     = await program.account.vaultState.fetch(vaultPda)
-const nonce     = vault.nextNonce.toNumber()
-const expiry    = Math.floor(Date.now() / 1000) + 300
-const hash      = vaultPayloadHash(program.programId.toBase58(), vaultPda.toBase58(), amount, nonce, expiry)
-const sig       = signP256(p256PrivKey, hash)
-const pubKey    = p256.getPublicKey(p256PrivKey, true)   // 33-byte compressed
-
-const proofIx   = buildSecp256r1Ix(pubKey, sig, hash)
-const withdrawIx = await program.methods
-  .registryVaultWithdraw(new anchor.BN(amount), new anchor.BN(expiry))
-  .accounts({ vault: vaultPda, registry: registryPda, owner: owner.publicKey, to: dest, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
-  .instruction()
-
-const tx = new Transaction()
-tx.add(proofIx)    // MUST be instruction 0
-tx.add(withdrawIx)
-await sendAndConfirmTransaction(connection, tx, [owner])
-```
-
----
-
-## Path 2 — Bridge (Ed25519 server key)
-
-Use this if you have a backend service that verifies the second factor (WebAuthn, OTP, etc.) and signs proofs.
-
-### Backend: sign a proof
-
-```typescript
-import nacl from "tweetnacl"
-import { createHash } from "crypto"
-
-// SERVER_SECRET_KEY = 64-byte Ed25519 secret key (stored in env, never exposed)
-const serverKp = nacl.sign.keyPair.fromSecretKey(Buffer.from(process.env.SERVER_SECRET_KEY, "base64"))
-
-function signProof(programId, vault, amount, nonce, expiry) {
-  const json = JSON.stringify({ programId, instruction: "vault_withdraw", vault, amount, nonce, expiry })
-  const hash = createHash("sha256").update(json).digest()
-  const sig  = nacl.sign.detached(hash, serverKp.secretKey)
-  return { payloadHash: hash, signature: sig, serverPublicKey: serverKp.publicKey }
+  return new TransactionInstruction({
+    keys: [],
+    programId: new PublicKey(SECP256R1_PROGRAM_ID),
+    data,
+  })
 }
 ```
 
-### Frontend: attach proof and send
-
-```typescript
-import { Ed25519Program, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js"
-
-const { payloadHash, signature, serverPublicKey } = await fetch("/api/approve", { ... }).then(r => r.json())
-
-const proofIx = Ed25519Program.createInstructionWithPublicKey({
-  publicKey:  Buffer.from(serverPublicKey),
-  message:    Buffer.from(payloadHash),
-  signature:  Buffer.from(signature),
-})
-
-const withdrawIx = await program.methods
-  .vaultWithdraw(new BN(amount), new BN(nonce), Array.from(payloadHash), new BN(expiry))
-  .accounts({ config: configPda, vault: vaultPda, owner, to: dest, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
-  .instruction()
-
-const tx = new Transaction()
-tx.add(proofIx)    // MUST be instruction 0
-tx.add(withdrawIx)
-await sendAndConfirmTransaction(connection, tx, [owner])
-```
-
 ---
 
-## One-time setup (both paths)
-
-```typescript
-// Deploy once — initialize the guard config
-const [configPda] = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId)
-
-await program.methods
-  .initialize(new BN(20 * 1_000_000_000), true) // threshold = 20 SOL
-  .accounts({ config: configPda, serverKey, authority: payer.publicKey, systemProgram: SystemProgram.programId })
-  .rpc()
-
-// Create vault for each user
-const [vaultPda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("vault"), owner.publicKey.toBuffer()],
-  program.programId
-)
-await program.methods.initVault(false)
-  .accounts({ vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
-  .rpc()
-```
-
----
-
-## Payload hash format
-
-The canonical JSON **must match exactly** (key order matters):
-
-```
-vault_withdraw / registry_vault_withdraw:
-{"programId":"<id>","instruction":"vault_withdraw","vault":"<addr>","amount":<lamports>,"nonce":<u64>,"expiry":<unix_ts>}
-
-protected_transfer:
-{"programId":"<id>","instruction":"transfer","amount":<lamports>,"nonce":"<32-byte-hex>","expiry":<unix_ts>}
-```
-
----
-
-## Secp256r1 precompile — gotchas
+## Precompile gotchas
 
 | | Correct | Wrong |
 |--|--|--|
-| Header | `[count][padding][offsets at byte 2]` | `[count][offsets at byte 1]` (no padding) |
+| Header layout | `[count][padding][offsets at byte 2]` | `[count][offsets at byte 1]` |
 | Signing | `p256.sign(payloadHash, privKey)` | `p256.sign(sha256(payloadHash), privKey)` |
 | Pubkey format | 33-byte compressed SEC1 | 65-byte uncompressed |
 | Sig format | 64-byte compact r‖s | DER-encoded |
-| Proof position | Instruction 0 | Any other index |
+| Proof position | Instruction index 0 | Any other index |
+
+---
+
+## What Trana does NOT do
+
+- Hold custody of funds (that is your program's job)
+- Define what a "valid action" is (you define the payload hash)
+- Require any offchain bridge or server (registry path is fully onchain)
+
+Trana enforces one thing: **a valid passkey proof must exist at execution time.**
 
 ---
 

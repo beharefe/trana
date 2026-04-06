@@ -353,53 +353,47 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
             <div>
               <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-4">
-                Works with any
+                One CPI call.
                 <br />
-                <span className="italic">Anchor program.</span>
+                <span className="italic">Any Anchor program.</span>
               </h2>
-              <p className="text-muted text-base leading-relaxed mb-6">
-                Two paths: the registry path registers a secp256r1 P-256 key
-                onchain. No trusted server required. The bridge path uses an
-                Ed25519 server key for WebAuthn flows.
+              <p className="text-muted text-base leading-relaxed mb-4">
+                Add Trana as a Rust dependency. Call <code className="text-xs bg-card px-1.5 py-0.5 rounded font-mono">guard::cpi::enforce</code> at
+                the top of any instruction you want protected. That is the entire integration.
               </p>
-              <div className="space-y-2 text-sm">
-                {[
-                  "secp256r1 native passkey curve (Touch ID, Face ID, YubiKey)",
-                  "Ed25519 bridge server key",
-                  "Replay protection via monotonic nonces",
-                  "Anchor 0.32 · Solana 3.1",
-                ].map((item) => (
-                  <div key={item} className="flex items-center gap-2.5 text-muted">
-                    <span className="w-1 h-1 rounded-full bg-accent shrink-0" />
-                    {item}
-                  </div>
-                ))}
-              </div>
+              <p className="text-muted text-base leading-relaxed">
+                No custody change. No vault. No new infrastructure. Your program
+                keeps full control — Trana enforces that a valid passkey proof
+                existed at the moment the transaction executed.
+              </p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <p className="text-xs text-faint font-mono mb-2">1. Register passkey onchain</p>
-                <CodeBlock language="typescript">
-{`await program.methods
-  .registerTwoFa(
-    { secp256R1Passkey: {} },
-    Buffer.from(p256PubKey),  // 33-byte compressed
-    Buffer.from(credentialId)
-  )
-  .accounts({ registry, owner, systemProgram })
-  .rpc()`}
+                <p className="text-xs text-faint font-mono mb-2">Cargo.toml</p>
+                <CodeBlock language="toml">
+{`guard = { git = "github.com/beharefe/trana-guard",
+          features = ["cpi"] }`}
                 </CodeBlock>
               </div>
               <div>
-                <p className="text-xs text-faint font-mono mb-2">2. Withdraw with passkey proof</p>
-                <CodeBlock language="typescript">
-{`// tx = [secp256r1ProofIx, registryVaultWithdrawIx]
-// Proof is verified onchain. No bridge required.
-const tx = new Transaction()
-tx.add(buildSecp256r1Ix(pubKey, sig, payloadHash))
-tx.add(withdrawIx)
-await sendAndConfirmTransaction(connection, tx, [owner])`}
+                <p className="text-xs text-faint font-mono mb-2">In your Anchor instruction</p>
+                <CodeBlock language="rust">
+{`pub fn your_protected_ix(ctx: Context<...>, expiry: i64) -> Result<()> {
+    // One line — Trana verifies the passkey proof at ix 0.
+    // Fails atomically if proof is absent or invalid.
+    guard::cpi::enforce(
+        CpiContext::new(ctx.accounts.trana_program, Enforce {
+            registry:     ctx.accounts.trana_registry,
+            instructions: ctx.accounts.instructions,
+        }),
+        payload_hash,
+        expiry,
+    )?;
+
+    // Your logic — only reached if proof was valid.
+    Ok(())
+}`}
                 </CodeBlock>
               </div>
             </div>
