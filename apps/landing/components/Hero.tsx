@@ -19,7 +19,7 @@ export function Hero() {
           transition={{ duration: 0.5, ease }}
           className="text-xs font-medium tracking-[0.2em] uppercase text-faint"
         >
-          Policy Engine · Client Layer
+          Onchain Authorization · Solana
         </motion.p>
 
         {/* Heading */}
@@ -29,9 +29,9 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.08, ease }}
           className="font-serif text-6xl sm:text-7xl lg:text-[5.5rem] leading-[1.06] tracking-[-0.025em] text-ink"
         >
-          Deterministic policy execution
+          Execution requires approval.
           <br />
-          <span className="italic">at the client layer.</span>
+          <span className="italic">A valid signature is not enough.</span>
         </motion.h1>
 
         {/* Sub */}
@@ -41,8 +41,8 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.18, ease }}
           className="text-xl text-muted max-w-xl mx-auto leading-[1.7]"
         >
-          Evaluate access and behavior locally. No remote trust assumptions.
-          No runtime ambiguity.
+          Trana enforces second-factor authorization at execution time.
+          High-risk actions do not execute without explicit approval.
         </motion.p>
 
         {/* CTAs */}
@@ -52,18 +52,18 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.28, ease }}
           className="flex flex-wrap gap-3 justify-center pt-2"
         >
-          <a
-            href="#spec"
+          <button
+            onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
             className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/85 transition-colors"
           >
-            Read the spec
-          </a>
-          <a
-            href="#architecture"
+            Try demo
+          </button>
+          <button
+            onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
             className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
           >
-            View architecture
-          </a>
+            View how it works
+          </button>
         </motion.div>
 
       </div>
