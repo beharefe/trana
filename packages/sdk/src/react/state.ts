@@ -3,9 +3,6 @@ import type { TranaIntent } from "./intent"
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-/**
- * Configuration passed to `<TranaProvider>`.
- */
 export type TranaConfig = {
   /** The deployed Trana guard program ID. */
   guardProgramId: PublicKey
@@ -23,40 +20,47 @@ export type TranaConfig = {
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
+/**
+ * UI phases driven by TranaProvider.
+ *
+ * Phases that affect visible UI:
+ *   needs-registration → modal: "Register passkey"
+ *   registering        → modal: spinner while onchain tx confirms
+ *   needs-approval     → modal: "Approve with passkey"
+ *   approving          → modal: spinner while WebAuthn runs
+ *   error              → modal: error message
+ *
+ * Send flow (try/retry) lives in useTrana — not tracked here.
+ */
 export type TranaState =
   | { phase: "idle" }
-  | { phase: "simulating" }
   | { phase: "needs-registration" }
   | { phase: "registering" }
   | { phase: "needs-approval"; intent: TranaIntent }
   | { phase: "approving";      intent: TranaIntent }
-  | { phase: "sending" }
   | { phase: "error"; message: string }
 
 export type TranaAction =
-  | { type: "SIMULATE" }
-  | { type: "NEEDS_REGISTRATION" }
+  | { type: "TRIGGER_REGISTRATION" }
   | { type: "START_REGISTER" }
-  | { type: "NEEDS_APPROVAL"; intent: TranaIntent }
+  | { type: "TRIGGER_APPROVAL"; intent: TranaIntent }
   | { type: "START_APPROVE" }
-  | { type: "SEND" }
-  | { type: "DONE" }
+  | { type: "RESOLVE" }
   | { type: "ERROR"; message: string }
   | { type: "RESET" }
 
 export function tranaReducer(state: TranaState, action: TranaAction): TranaState {
   switch (action.type) {
-    case "SIMULATE":          return { phase: "simulating" }
-    case "NEEDS_REGISTRATION": return { phase: "needs-registration" }
-    case "START_REGISTER":    return { phase: "registering" }
-    case "NEEDS_APPROVAL":    return { phase: "needs-approval", intent: action.intent }
-    case "START_APPROVE":     return state.phase === "needs-approval"
-                                ? { phase: "approving", intent: state.intent }
-                                : state
-    case "SEND":              return { phase: "sending" }
-    case "DONE":              return { phase: "idle" }
-    case "ERROR":             return { phase: "error", message: action.message }
-    case "RESET":             return { phase: "idle" }
-    default:                  return state
+    case "TRIGGER_REGISTRATION": return { phase: "needs-registration" }
+    case "START_REGISTER":       return { phase: "registering" }
+    case "TRIGGER_APPROVAL":     return { phase: "needs-approval", intent: action.intent }
+    case "START_APPROVE":
+      return state.phase === "needs-approval"
+        ? { phase: "approving", intent: state.intent }
+        : state
+    case "RESOLVE":              return { phase: "idle" }
+    case "ERROR":                return { phase: "error", message: action.message }
+    case "RESET":                return { phase: "idle" }
+    default:                     return state
   }
 }

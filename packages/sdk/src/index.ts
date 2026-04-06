@@ -46,15 +46,21 @@ export {
   verifyApproval,
 } from "./client"
 
-// ── React provider (browser only) ────────────────────────────────────────────
-// Usage: wrap your app with <TranaProvider config={...}> and replace
-// wallet.sendTransaction with the intercepted version from useTranaContext().
+// ── React provider + hook (browser only) ─────────────────────────────────────
+// Usage:
+//   <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
+//   const { send } = useTrana()
+//   await send(tx)
 export { TranaProvider, useTranaContext } from "./react/provider"
 export type { TranaContextValue } from "./react/provider"
+export { useTrana } from "./react/useTrana"
+export { TranaModal } from "./react/modal"
 export type { TranaConfig, TranaState, TranaAction } from "./react/state"
 export type { TranaIntent } from "./react/intent"
 export { buildIntent, intentToPayloadHash } from "./react/intent"
 export { findRegistryPda, fetchRegistry } from "./react/registry"
 export type { RegistryState } from "./react/registry"
+export { isTranaError, parseTranaError } from "./react/error"
+export type { TranaErrorKind } from "./react/error"
 export { detectEnforcement, hasSecp256r1Ix } from "./react/detector"
 export type { DetectionResult } from "./react/detector"
