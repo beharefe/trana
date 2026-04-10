@@ -309,20 +309,89 @@ trana-guard/
 ## How it works
 
 ```
-User passkey assertion
-  → Bridge verifies WebAuthn (offchain)
-  → Bridge signs sha256(ProofPayload) with Ed25519 server key
-  → Client prepends Ed25519Program.createInstructionWithPublicKey(...) at index 0
-  → Anchor program reads Instructions sysvar at index 0
-  → Validates: signer == config.server_key && message == expected_hash && not expired
-  → Executes (or rejects)
+User triggers protected action
+   │
+   ▼
+Build deterministic TranaIntent
+  (program, policy, accounts, params, nonce, expiry, cluster)
+   │
+   ▼
+Fetch registry nonce from onchain PDA
+   │
+   ▼
+Device approval  ← passkey signs hashIntent(intent) as WebAuthn challenge
+   │               Intent is frozen before credentials.get() is called.
+   ▼               Challenge = SHA-256(canonical binary encoding of all intent fields)
+Build final transaction
+  - secp256r1 verify instruction  (proof that device approved this exact intent)
+  - guarded instruction           (the protected action)
+  - fresh blockhash               (fetched after approval — never stale)
+   │
+   ▼
+Wallet signs once  ← single wallet signature on the final transaction
+   │
+   ▼
+Send
 ```
 
-**Trust model:** Passkey proves approval to the bridge. Bridge proves approval to the chain. The chain only verifies the Ed25519 proof — not the WebAuthn process directly.
+**Roles:**
+- **Passkey** — approves the action intent (signs the intent hash)
+- **Wallet** — signs the final Solana transaction
+- These are separate and both are required. The passkey is not the transaction signer. The wallet is not the second-factor authorizer.
 
-**Replay protection (vault):** Monotonic nonce stored in `VaultState`. Each successful withdrawal increments it; a proof for nonce N cannot be reused for nonce N+1.
+**Trust model (no backend required):**
+- The P-256 public key is stored in the onchain registry PDA — no server holds keys
+- The secp256r1 precompile (SIMD-0075, live since Agave v2.1) verifies the signature natively
+- The onchain guard program reads the verify instruction via the Instructions sysvar
+- No bridge, no trusted relay, no offchain authorization service
 
-**Replay protection (direct transfer):** Random 32-byte nonce stored as a one-time-use PDA. Marked used on first consumption.
+**Replay protection:**
+- `nonce` — the onchain program increments it after every valid approval; old proofs fail
+- `expiryUnix` — proofs expire after a configurable TTL (default 120s)
+- Exact intent binding — changing program, accounts, params, or amount after approval causes onchain rejection
+
+**SDK integration:**
+
+```tsx
+// 1. Wrap your app
+<TranaProvider config={{ guardProgramId, policy: "HighValueTransfer", cluster: "mainnet-beta" }}>
+  <App />
+  <TranaModal />
+</TranaProvider>
+
+// 2. Use the hook — passkey approves, wallet signs once, done
+const { authorizeAndSend } = useTrana()
+
+await authorizeAndSend({
+  buildIntent: () => ({
+    targetProgramId:           MY_PROGRAM_ID,
+    instructionDiscriminator:  WITHDRAW_DISCRIMINATOR,  // 8-byte Anchor discriminator
+    accounts:                  [vaultPda, recipient],
+    params:                    amountBuffer,
+  }),
+  buildTransaction: async ({ proofIx, recentBlockhash }) => {
+    const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
+    tx.add(proofIx)
+    tx.add(buildWithdrawInstruction(...))
+    return tx
+  },
+})
+```
+
+**Client ↔ onchain contract:**
+
+| Responsibility | Party |
+|---|---|
+| Fetch registry nonce | Client SDK |
+| Build canonical intent + hash | Client SDK |
+| Obtain device approval over intent hash | Client SDK |
+| Assemble secp256r1 verify instruction | Client SDK |
+| Build final tx with proof + fresh blockhash | Developer via `buildTransaction` callback |
+| Reconstruct expected intent context | Onchain program |
+| Inspect verify instruction via Instructions sysvar | Onchain program |
+| Verify proof matches expected intent | Onchain program |
+| Verify nonce and expiry | Onchain program |
+| Increment nonce on success | Onchain program |
 
 ---
 

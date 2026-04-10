@@ -3,8 +3,6 @@
 import { useCallback } from "react"
 import {
   Connection,
-  PublicKey,
-  SystemProgram,
   Transaction,
   TransactionInstruction,
   VersionedTransaction,
@@ -12,114 +10,156 @@ import {
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { buildSecp256r1Ix, buildWebAuthnMessage } from "../secp256r1"
 import { fetchRegistry } from "./registry"
-import { buildIntent, intentToPayloadHash } from "./intent"
-import { parseTranaError, TranaErrorKind } from "./error"
+import { buildIntent, hashIntent, TranaIntent, IntentInput } from "./intent"
 import { useTranaContext } from "./provider"
 
-// ── Instruction insertion helpers ─────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const COMPUTE_BUDGET_PROGRAM_ID = new PublicKey("ComputeBudget111111111111111111111111111111")
-
-function isNonceAdvance(ix: TransactionInstruction): boolean {
-  return (
-    ix.programId.equals(SystemProgram.programId) &&
-    ix.data.length >= 4 &&
-    ix.data.readUInt32LE(0) === 4  // AdvanceNonceAccount type
-  )
-}
+export type { IntentInput }
 
 /**
- * Insert the secp256r1 proof instruction at the correct position.
- * Preserves: durable nonce advance at index 0, ComputeBudget instructions after it.
+ * Arguments passed to useTrana().authorizeAndSend().
+ *
+ * The developer provides two factory functions. The SDK:
+ *   1. Fetches the registry (triggers registration if needed)
+ *   2. Calls buildIntent() to get the intent input
+ *   3. Builds a frozen TranaIntent and hashes it into a WebAuthn challenge
+ *   4. Triggers the passkey approval modal
+ *   5. Fetches a fresh blockhash
+ *   6. Calls buildTransaction() with the ready proof instruction
+ *   7. Wallet signs the resulting transaction ONCE
+ *   8. Sends
+ *
+ * This ensures:
+ *   - Passkey approves the exact action before any Solana tx is built
+ *   - Wallet signs only once
+ *   - Blockhash is fresh at signing time (fetched after approval)
+ *   - No post-sign transaction mutation
  */
-function insertProofIx(tx: Transaction, proofIx: TransactionInstruction): void {
-  const ixs = tx.instructions
-  let at = 0
-  if (ixs[0] && isNonceAdvance(ixs[0])) at = 1
-  while (at < ixs.length && ixs[at].programId.equals(COMPUTE_BUDGET_PROGRAM_ID)) at++
-  ixs.splice(at, 0, proofIx)
+export type AuthorizeAndSendArgs = {
+  /**
+   * Return the action description to authorize.
+   * Called after the registry is confirmed to exist.
+   */
+  buildIntent: () => Promise<IntentInput> | IntentInput
+  /**
+   * Build the final Solana transaction using the provided proof instruction.
+   *
+   * The proof instruction must be included in the transaction — place it
+   * according to your program's requirements (typically before the guarded ix).
+   *
+   * Receive a fresh recentBlockhash — do NOT use a stale one you fetched earlier.
+   */
+  buildTransaction: (args: {
+    /** secp256r1 verify instruction — insert this into your transaction */
+    proofIx: TransactionInstruction
+    /** Fresh blockhash fetched after approval — use this, not a cached one */
+    recentBlockhash: string
+    /** The frozen intent that was approved — traceability / debugging */
+    intent: TranaIntent
+  }) => Promise<Transaction | VersionedTransaction>
+  /** Override the connection for this call */
+  connection?: Connection
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 /**
- * useTrana — the primary integration point.
+ * useTrana — primary integration point for protected transactions.
  *
- * Returns `send(tx)` which wraps wallet.sendTransaction with automatic
- * Trana enforcement resolution:
+ * ```tsx
+ * const { authorizeAndSend } = useTrana()
  *
- *   1. Try  — send tx normally
- *   2. Detect — if Trana error: no-registry or missing-proof
- *   3. Resolve — register passkey if needed, then approval modal
- *   4. Retry  — inject secp256r1 proof, refresh blockhash, re-send
+ * await authorizeAndSend({
+ *   buildIntent: () => ({
+ *     targetProgramId: MY_PROGRAM_ID,
+ *     instructionDiscriminator: WITHDRAW_DISCRIMINATOR,
+ *     accounts: [vaultPda, recipient],
+ *     params: amountBuffer,
+ *   }),
+ *   buildTransaction: async ({ proofIx, recentBlockhash }) => {
+ *     const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
+ *     tx.add(proofIx)
+ *     tx.add(buildWithdrawIx(...))
+ *     return tx
+ *   },
+ * })
+ * ```
  *
- * Usage:
- *   const { send } = useTrana()
- *   await send(myTransaction)
+ * Flow:
+ *   Detect → Register (if needed) → Approve → Build tx → Sign once → Send
+ *
+ * Mental model:
+ *   - Passkey approves the action intent
+ *   - Wallet signs the final Solana transaction
+ *   These are different roles. Both are required.
  */
 export function useTrana() {
   const ctx = useTranaContext()
-  const { connection: walletConn } = useConnection()
+  const { connection: walletConn }               = useConnection()
   const { publicKey, sendTransaction: walletSend, signTransaction } = useWallet()
 
-  const send = useCallback(async (
-    tx:   Transaction | VersionedTransaction,
-    conn?: Connection,
-    opts?: Parameters<ReturnType<typeof useWallet>["sendTransaction"]>[2]
+  const authorizeAndSend = useCallback(async (
+    args: AuthorizeAndSendArgs
   ): Promise<string> => {
     if (!publicKey) throw new Error("Wallet not connected")
-    const connection = conn ?? walletConn ?? ctx.connection
+    const conn = args.connection ?? walletConn ?? ctx.connection
 
-    // ── Step 1: Try ───────────────────────────────────────────────────────────
-    let errorKind: TranaErrorKind | null = null
-    try {
-      return await walletSend(tx, connection, opts)
-    } catch (err: unknown) {
-      errorKind = parseTranaError(err)
-      if (!errorKind) throw err  // not a Trana error — rethrow untouched
-    }
-
-    // ── Step 2 & 3: Resolve ───────────────────────────────────────────────────
-
-    // Register passkey if no registry PDA exists yet (lazy registration)
-    if (errorKind === "no-registry") {
+    // ── 1. Ensure registry exists (lazy registration) ─────────────────────────
+    let registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
+    if (!registry) {
+      // No registry PDA — trigger registration modal, then re-fetch
       await ctx._triggerRegistration()
+      registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
+      if (!registry) throw new Error("Trana: registry not found after registration")
     }
 
-    // Fetch fresh registry (after possible registration)
-    const registry = await fetchRegistry(connection, publicKey, ctx.config.guardProgramId)
-    if (!registry) throw new Error("Trana: registry PDA not found")
+    // ── 2. Build the intent (developer describes the action) ──────────────────
+    const intentInput = await args.buildIntent()
 
-    // Build intent and get passkey approval
-    const intent   = buildIntent(publicKey, ctx.config.guardProgramId, ctx.config.policy, registry.nonce, ctx.config.expiryTtlSec)
+    const intent = buildIntent(
+      publicKey,
+      ctx.config.guardProgramId,
+      intentInput,
+      registry.nonce,
+      {
+        policy:       ctx.config.policy,
+        cluster:      ctx.config.cluster,
+        expiryTtlSec: ctx.config.expiryTtlSec,
+      }
+    )
+
+    // ── 3. Passkey approval over exact intent hash ────────────────────────────
+    // The challenge = hashIntent(intent) — cryptographically binds the
+    // passkey signature to the exact action (program, accounts, params, nonce).
+    // The intent is frozen before credentials.get() is called.
     const approval = await ctx._triggerApproval(intent)
 
-    // Build secp256r1 verify instruction from approval
-    const payloadHash = intentToPayloadHash(intent)
+    // ── 4. Build secp256r1 verify instruction ─────────────────────────────────
+    const payloadHash = hashIntent(intent)
     const webAuthnMsg = buildWebAuthnMessage(approval.authenticatorData, approval.clientDataJSON)
     const proofIx     = buildSecp256r1Ix(registry.pubkey, approval.sig, webAuthnMsg)
 
-    // ── Step 4: Retry with proof ──────────────────────────────────────────────
-    if (!(tx instanceof Transaction)) {
-      // VersionedTransaction: inject is non-trivial — rethrow with guidance
-      throw new Error(
-        "Trana: VersionedTransaction proof injection is not yet supported. " +
-        "Use Transaction or call trana.resolve() to obtain the proof instruction manually."
-      )
-    }
+    // ── 5. Fetch fresh blockhash AFTER approval ────────────────────────────────
+    // Do NOT use a blockhash fetched before the approval ceremony.
+    // Fetching here ensures it is fresh when the wallet signs.
+    const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
 
-    insertProofIx(tx, proofIx)
-    const { blockhash } = await connection.getLatestBlockhash("confirmed")
-    tx.recentBlockhash = blockhash
+    // ── 6. Developer builds the final transaction ─────────────────────────────
+    // The developer receives proofIx and includes it in their transaction.
+    // They also receive a fresh recentBlockhash.
+    const tx = await args.buildTransaction({ proofIx, recentBlockhash, intent })
 
-    if (signTransaction) {
+    // ── 7. Wallet signs ONCE and sends ────────────────────────────────────────
+    // This is the only wallet signature in the flow.
+    // There is no prior wallet signature to mutate or rebuild.
+    if (tx instanceof Transaction && signTransaction) {
       const signed = await signTransaction(tx)
-      return connection.sendRawTransaction(signed.serialize(), { skipPreflight: false })
+      return conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
     }
 
-    // Wallet doesn't expose signTransaction separately — let it re-sign
-    return walletSend(tx, connection, opts)
+    return walletSend(tx, conn)
   }, [publicKey, walletSend, signTransaction, walletConn, ctx])
 
-  return { send }
+  return { authorizeAndSend }
 }
