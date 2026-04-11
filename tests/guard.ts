@@ -456,16 +456,61 @@ describe("guard — protected_transfer path", () => {
   })
 })
 
+// ── record_proof instruction builder ─────────────────────────────────────────
+//
+// Builds the Anchor-encoded guard::record_proof instruction.
+// No accounts required. Payload layout (after 8-byte discriminator):
+//   version (u8)
+//   expiry  (i64 LE, Borsh)
+//   cluster (u32 LE length + UTF-8 bytes)
+//   policy  (u32 LE length + UTF-8 bytes)
+//   authenticator_data (u32 LE length + bytes)
+//   client_data_json   (u32 LE length + bytes)
+
+function buildRecordProofIx(
+  programId:      PublicKey,
+  version:        number,
+  expiry:         number,
+  cluster:        string,
+  policy:         string,
+  authData:       Buffer,
+  clientDataJSON: Buffer,
+): TransactionInstruction {
+  const disc = sha256(Buffer.from("global:record_proof")).slice(0, 8)
+
+  const u32LE  = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
+  const borshStr  = (s: string) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32LE(b.length), b]) }
+  const borshBytes = (b: Buffer) => Buffer.concat([u32LE(b.length), b])
+
+  const expiryBuf = Buffer.alloc(8)
+  expiryBuf.writeBigInt64LE(BigInt(expiry))
+
+  const data = Buffer.concat([
+    disc,
+    Buffer.from([version]),   // u8
+    expiryBuf,                // i64 LE
+    borshStr(cluster),
+    borshStr(policy),
+    borshBytes(authData),
+    borshBytes(clientDataJSON),
+  ])
+
+  return new TransactionInstruction({ keys: [], programId, data })
+}
+
 // ── Test suite: registry + secp256r1 passkey (scenarios R1-R6) ────────────────
 //
 // Exercises the onchain 2FA registry with a real P-256 keypair.
 // No bridge server key — the security anchor is the registry PDA.
 //
-// Proof structure:
-//   secp256r1 instruction message = WebAuthn e-value (32 bytes)
-//   e-value = SHA-256(authenticatorData ‖ SHA-256(clientDataJSON))
-//   clientDataJSON.challenge = base64url(intentHash)
-//   intentHash = SHA-256(canonical encoding of all intent fields)
+// Transaction shape (new drop-in design):
+//   ix[0]: secp256r1 precompile     — native P-256 sig verify
+//   ix[1]: guard::record_proof      — carries WebAuthn proof data
+//   ix[2]: registry_vault_withdraw  — just { amount }, no WebAuthn params
+//
+// The guard program reads ix[1] from the Instructions sysvar for proof data,
+// reads ix[2]'s accounts + data to reconstruct the intent hash, and verifies
+// the secp256r1 sig at ix[0].
 //
 // Replay protection: registry.nonce is consumed (incremented) on every
 // successful proof verification. Old proofs fail PayloadMismatch.
@@ -540,6 +585,14 @@ describe("guard — registry + secp256r1 passkey path", () => {
   })
 
   // ── Helper: build + send registry_vault_withdraw tx ──────────────────────────
+  //
+  // New transaction layout — the instruction itself has no WebAuthn params:
+  //   ix[0]: secp256r1 precompile
+  //   ix[1]: guard::record_proof     ← carries all proof data
+  //   ix[2]: registry_vault_withdraw ← just { amount }
+  //
+  // The guard reads ix[1] from the Instructions sysvar and derives the intent
+  // hash from ix[2]'s accounts + data.
   async function registryWithdrawTx(opts: {
     amount:         number
     privKey:        Uint8Array
@@ -553,37 +606,47 @@ describe("guard — registry + secp256r1 passkey path", () => {
     const expiry       = Math.floor(Date.now() / 1000) + 300
     const dest         = Keypair.generate().publicKey
     const cluster      = "localnet"
+    const policy       = "VaultWithdraw"
 
-    // accounts_hash = SHA-256(vault_pda ‖ dest)
-    const accountsHash = sha256(Buffer.concat([vaultPda.toBuffer(), dest.toBuffer()]))
+    // The guard derives intent from registry_vault_withdraw's instruction data:
+    //   discriminator = RVW_DISCRIMINATOR
+    //   params        = amount as Borsh u64 (8 bytes LE) — i.e., the only param
+    //   accounts      = [vault, registry, owner, dest, instructions] in struct order
+    //
+    // accounts_hash = SHA-256(vault ‖ registry ‖ owner ‖ dest ‖ SYSVAR_INSTRUCTIONS)
+    const SYSVAR_INSTRUCTIONS_KEY = new PublicKey("Sysvar1nstructions1111111111111111111111111")
+    const accountsHash = sha256(Buffer.concat([
+      vaultPda.toBuffer(),
+      registryPda.toBuffer(),
+      owner.publicKey.toBuffer(),
+      dest.toBuffer(),
+      SYSVAR_INSTRUCTIONS_KEY.toBuffer(),
+    ]))
 
-    // params_hash = SHA-256(amount as u64 LE)
+    // params_hash = SHA-256(amount_to_sign as Borsh u64 LE)
+    // Sign for `amount` (not tamperedAmount) so tampered-amount tests catch the mismatch
     const amountBuf = Buffer.alloc(8)
-    amountBuf.writeBigUInt64LE(BigInt(amount))  // sign for `amount`, not tamperedAmount
+    amountBuf.writeBigUInt64LE(BigInt(amount))
     const paramsHash = sha256(amountBuf)
 
-    // Compute intent hash (used as WebAuthn challenge)
+    // Compute intent hash (WebAuthn challenge)
     const intentHash = computeIntentHash(
       "trana:v1", cluster,
-      owner.publicKey, program.programId, program.programId,  // target = guard (vault is internal)
-      "VaultWithdraw", RVW_DISCRIMINATOR,
+      owner.publicKey,
+      program.programId,   // guard program
+      program.programId,   // target program = guard (vault is guard-internal)
+      policy, RVW_DISCRIMINATOR,
       accountsHash, paramsHash,
       nonceToSign, expiry
     )
 
-    // Build WebAuthn proof
+    // Build WebAuthn proof (e-value, sig, authData, clientDataJSON)
     const { authData, clientDataJSON, eValue, sig } = buildWebAuthnProof(intentHash, privKey)
     const pubKeyToUse = p256.getPublicKey(privKey, true)
 
-    // Build instruction — pass Vec<u8> args as Buffer, not Array.from() (Borsh encoder requires Buffer)
+    // registry_vault_withdraw — amount only, no WebAuthn params
     const ix = await program.methods
-      .registryVaultWithdraw(
-        new BN(actualAmount),
-        new BN(expiry),
-        cluster,
-        authData,
-        clientDataJSON
-      )
+      .registryVaultWithdraw(new BN(actualAmount))
       .accounts({
         vault:        vaultPda,
         registry:     registryPda,
@@ -595,9 +658,14 @@ describe("guard — registry + secp256r1 passkey path", () => {
 
     const { blockhash } = await connection.getLatestBlockhash()
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+
     if (withProof) {
+      // ix[0]: secp256r1 precompile
       tx.add(buildSecp256r1Ix(pubKeyToUse, sig, eValue))
+      // ix[1]: guard::record_proof (data carrier)
+      tx.add(buildRecordProofIx(program.programId, 1, expiry, cluster, policy, authData, clientDataJSON))
     }
+    // ix[2 or 0]: registry_vault_withdraw
     tx.add(ix)
 
     return sendAndConfirmTransaction(connection, tx, [owner])

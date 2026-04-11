@@ -4,13 +4,12 @@ import { useCallback } from "react"
 import {
   Connection,
   Transaction,
-  TransactionInstruction,
   VersionedTransaction,
 } from "@solana/web3.js"
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
-import { buildSecp256r1Ix, buildWebAuthnMessage } from "../secp256r1"
+import { buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "../secp256r1"
 import { fetchRegistry } from "./registry"
-import { buildIntent, hashIntent, TranaIntent, IntentInput } from "./intent"
+import { buildIntent, IntentInput } from "./intent"
 import { useTranaContext } from "./provider"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -20,54 +19,39 @@ export type { IntentInput }
 /**
  * Arguments passed to useTrana().authorizeAndSend().
  *
- * The developer provides two factory functions. The SDK:
- *   1. Fetches the registry (triggers registration if needed)
- *   2. Calls buildIntent() to get the intent input
- *   3. Builds a frozen TranaIntent and hashes it into a WebAuthn challenge
- *   4. Triggers the passkey approval modal
- *   5. Fetches a fresh blockhash
- *   6. Calls buildTransaction() with the ready proof instruction
- *   7. Wallet signs the resulting transaction ONCE
- *   8. Sends
+ * Drop-in design — the developer only needs two callbacks:
+ *   buildIntent()       — describe the action being authorized
+ *   buildTransaction()  — build the Solana transaction (no proof plumbing)
  *
- * This ensures:
- *   - Passkey approves the exact action before any Solana tx is built
- *   - Wallet signs only once
- *   - Blockhash is fresh at signing time (fetched after approval)
- *   - No post-sign transaction mutation
+ * The SDK handles everything else:
+ *   1. Registry fetch / lazy registration
+ *   2. Intent construction (discriminator, accounts, params all auto-derived)
+ *   3. Passkey approval modal
+ *   4. secp256r1 precompile instruction
+ *   5. guard::record_proof instruction (data carrier)
+ *   6. Fresh blockhash fetch (after approval)
+ *   7. Proof instruction insertion before the protected instruction
+ *   8. Single wallet signature + send
+ *
+ * The developer's transaction contains only application instructions.
+ * No proofIx, no authenticatorData, no clientDataJSON — zero Trana plumbing.
  */
 export type AuthorizeAndSendArgs = {
   /**
-   * Return the action description to authorize.
+   * Describe the action being authorized.
    * Called after the registry is confirmed to exist.
+   * The SDK auto-derives discriminator / accounts / params from buildTransaction.
    */
   buildIntent: () => Promise<IntentInput> | IntentInput
   /**
-   * Build the final Solana transaction using the provided proof instruction.
+   * Build the Solana transaction containing your guarded instruction(s).
    *
-   * The proof instruction must be included in the transaction — place it
-   * according to your program's requirements (typically before the guarded ix).
-   *
-   * Receive a fresh recentBlockhash — do NOT use a stale one you fetched earlier.
+   * The SDK will prepend the secp256r1 and record_proof instructions automatically.
+   * Do NOT include them here. Use the fresh recentBlockhash provided.
    */
   buildTransaction: (args: {
-    /** secp256r1 verify instruction — place at index 0 in your transaction */
-    proofIx: TransactionInstruction
-    /** Fresh blockhash fetched after approval — use this, not a cached one */
+    /** Fresh blockhash fetched after passkey approval — use this, not a cached one */
     recentBlockhash: string
-    /** The frozen intent that was approved */
-    intent: TranaIntent
-    /**
-     * Raw WebAuthn authenticatorData bytes — pass to enforce() CPI as-is.
-     * Only needed when your onchain program calls guard::cpi::enforce().
-     * Typically 37 bytes: rpIdHash(32) + flags(1) + counter(4).
-     */
-    authenticatorData: Uint8Array
-    /**
-     * Raw WebAuthn clientDataJSON bytes — pass to enforce() CPI as-is.
-     * Only needed when your onchain program calls guard::cpi::enforce().
-     */
-    clientDataJSON: Uint8Array
   }) => Promise<Transaction | VersionedTransaction>
   /** Override the connection for this call */
   connection?: Connection
@@ -88,9 +72,10 @@ export type AuthorizeAndSendArgs = {
  *     accounts: [vaultPda, recipient],
  *     params: amountBuffer,
  *   }),
- *   buildTransaction: async ({ proofIx, recentBlockhash }) => {
+ *   // buildTransaction gets only { recentBlockhash } — no proof plumbing needed.
+ *   // The SDK prepends secp256r1 + record_proof automatically.
+ *   buildTransaction: async ({ recentBlockhash }) => {
  *     const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
- *     tx.add(proofIx)
  *     tx.add(buildWithdrawIx(...))
  *     return tx
  *   },
@@ -119,13 +104,12 @@ export function useTrana() {
     // ── 1. Ensure registry exists (lazy registration) ─────────────────────────
     let registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
     if (!registry) {
-      // No registry PDA — trigger registration modal, then re-fetch
       await ctx._triggerRegistration()
       registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
       if (!registry) throw new Error("Trana: registry not found after registration")
     }
 
-    // ── 2. Build the intent (developer describes the action) ──────────────────
+    // ── 2. Build intent ────────────────────────────────────────────────────────
     const intentInput = await args.buildIntent()
 
     const intent = buildIntent(
@@ -141,40 +125,46 @@ export function useTrana() {
     )
 
     // ── 3. Passkey approval over exact intent hash ────────────────────────────
-    // The challenge = hashIntent(intent) — cryptographically binds the
-    // passkey signature to the exact action (program, accounts, params, nonce).
-    // The intent is frozen before credentials.get() is called.
     const approval = await ctx._triggerApproval(intent)
 
-    // ── 4. Build secp256r1 verify instruction ─────────────────────────────────
-    const payloadHash = hashIntent(intent)
+    // ── 4. Build secp256r1 precompile instruction ─────────────────────────────
     const webAuthnMsg = buildWebAuthnMessage(approval.authenticatorData, approval.clientDataJSON)
-    const proofIx     = buildSecp256r1Ix(registry.pubkey, approval.sig, webAuthnMsg)
+    const secp256r1Ix = buildSecp256r1Ix(registry.pubkey, approval.sig, webAuthnMsg)
 
-    // ── 5. Fetch fresh blockhash AFTER approval ────────────────────────────────
-    // Do NOT use a blockhash fetched before the approval ceremony.
-    // Fetching here ensures it is fresh when the wallet signs.
+    // ── 5. Build guard::record_proof data-carrier instruction ─────────────────
+    // Carries all WebAuthn data. The guard reads this from the Instructions sysvar
+    // so no proof data needs to pass through the protected instruction's params.
+    const recordProofIx = buildRecordProofIx(
+      ctx.config.guardProgramId,
+      approval.authenticatorData,
+      approval.clientDataJSON,
+      intent.expiryUnix,
+      intent.cluster,
+      intent.policyId,
+    )
+
+    // ── 6. Fetch fresh blockhash AFTER approval ────────────────────────────────
     const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
 
-    // ── 6. Developer builds the final transaction ─────────────────────────────
-    // The developer receives proofIx and includes it in their transaction.
-    // They also receive a fresh recentBlockhash.
-    const tx = await args.buildTransaction({
-      proofIx,
-      recentBlockhash,
-      intent,
-      authenticatorData: approval.authenticatorData,
-      clientDataJSON:    approval.clientDataJSON,
-    })
+    // ── 7. Developer builds their transaction (no proof params needed) ────────
+    const tx = await args.buildTransaction({ recentBlockhash })
 
-    // ── 7. Wallet signs ONCE and sends ────────────────────────────────────────
-    // This is the only wallet signature in the flow.
-    // There is no prior wallet signature to mutate or rebuild.
-    if (tx instanceof Transaction && signTransaction) {
-      const signed = await signTransaction(tx)
-      return conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
+    // ── 8. Prepend secp256r1 + record_proof before the protected instruction ──
+    // Final layout:
+    //   ix[N-2]: secp256r1 precompile
+    //   ix[N-1]: guard::record_proof
+    //   ix[N]:   developer's protected instruction(s)
+    if (tx instanceof Transaction) {
+      tx.instructions.unshift(recordProofIx)
+      tx.instructions.unshift(secp256r1Ix)
+
+      if (signTransaction) {
+        const signed = await signTransaction(tx)
+        return conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
+      }
     }
 
+    // VersionedTransaction path — wallet signs and sends directly
     return walletSend(tx, conn)
   }, [publicKey, walletSend, signTransaction, walletConn, ctx])
 

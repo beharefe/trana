@@ -111,3 +111,59 @@ export function buildWebAuthnMessage(
   combined.set(clientDataHash, authenticatorData.length)
   return sha256Bytes(combined)  // 32-byte e-value
 }
+
+// ── record_proof instruction builder ─────────────────────────────────────────
+
+/**
+ * Build the `guard::record_proof` data-carrier instruction.
+ *
+ * The SDK inserts this (and a secp256r1 ix) automatically before the protected
+ * instruction so protocol programs never need to handle proof data directly.
+ *
+ * Transaction shape the guard expects:
+ *   ix[N-2]: secp256r1 precompile  (native P-256 sig verify)
+ *   ix[N-1]: guard::record_proof   (this instruction, data carrier)
+ *   ix[N]:   protected instruction (calls enforce() or is registry_vault_withdraw)
+ *
+ * Payload layout (after 8-byte Anchor discriminator):
+ *   version            u8
+ *   expiry             i64 LE (Borsh)
+ *   cluster            u32-LE length + UTF-8 bytes (Borsh String)
+ *   policy             u32-LE length + UTF-8 bytes
+ *   authenticator_data u32-LE length + bytes (Borsh Vec<u8>)
+ *   client_data_json   u32-LE length + bytes
+ */
+export function buildRecordProofIx(
+  guardProgramId:    PublicKey,
+  authenticatorData: Uint8Array,
+  clientDataJSON:    Uint8Array,
+  expiryUnix:        number,
+  cluster:           string,
+  policy:            string,
+): TransactionInstruction {
+  // Anchor discriminator = SHA-256("global:record_proof")[0..8]
+  const disc = Buffer.from(sha256Bytes(Buffer.from("global:record_proof"))).slice(0, 8)
+
+  const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); b.writeUInt32LE(n); return b }
+  const borshStr   = (s: string)     => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32le(b.length), b]) }
+  const borshBytes = (b: Uint8Array) => Buffer.concat([u32le(b.length), Buffer.from(b)])
+
+  const expiryBuf = Buffer.allocUnsafe(8)
+  expiryBuf.writeBigInt64LE(BigInt(expiryUnix))
+
+  const data = Buffer.concat([
+    disc,
+    Buffer.from([1]),          // version u8 = 1
+    expiryBuf,                 // i64 LE
+    borshStr(cluster),
+    borshStr(policy),
+    borshBytes(authenticatorData),
+    borshBytes(clientDataJSON),
+  ])
+
+  return new TransactionInstruction({
+    programId: guardProgramId,
+    keys:      [],
+    data,
+  })
+}
