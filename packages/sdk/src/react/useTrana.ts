@@ -51,12 +51,23 @@ export type AuthorizeAndSendArgs = {
    * Receive a fresh recentBlockhash — do NOT use a stale one you fetched earlier.
    */
   buildTransaction: (args: {
-    /** secp256r1 verify instruction — insert this into your transaction */
+    /** secp256r1 verify instruction — place at index 0 in your transaction */
     proofIx: TransactionInstruction
     /** Fresh blockhash fetched after approval — use this, not a cached one */
     recentBlockhash: string
-    /** The frozen intent that was approved — traceability / debugging */
+    /** The frozen intent that was approved */
     intent: TranaIntent
+    /**
+     * Raw WebAuthn authenticatorData bytes — pass to enforce() CPI as-is.
+     * Only needed when your onchain program calls guard::cpi::enforce().
+     * Typically 37 bytes: rpIdHash(32) + flags(1) + counter(4).
+     */
+    authenticatorData: Uint8Array
+    /**
+     * Raw WebAuthn clientDataJSON bytes — pass to enforce() CPI as-is.
+     * Only needed when your onchain program calls guard::cpi::enforce().
+     */
+    clientDataJSON: Uint8Array
   }) => Promise<Transaction | VersionedTransaction>
   /** Override the connection for this call */
   connection?: Connection
@@ -148,7 +159,13 @@ export function useTrana() {
     // ── 6. Developer builds the final transaction ─────────────────────────────
     // The developer receives proofIx and includes it in their transaction.
     // They also receive a fresh recentBlockhash.
-    const tx = await args.buildTransaction({ proofIx, recentBlockhash, intent })
+    const tx = await args.buildTransaction({
+      proofIx,
+      recentBlockhash,
+      intent,
+      authenticatorData: approval.authenticatorData,
+      clientDataJSON:    approval.clientDataJSON,
+    })
 
     // ── 7. Wallet signs ONCE and sends ────────────────────────────────────────
     // This is the only wallet signature in the flow.
