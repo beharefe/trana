@@ -39,6 +39,10 @@ export { sha256, sha256Bytes, generateNonce } from "./utils"
 // secp256r1 precompile (browser + Node)
 export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage } from "./secp256r1"
 
+// Test helpers (Node.js / Anchor test environments — never import in production)
+export { generateTestPasskey, buildTestProofIx, ensureLowS } from "./testing"
+export type { TestPasskeyHandle } from "./testing"
+
 // HTTP client (legacy backend bridge — not required for secp256r1 passkey flow)
 export {
   getPasskeyStatus,

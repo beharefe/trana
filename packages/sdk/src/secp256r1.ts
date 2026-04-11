@@ -86,22 +86,28 @@ export function buildSecp256r1Ix(
 // ── WebAuthn message construction ─────────────────────────────────────────────
 
 /**
- * Construct the exact message the WebAuthn authenticator signed.
+ * Compute the ECDSA e-value (32-byte prehash) for a WebAuthn assertion.
  *
- * Authenticators sign: authenticatorData ‖ SHA-256(clientDataJSON)
- * The clientDataJSON embeds the challenge (= intent hash) as base64url.
- * This concatenation is what the secp256r1 precompile verifies.
+ * The secp256r1 precompile uses verify_prehash — the message field must be
+ * the 32-byte ECDSA e-value, NOT raw bytes. This matches how noble/curves
+ * p256.sign() works: it treats the `msg` parameter as the prehash directly.
  *
- * Onchain the program reconstructs the same message from the
- * authenticatorData and clientDataJSON it receives via the instruction.
+ * WebAuthn e-value = SHA-256(authenticatorData ‖ SHA-256(clientDataJSON))
+ *
+ * This is:
+ *   - What a real browser authenticator produces internally before signing
+ *   - What noble/curves p256.sign() in tests should receive as its msg argument
+ *   - What the secp256r1 instruction's message field must contain (32 bytes)
+ *
+ * Do NOT pass the raw concatenation — the precompile does not hash internally.
  */
 export function buildWebAuthnMessage(
   authenticatorData: Uint8Array,
   clientDataJSON:    Uint8Array
 ): Uint8Array {
   const clientDataHash = sha256Bytes(clientDataJSON)
-  const msg = new Uint8Array(authenticatorData.length + 32)
-  msg.set(authenticatorData, 0)
-  msg.set(clientDataHash, authenticatorData.length)
-  return msg
+  const combined = new Uint8Array(authenticatorData.length + 32)
+  combined.set(authenticatorData, 0)
+  combined.set(clientDataHash, authenticatorData.length)
+  return sha256Bytes(combined)  // 32-byte e-value
 }
