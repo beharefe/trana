@@ -37,7 +37,10 @@ export { attachProof } from "./proof"
 export { sha256, sha256Bytes, generateNonce } from "./utils"
 
 // secp256r1 precompile (browser + Node)
-export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage } from "./secp256r1"
+export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "./secp256r1"
+
+// Browser WebAuthn utilities (no backend required)
+export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
 
 // Test helpers (Node.js / Anchor test environments — never import in production)
 export { generateTestPasskey, buildTestProofIx, ensureLowS } from "./testing"
