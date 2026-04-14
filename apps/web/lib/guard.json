@@ -8,78 +8,19 @@
   },
   "instructions": [
     {
-      "name": "deposit",
-      "discriminator": [
-        242,
-        35,
-        198,
-        137,
-        82,
-        225,
-        242,
-        182
-      ],
-      "accounts": [
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "vault"
-          ]
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "enforce",
       "docs": [
-        "General-purpose passkey enforcement CPI primitive.",
+        "The core integration point. External programs call this via CPI.",
         "",
-        "Call this from your program to require the owner's registered passkey",
-        "approved the current instruction. No Trana-specific params needed.",
+        "Reads proof data from the Instructions sysvar (ix[N-1] = record_proof,",
+        "ix[N-2] = secp256r1 precompile), verifies the P-256 signature, and",
+        "increments the registry nonce to prevent replay.",
         "",
-        "The guard reads proof data from the adjacent Instructions sysvar entries:",
-        "ix[N-2]: secp256r1 precompile",
-        "ix[N-1]: guard::record_proof (carries WebAuthn data)",
-        "ix[N]:   your instruction (this CPI's caller — accounts + data hashed into intent)",
+        "On success: emits an event with the policy name (visible in logs).",
+        "On failure: returns a specific error code.",
         "",
-        "Integration (3 accounts + 1 CPI call):",
-        "Accounts: trana_registry (mut), trana_guard_program, trana_instructions (sysvar)",
-        "CPI:      guard::cpi::enforce(cpi_ctx)",
-        "",
-        "On success: registry.nonce is incremented (cannot be replayed)."
+        "Integration:",
+        "guard::cpi::enforce(cpi_ctx)?;  ← entire integration"
       ],
       "discriminator": [
         145,
@@ -95,7 +36,7 @@
         {
           "name": "registry",
           "docs": [
-            "Registry PDA for the owner's 2FA key — nonce is incremented on success."
+            "Registry PDA — nonce is incremented on every successful verification."
           ],
           "writable": true,
           "pda": {
@@ -117,6 +58,9 @@
         },
         {
           "name": "owner",
+          "docs": [
+            "The wallet whose registered passkey must authorize this action."
+          ],
           "signer": true
         },
         {
@@ -127,232 +71,13 @@
       "args": []
     },
     {
-      "name": "init_vault",
-      "discriminator": [
-        77,
-        79,
-        85,
-        150,
-        33,
-        217,
-        52,
-        106
-      ],
-      "accounts": [
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "opt_in",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "initialize",
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "server_key"
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "threshold",
-          "type": "u64"
-        },
-        {
-          "name": "enabled",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "protected_transfer",
-      "discriminator": [
-        211,
-        165,
-        106,
-        27,
-        92,
-        212,
-        190,
-        184
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "nonce_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  111,
-                  110,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "nonce"
-              }
-            ]
-          }
-        },
-        {
-          "name": "from",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "to",
-          "writable": true
-        },
-        {
-          "name": "instructions",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        },
-        {
-          "name": "nonce",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "payload_hash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "expiry",
-          "type": "i64"
-        },
-        {
-          "name": "user_opt_in",
-          "type": "bool"
-        }
-      ]
-    },
-    {
       "name": "record_proof",
       "docs": [
-        "Record a Trana WebAuthn proof in the transaction.",
+        "Pure data-carrier instruction. Carries WebAuthn proof data for",
+        "verify_via_sysvar to read from the Instructions sysvar.",
         "",
-        "This is a data-carrier instruction — it stores the WebAuthn proof",
-        "payload in the transaction so the following instruction can read it",
-        "from the Instructions sysvar without needing it as explicit params.",
-        "",
-        "The SDK inserts this automatically. Protocol programs never reference it.",
-        "",
-        "Required transaction shape:",
-        "ix[N-2]: secp256r1 precompile (SIMD-0075 native signature verify)",
-        "ix[N-1]: guard::record_proof  ← this instruction",
-        "ix[N]:   protected instruction (registry_vault_withdraw or enforce() caller)"
+        "This instruction itself does nothing except validate version == 1.",
+        "It must be placed at ix[N-1] immediately before the protected instruction."
       ],
       "discriminator": [
         144,
@@ -399,6 +124,13 @@
     },
     {
       "name": "register_two_fa",
+      "docs": [
+        "Register a P-256 passkey in the caller's onchain registry PDA.",
+        "",
+        "Idempotent — re-registering updates the key.",
+        "The PDA (seeds: [\"2fa\", owner]) is the onchain source of truth.",
+        "No server required."
+      ],
       "discriminator": [
         208,
         119,
@@ -458,277 +190,9 @@
           "type": "bytes"
         }
       ]
-    },
-    {
-      "name": "registry_vault_withdraw",
-      "docs": [
-        "Withdraw SOL from a vault using the owner's onchain passkey registry.",
-        "",
-        "Requires the SDK-inserted proof instructions immediately before:",
-        "ix[N-2]: secp256r1 precompile",
-        "ix[N-1]: guard::record_proof (carries authenticatorData + clientDataJSON)",
-        "ix[N]:   this instruction",
-        "",
-        "On success: registry.nonce is incremented (replay prevention)."
-      ],
-      "discriminator": [
-        107,
-        37,
-        55,
-        215,
-        148,
-        94,
-        225,
-        40
-      ],
-      "accounts": [
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "registry",
-          "docs": [
-            "Registry nonce is consumed here — must be writable."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  50,
-                  102,
-                  97
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "signer": true,
-          "relations": [
-            "vault"
-          ]
-        },
-        {
-          "name": "to",
-          "writable": true
-        },
-        {
-          "name": "instructions",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "update_config",
-      "discriminator": [
-        29,
-        158,
-        252,
-        191,
-        10,
-        83,
-        219,
-        99
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "config"
-          ]
-        },
-        {
-          "name": "server_key"
-        }
-      ],
-      "args": [
-        {
-          "name": "threshold",
-          "type": "u64"
-        },
-        {
-          "name": "enabled",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "vault_withdraw",
-      "docs": [
-        "Vault withdrawal using the legacy Ed25519 bridge key.",
-        "Kept for backward compatibility — prefer registry_vault_withdraw."
-      ],
-      "discriminator": [
-        98,
-        28,
-        187,
-        98,
-        87,
-        69,
-        46,
-        64
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "signer": true,
-          "relations": [
-            "vault"
-          ]
-        },
-        {
-          "name": "to",
-          "writable": true
-        },
-        {
-          "name": "instructions",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        },
-        {
-          "name": "nonce",
-          "type": "u64"
-        },
-        {
-          "name": "payload_hash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "expiry",
-          "type": "i64"
-        }
-      ]
     }
   ],
   "accounts": [
-    {
-      "name": "Config",
-      "discriminator": [
-        155,
-        12,
-        170,
-        224,
-        30,
-        250,
-        204,
-        130
-      ]
-    },
-    {
-      "name": "NonceAccount",
-      "discriminator": [
-        110,
-        202,
-        133,
-        201,
-        147,
-        206,
-        238,
-        84
-      ]
-    },
     {
       "name": "TwoFactorRegistry",
       "discriminator": [
@@ -741,59 +205,20 @@
         161,
         91
       ]
-    },
-    {
-      "name": "VaultState",
-      "discriminator": [
-        228,
-        196,
-        82,
-        165,
-        98,
-        210,
-        235,
-        152
-      ]
     }
   ],
   "events": [
     {
-      "name": "DepositEvent",
+      "name": "ProofVerified",
       "discriminator": [
-        120,
-        248,
-        61,
-        83,
-        31,
-        142,
-        107,
-        144
-      ]
-    },
-    {
-      "name": "TransferEvent",
-      "discriminator": [
-        100,
-        10,
-        46,
-        113,
-        8,
-        28,
-        179,
-        125
-      ]
-    },
-    {
-      "name": "WithdrawEvent",
-      "discriminator": [
-        22,
-        9,
-        133,
-        26,
-        160,
-        44,
-        71,
-        192
+        181,
+        54,
+        148,
+        211,
+        237,
+        73,
+        131,
+        232
       ]
     }
   ],
@@ -801,113 +226,40 @@
     {
       "code": 6000,
       "name": "MissingProof",
-      "msg": "2FA proof required — secp256r1 verify instruction missing or invalid"
+      "msg": "Missing secp256r1 or record_proof instruction before the protected instruction"
     },
     {
       "code": 6001,
-      "name": "InvalidProof",
-      "msg": "Proof instruction has an invalid format"
-    },
-    {
-      "code": 6002,
-      "name": "WrongSigner",
-      "msg": "Proof was signed by an unregistered key"
-    },
-    {
-      "code": 6003,
-      "name": "PayloadMismatch",
-      "msg": "Proof does not match this instruction's intent (program / accounts / params / nonce)"
-    },
-    {
-      "code": 6004,
       "name": "ProofExpired",
       "msg": "Proof has expired"
     },
     {
+      "code": 6002,
+      "name": "PayloadMismatch",
+      "msg": "Intent hash does not match — transaction parameters were tampered"
+    },
+    {
+      "code": 6003,
+      "name": "WrongSigner",
+      "msg": "Proof was signed by a key not in the registry"
+    },
+    {
+      "code": 6004,
+      "name": "RegistryDisabled",
+      "msg": "Registry is disabled — register a passkey first"
+    },
+    {
       "code": 6005,
-      "name": "NonceAlreadyUsed",
-      "msg": "Nonce already used — replay rejected"
+      "name": "InvalidProof",
+      "msg": "Invalid proof data"
     },
     {
       "code": 6006,
-      "name": "InvalidNonce",
-      "msg": "Invalid nonce — expected the vault's next_nonce"
-    },
-    {
-      "code": 6007,
       "name": "NonceOverflow",
       "msg": "Nonce overflow"
-    },
-    {
-      "code": 6008,
-      "name": "InsufficientFunds",
-      "msg": "Insufficient vault balance (after maintaining rent-exempt minimum)"
-    },
-    {
-      "code": 6009,
-      "name": "ZeroAmount",
-      "msg": "Amount must be greater than zero"
-    },
-    {
-      "code": 6010,
-      "name": "RegistryDisabled",
-      "msg": "2FA registry is disabled for this account"
-    },
-    {
-      "code": 6011,
-      "name": "InvalidPubkeyLen",
-      "msg": "Public key length is invalid for the specified key kind"
     }
   ],
   "types": [
-    {
-      "name": "Config",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "server_key",
-            "type": "pubkey"
-          },
-          {
-            "name": "threshold",
-            "type": "u64"
-          },
-          {
-            "name": "enabled",
-            "type": "bool"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "DepositEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
     {
       "name": "KeyKind",
       "type": {
@@ -923,41 +275,49 @@
       }
     },
     {
-      "name": "NonceAccount",
+      "name": "ProofVerified",
+      "docs": [
+        "Emitted on every successful proof verification.",
+        "Policy + target program are visible in on-chain transaction logs.",
+        "This is the zero-trust audit trail."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "used",
-            "type": "bool"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "TransferEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "from",
+            "name": "owner",
+            "docs": [
+              "The wallet that authorized the action."
+            ],
             "type": "pubkey"
           },
           {
-            "name": "to",
+            "name": "policy",
+            "docs": [
+              "Application-defined policy that triggered enforcement (e.g. \"transfer.large\")."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "target",
+            "docs": [
+              "The program whose instruction was protected."
+            ],
             "type": "pubkey"
           },
           {
-            "name": "amount",
+            "name": "nonce",
+            "docs": [
+              "The nonce that was consumed (now invalid — cannot be replayed)."
+            ],
             "type": "u64"
           },
           {
-            "name": "required_2fa",
-            "type": "bool"
+            "name": "expiry",
+            "docs": [
+              "Unix timestamp when this proof expires."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -969,9 +329,8 @@
         "",
         "Seeds: `[b\"2fa\", owner]`",
         "",
-        "`nonce` is incremented on every successful passkey proof verification.",
-        "This is the replay-prevention counter for the 2FA proof path — distinct",
-        "from VaultState.next_nonce (which counts vault operations)."
+        "`nonce` is incremented on every successful passkey proof verification —",
+        "old proofs cannot be replayed even if the signed intent was valid."
       ],
       "type": {
         "kind": "struct",
@@ -1003,61 +362,6 @@
           {
             "name": "nonce",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "VaultState",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "next_nonce",
-            "docs": [
-              "Monotonic counter — incremented on every vault operation."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "opt_in",
-            "type": "bool"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "WithdrawEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "to",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "required_2fa",
-            "type": "bool"
           }
         ]
       }

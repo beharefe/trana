@@ -398,9 +398,8 @@
         "",
         "Seeds: `[b\"2fa\", owner]`",
         "",
-        "`nonce` is incremented on every successful passkey proof verification.",
-        "This is the replay-prevention counter for the 2FA proof path — distinct",
-        "from VaultState.next_nonce (which counts vault operations)."
+        "`nonce` is incremented on every successful passkey proof verification —",
+        "old proofs cannot be replayed even if the signed intent was valid."
       ],
       "type": {
         "kind": "struct",
