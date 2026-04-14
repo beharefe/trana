@@ -6,9 +6,11 @@ seeds = true
 
 [programs.devnet]
 guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
+demo_vault = "Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ"
 
 [programs.localnet]
 guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
+demo_vault = "Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ"
 
 [registry]
 url = "https://api.apr.dev"

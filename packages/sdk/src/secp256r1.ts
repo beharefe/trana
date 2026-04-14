@@ -161,9 +161,11 @@ export function buildRecordProofIx(
     borshBytes(clientDataJSON),
   ])
 
+  const SYSVAR_INSTRUCTIONS = new PublicKey("Sysvar1nstructions1111111111111111111111111")
+
   return new TransactionInstruction({
     programId: guardProgramId,
-    keys:      [],
+    keys:      [{ pubkey: SYSVAR_INSTRUCTIONS, isSigner: false, isWritable: false }],
     data,
   })
 }

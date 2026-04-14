@@ -863,7 +863,11 @@ pub struct RegisterTwoFa<'info> {
 
 /// No accounts required — record_proof is a pure data-carrier instruction.
 #[derive(Accounts)]
-pub struct RecordProof {}
+pub struct RecordProof<'info> {
+    /// CHECK: no accounts needed; proof data is carried in instruction data only
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
 
 #[derive(Accounts)]
 pub struct RegistryVaultWithdraw<'info> {

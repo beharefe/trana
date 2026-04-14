@@ -495,7 +495,11 @@ function buildRecordProofIx(
     borshBytes(clientDataJSON),
   ])
 
-  return new TransactionInstruction({ keys: [], programId, data })
+  return new TransactionInstruction({
+    keys: [{ pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }],
+    programId,
+    data,
+  })
 }
 
 // ── Test suite: registry + secp256r1 passkey (scenarios R1-R6) ────────────────
