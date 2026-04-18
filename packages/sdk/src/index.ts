@@ -42,9 +42,6 @@ export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildReco
 // Browser WebAuthn utilities (no backend required)
 export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
 
-// Test helpers (Node.js / Anchor test environments — never import in production)
-export { generateTestPasskey, buildTestProofIx, ensureLowS } from "./testing"
-export type { TestPasskeyHandle } from "./testing"
 
 // HTTP client (legacy backend bridge — not required for secp256r1 passkey flow)
 export {

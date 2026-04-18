@@ -45,6 +45,7 @@ export function findRegistryPda(
  *   nonce:         u64       (8 bytes LE)
  */
 function parseRegistryAccount(data: Buffer): RegistryState {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   let offset = 8 // skip 8-byte Anchor discriminator
 
   // owner
@@ -55,13 +56,13 @@ function parseRegistryAccount(data: Buffer): RegistryState {
   offset += 1
 
   // pubkey_bytes
-  const pkLen = data.readUInt32LE(offset)
+  const pkLen = view.getUint32(offset, true)
   offset += 4
   const pubkey = new Uint8Array(data.slice(offset, offset + pkLen))
   offset += pkLen
 
   // credential_id
-  const credLen = data.readUInt32LE(offset)
+  const credLen = view.getUint32(offset, true)
   offset += 4
   const credentialId = new Uint8Array(data.slice(offset, offset + credLen))
   offset += credLen
@@ -70,8 +71,8 @@ function parseRegistryAccount(data: Buffer): RegistryState {
   const enabled = data[offset] === 1
   offset += 1
 
-  // nonce (u64 LE — BigInt)
-  const nonce = data.readBigUInt64LE(offset)
+  // nonce (u64 LE — DataView for browser compat)
+  const nonce = view.getBigUint64(offset, true)
 
   return { owner, pubkey, credentialId, enabled, nonce }
 }

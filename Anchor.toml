@@ -5,12 +5,12 @@ resolution = true
 seeds = true
 
 [programs.devnet]
-guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
-demo_vault = "Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ"
+guard = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
 
 [programs.localnet]
-guard = "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6"
-demo_vault = "Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ"
+guard = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
 
 [registry]
 url = "https://api.apr.dev"

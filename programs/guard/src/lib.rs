@@ -9,7 +9,7 @@ const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111"
 /// Domain string embedded in every intent hash.
 const INTENT_DOMAIN: &str = "trana:v1";
 
-declare_id!("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6");
+declare_id!("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb");
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Trana Guard — Onchain Authorization Primitive

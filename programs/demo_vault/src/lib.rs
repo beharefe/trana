@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use guard::cpi::accounts::Enforce;
 use guard::program::Guard;
 
-declare_id!("Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ");
+declare_id!("RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW");
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Demo Vault — Trana Guard integration example

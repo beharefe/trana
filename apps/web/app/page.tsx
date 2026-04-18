@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, useRef } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { PasskeyStatus } from "@/components/PasskeyStatus"
@@ -15,9 +15,12 @@ export default function Home() {
   const { publicKey }  = useWallet()
   const wallet         = publicKey?.toBase58() ?? null
   const serverUrl      = typeof window !== "undefined" ? window.location.origin : ""
+  const [mounted,  setMounted]  = useState(false)
 
   const [vault,    setVault]    = useState<VaultStatusResponse | null>(null)
   const [feed,     setFeed]     = useState<TxEntry[]>([])
+
+  useEffect(() => setMounted(true), [])
 
   const refreshVault = useCallback(async () => {
     if (!wallet) { setVault(null); return }
@@ -51,8 +54,8 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {wallet && <PasskeyStatus wallet={wallet} serverUrl={serverUrl} />}
-            <WalletMultiButton />
+            {mounted && wallet && <PasskeyStatus wallet={wallet} serverUrl={serverUrl} />}
+            {mounted && <WalletMultiButton />}
           </div>
         </div>
       </header>
