@@ -1,0 +1,24 @@
+services:
+
+  # ── Next.js demo web app ──────────────────────────────────────────────────────
+  # Validator + program deploy run natively via scripts/docker-dev.sh
+  # (solanalabs/solana has no v2.x images; secp256r1 requires Agave ≥2.1)
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    command: sh -c "cd /workspace/apps/web && pnpm next dev -H 0.0.0.0"
+    env_file:
+      - .env.docker        # server-side only vars (SOLANA_RPC)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # .env.local is read by Next.js natively — bakes NEXT_PUBLIC_ vars into client bundle
+      - ./apps/web/.env.local:/workspace/apps/web/.env.local
+      # Hot-reload: mount source dirs; node_modules stay from image layer
+      - ./packages/sdk/src:/workspace/packages/sdk/src
+      - ./apps/web/app:/workspace/apps/web/app
+      - ./apps/web/lib:/workspace/apps/web/lib
+      - ./apps/web/components:/workspace/apps/web/components

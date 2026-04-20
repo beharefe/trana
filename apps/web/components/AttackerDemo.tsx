@@ -5,175 +5,126 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import {
   PublicKey,
   Transaction,
+  TransactionInstruction,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js"
+import { findRegistryPda } from "@trana-guard/sdk"
 import type { VaultStatusResponse } from "@trana-guard/sdk"
 
-const PROGRAM_ID    = process.env.NEXT_PUBLIC_PROGRAM_ID ?? ""
-const THRESHOLD_SOL = Number(process.env.NEXT_PUBLIC_GUARD_THRESHOLD_SOL ?? "20")
-const SOL           = 1_000_000_000
+const VAULT_PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_PROGRAM_ID || "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
+)
+const GUARD_PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID || "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+)
 
-// Same discriminators as VaultPanel
-const DISC_VAULT_WITHDRAW = Buffer.from([157, 202, 21, 129, 223, 192, 36, 219])
+const WITHDRAW_DISC = Buffer.from([183, 18, 70, 156, 148, 109, 161, 34])
+const LARGE_AMOUNT  = BigInt(1_000_000_000) // 1 SOL
 
-interface TxResult {
-  ok:    boolean
-  label: string
-  desc:  string
-  sig?:  string
+function findVaultPda(owner: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vault"), owner.toBuffer()],
+    VAULT_PROGRAM_ID
+  )
+  return pda
+}
+
+function u64LE(n: bigint): Buffer {
+  const buf  = Buffer.allocUnsafe(8)
+  const view = new DataView(buf.buffer, buf.byteOffset, 8)
+  view.setBigUint64(0, n, true)
+  return buf
 }
 
 interface Props {
   vault: VaultStatusResponse | null
 }
 
-/**
- * Demonstrates that the private key alone is insufficient.
- *
- * Sends a raw vault_withdraw transaction WITHOUT any passkey proof.
- * Expected result: transaction fails with MissingProof.
- */
 export function AttackerDemo({ vault }: Props) {
-  const { connection }     = useConnection()
-  const { publicKey, signTransaction } = useWallet()
+  const { connection }               = useConnection()
+  const { publicKey, sendTransaction } = useWallet()
+  const [busy,   setBusy]   = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
-  const [loading, setLoading] = useState(false)
-  const [result,  setResult]  = useState<TxResult | null>(null)
-
-  async function simulateAttack() {
-    if (!publicKey || !signTransaction || !vault?.initialized) return
-    setLoading(true)
-    setResult(null)
-
+  async function attack() {
+    if (!publicKey) return
+    setBusy(true); setResult(null)
     try {
-      const attackAmount = Math.round(THRESHOLD_SOL * SOL * 1.5) // clearly above threshold
-      const [configPda]  = PublicKey.findProgramAddressSync(
-        [Buffer.from("config")],
-        new PublicKey(PROGRAM_ID)
-      )
-      const [vaultPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("vault"), publicKey.toBuffer()],
-        new PublicKey(PROGRAM_ID)
-      )
-      const dest = PublicKey.unique()
+      const vaultPda    = findVaultPda(publicKey)
+      const registryPda = findRegistryPda(publicKey, GUARD_PROGRAM_ID)
 
-      const amountBuf = Buffer.allocUnsafe(8)
-      const nonceBuf  = Buffer.allocUnsafe(8)
-      const expiryBuf = Buffer.allocUnsafe(8)
-      amountBuf.writeBigUInt64LE(BigInt(attackAmount))
-      nonceBuf.writeBigUInt64LE(BigInt(vault.next_nonce))
-      expiryBuf.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000) + 300))
-
-      const data = Buffer.concat([
-        DISC_VAULT_WITHDRAW,
-        amountBuf,
-        nonceBuf,
-        Buffer.alloc(32),  // zero payload_hash — proof is absent
-        expiryBuf,
-      ])
-      const ix = {
-        programId: new PublicKey(PROGRAM_ID),
+      // Raw withdraw — no secp256r1 precompile, no record_proof
+      const withdrawIx = new TransactionInstruction({
+        programId: VAULT_PROGRAM_ID,
         keys: [
-          { pubkey: configPda, isSigner: false, isWritable: false },
-          { pubkey: vaultPda,  isSigner: false, isWritable: true  },
-          { pubkey: publicKey, isSigner: true,  isWritable: false },
-          { pubkey: dest,      isSigner: false, isWritable: true  },
-          { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+          { pubkey: vaultPda,                    isSigner: false, isWritable: true  },
+          { pubkey: publicKey,                   isSigner: true,  isWritable: false },
+          { pubkey: publicKey,                   isSigner: false, isWritable: true  }, // destination = self
+          { pubkey: GUARD_PROGRAM_ID,            isSigner: false, isWritable: false },
+          { pubkey: registryPda,                 isSigner: false, isWritable: true  },
+          { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,  isSigner: false, isWritable: false },
         ],
-        data,
-      }
+        data: Buffer.concat([WITHDRAW_DISC, u64LE(LARGE_AMOUNT)]),
+      })
 
       const { blockhash } = await connection.getLatestBlockhash()
       const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
-      tx.add(ix)
+      tx.add(withdrawIx)
 
-      // Sign and submit — no proof instruction attached
-      const signed = await signTransaction(tx)
-      const sig    = await connection.sendRawTransaction(signed.serialize())
-      await connection.confirmTransaction(sig, "confirmed")
-
-      // If we somehow get here, something is wrong
-      setResult({
-        ok:    false,
-        label: "Unexpected: transaction succeeded",
-        desc:  "The guard failed to reject an unproven withdrawal.",
-        sig,
-      })
-    } catch (e: unknown) {
-      const msg = String(e)
-      const isMissingProof =
-        msg.includes("MissingProof") || msg.includes("0x1770")
-
-      setResult({
-        ok:    false,
-        label: isMissingProof
-          ? "✅ Correctly rejected — MissingProof"
-          : "Transaction failed (unexpected error)",
-        desc: isMissingProof
-          ? "Attacker had the private key but the program rejected the transaction. Private key alone is insufficient."
-          : msg,
-      })
+      await sendTransaction(tx, connection, { skipPreflight: false })
+      // shouldn't reach here
+      setResult({ ok: true, msg: "Withdraw succeeded — guard not working!" })
+    } catch (e: any) {
+      const msg: string = e?.message ?? String(e)
+      const known =
+        msg.includes("MissingProof")     ? "MissingProof (0x1770) — guard rejected: no secp256r1 proof in transaction" :
+        msg.includes("0x1770")           ? "MissingProof (0x1770) — guard rejected: no secp256r1 proof in transaction" :
+        msg.includes("custom program error") ? `Chain rejected: ${msg.slice(0, 200)}` :
+        msg.slice(0, 200)
+      setResult({ ok: false, msg: known })
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const canDemo = vault?.initialized && vault.balance_sol > 0 && PROGRAM_ID
+  const hasVault    = vault && vault.initialized && vault.balance_sol >= 1
+  const notConnected = !publicKey
 
   return (
-    <div className="border border-red-900/40 rounded-lg bg-red-950/10 overflow-hidden">
-      <div className="px-5 py-4 border-b border-red-900/30">
-        <h3 className="text-sm font-bold text-red-400">Attacker Simulation</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Simulates an attacker who has obtained the private key
+    <section className="border border-red-900/40 rounded-lg p-5 bg-red-950/10 space-y-3">
+      <div>
+        <h2 className="text-xs font-semibold text-red-400/70 uppercase tracking-widest">
+          Attacker demo
+        </h2>
+        <p className="text-xs text-gray-600 mt-1">
+          Submits a 1 SOL withdrawal with only a wallet signature — no passkey proof.
         </p>
       </div>
 
-      <div className="p-5 space-y-4">
-        <div className="text-xs text-gray-500 space-y-1">
-          <div className="flex gap-2">
-            <span className="text-gray-600">→</span>
-            <span>Attacker holds the wallet private key</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-gray-600">→</span>
-            <span>Attacker builds a raw withdrawal transaction</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-gray-600">→</span>
-            <span>No passkey proof attached (attacker doesn&apos;t have it)</span>
-          </div>
-          <div className="flex gap-2 font-semibold">
-            <span className="text-red-600">→</span>
-            <span className="text-red-400">Expected: transaction fails with MissingProof</span>
-          </div>
+      <button
+        onClick={attack}
+        disabled={busy || notConnected || !hasVault}
+        className="w-full text-xs px-3 py-2 rounded border border-red-800/60 bg-red-950/30 text-red-400 hover:bg-red-900/30 disabled:opacity-40 transition-colors font-mono"
+        title={!hasVault ? "Need ≥1 SOL in vault to trigger the guard" : undefined}
+      >
+        {busy ? "Sending raw tx…" : "⚔️  Attack: withdraw without passkey"}
+      </button>
+
+      {!hasVault && !notConnected && (
+        <p className="text-xs text-gray-600 italic">
+          Deposit ≥1 SOL first to trigger the guard threshold.
+        </p>
+      )}
+
+      {result && (
+        <div className={`rounded p-3 text-xs font-mono break-all border ${
+          result.ok
+            ? "bg-green-950/30 border-green-800/40 text-green-400"
+            : "bg-black/40 border-red-900/40 text-red-400"
+        }`}>
+          {result.ok ? "✅ " : "🛡️  "}{result.msg}
         </div>
-
-        <button
-          onClick={simulateAttack}
-          disabled={loading || !canDemo}
-          className="w-full bg-red-900/50 hover:bg-red-900/70 disabled:bg-gray-800 disabled:text-gray-600 text-red-200 border border-red-900/50 rounded px-4 py-2.5 text-sm font-mono transition-colors"
-        >
-          {loading
-            ? "Sending attack tx…"
-            : !canDemo
-            ? "Create vault + deposit first"
-            : "Simulate attack (no proof)"}
-        </button>
-
-        {result && (
-          <div
-            className={`p-3 rounded border text-xs font-mono ${
-              result.label.startsWith("✅")
-                ? "bg-green-900/20 border-green-800 text-green-300"
-                : "bg-red-900/20 border-red-800 text-red-300"
-            }`}
-          >
-            <div className="font-bold mb-1">{result.label}</div>
-            <div className="text-gray-400 whitespace-pre-wrap break-all">{result.desc}</div>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </section>
   )
 }

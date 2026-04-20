@@ -1,4 +1,12 @@
 /**
+ * SHA-256 over raw bytes — works in both Node.js and browser environments.
+ * Returns a 32-byte Uint8Array.
+ */
+export function sha256Bytes(input: Uint8Array): Uint8Array {
+  return sha256Sync(input)
+}
+
+/**
  * SHA-256 hash — works in both Node.js and browser environments.
  * Returns a 32-byte Uint8Array.
  */

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next"
 
 const config: NextConfig = {
-  transpilePackages: ["@solana/wallet-adapter-react-ui"],
+  transpilePackages: ["@solana/wallet-adapter-react-ui", "@trana-guard/sdk"],
   // Silence Turbopack warning when webpack config is present (Next.js 16+)
   turbopack: {},
   webpack: (config) => {

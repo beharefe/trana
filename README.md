@@ -135,11 +135,9 @@ pub fn your_protected_instruction(ctx: Context<...>, expiry: i64) -> Result<()> 
 ```
 programs/guard/     Anchor program
 packages/sdk/       @trana-guard/sdk client library
-apps/landing/       Landing page
-apps/web/           WebAuthn helper (UX only, not a trust anchor)
-INTEGRATION.md      Full developer integration guide
+apps/web/           WebAuthn helper + demo UI
+docs/               Architecture, decisions, security, integration guides
 ```
-
 ---
 
 ## Security model

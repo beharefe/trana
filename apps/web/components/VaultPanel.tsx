@@ -1,368 +1,379 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import {
   PublicKey,
-  Transaction,
   SystemProgram,
+  Transaction,
+  TransactionInstruction,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js"
-import {
-  getVaultProof,
-  getVaultStatus,
-  attachProof,
-  generateNonce,
-  type VaultProofPayload,
-  type VaultStatusResponse,
-} from "@trana-guard/sdk"
+import { useTrana, findRegistryPda } from "@trana-guard/sdk"
 
-const PROGRAM_ID      = process.env.NEXT_PUBLIC_PROGRAM_ID ?? ""
-const THRESHOLD_SOL   = Number(process.env.NEXT_PUBLIC_GUARD_THRESHOLD_SOL ?? "20")
-const SOL             = 1_000_000_000
+const VAULT_PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_PROGRAM_ID || "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
+)
+const GUARD_PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID || "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+)
 
-// Anchor discriminators (sha256("global:<name>")[0..8])
-// Replace these with values from `target/idl/guard.json` after `anchor build`.
+const LARGE_THRESHOLD_LAMPORTS = BigInt(1_000_000_000) // 1 SOL
+
 const DISC = {
-  initVault:     [166, 231,  27, 195,  240, 103, 160,  91],
-  deposit:       [242, 35, 198,   137,  82, 225, 242, 182],
-  vaultWithdraw: [157, 202,  21, 129,  223, 192,  36, 219],
-} as const
+  initVault: Buffer.from([77,  79,  85,  150, 33,  217, 52,  106]),
+  deposit:   Buffer.from([242, 35,  198, 137, 82,  225, 242, 182]),
+  withdraw:  Buffer.from([183, 18,  70,  156, 148, 109, 161, 34 ]),
+}
 
-type VaultAction = "init" | "deposit" | "withdraw" | null
+type VaultData = { balance: bigint; optIn: boolean }
+
+function findVaultPda(owner: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vault"), owner.toBuffer()],
+    VAULT_PROGRAM_ID
+  )
+  return pda
+}
+
+function parseVaultAccount(raw: Buffer | Uint8Array): VaultData {
+  const data = raw instanceof Buffer ? raw : Buffer.from(raw)
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  let o = 8 + 32             // skip 8-byte discriminator + 32-byte owner pubkey
+  const balance = view.getBigUint64(o, true); o += 8
+  const optIn   = data[o] === 1
+  return { balance, optIn }
+}
+
+function buildInitVaultIx(owner: PublicKey, vault: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: VAULT_PROGRAM_ID,
+    keys: [
+      { pubkey: vault,                   isSigner: false, isWritable: true  },
+      { pubkey: owner,                   isSigner: true,  isWritable: true  },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: DISC.initVault,
+  })
+}
+
+function u64LE(n: bigint): Buffer {
+  const buf  = Buffer.allocUnsafe(8)
+  const view = new DataView(buf.buffer, buf.byteOffset, 8)
+  view.setBigUint64(0, n, true)
+  return buf
+}
+
+function buildDepositIx(
+  owner:    PublicKey,
+  vault:    PublicKey,
+  registry: PublicKey,
+  lamports: bigint
+): TransactionInstruction {
+  const amountBuf = u64LE(lamports)
+  return new TransactionInstruction({
+    programId: VAULT_PROGRAM_ID,
+    keys: [
+      { pubkey: vault,                       isSigner: false, isWritable: true  },
+      { pubkey: owner,                       isSigner: true,  isWritable: true  },
+      { pubkey: SystemProgram.programId,     isSigner: false, isWritable: false },
+      { pubkey: GUARD_PROGRAM_ID,            isSigner: false, isWritable: false },
+      { pubkey: registry,                    isSigner: false, isWritable: true  },
+      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,  isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([DISC.deposit, amountBuf]),
+  })
+}
+
+function buildWithdrawIx(
+  owner:       PublicKey,
+  vault:       PublicKey,
+  registry:    PublicKey,
+  destination: PublicKey,
+  lamports:    bigint
+): TransactionInstruction {
+  const amountBuf = u64LE(lamports)
+  return new TransactionInstruction({
+    programId: VAULT_PROGRAM_ID,
+    keys: [
+      { pubkey: vault,                       isSigner: false, isWritable: true  },
+      { pubkey: owner,                       isSigner: true,  isWritable: false },
+      { pubkey: destination,                 isSigner: false, isWritable: true  },
+      { pubkey: GUARD_PROGRAM_ID,            isSigner: false, isWritable: false },
+      { pubkey: registry,                    isSigner: false, isWritable: true  },
+      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,  isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([DISC.withdraw, amountBuf]),
+  })
+}
 
 interface Props {
-  onTxSuccess?: (sig: string, label: string) => void
-  onTxError?:   (err: string, label: string) => void
+  onTxSuccess: (sig: string, label: string) => void
+  onTxError:   (err: unknown, label: string) => void
 }
 
 export function VaultPanel({ onTxSuccess, onTxError }: Props) {
-  const { connection }                           = useConnection()
-  const { publicKey, signTransaction, sendTransaction } = useWallet()
+  const { connection }                              = useConnection()
+  const { publicKey, sendTransaction, signTransaction } = useWallet()
+  const { authorizeAndSend }                        = useTrana()
 
-  const [vault,     setVault]     = useState<VaultStatusResponse | null>(null)
-  const [loading,   setLoading]   = useState(false)
-  const [action,    setAction]    = useState<VaultAction>(null)
-  const [amountStr, setAmountStr] = useState("")
-  const [destStr,   setDestStr]   = useState("")
+  const [vault,       setVault]       = useState<VaultData | null | "loading">("loading")
+  const [depositAmt,  setDepositAmt]  = useState("")
+  const [withdrawAmt, setWithdrawAmt] = useState("")
+  const [busy,        setBusy]        = useState<string | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
 
-  const wallet     = publicKey?.toBase58() ?? null
-  const serverUrl  = typeof window !== "undefined" ? window.location.origin : ""
-  const amountSol  = parseFloat(amountStr) || 0
-  const lamports   = Math.round(amountSol * SOL)
+  const refreshVault = useCallback(async () => {
+    if (!publicKey) return
+    const vaultPda = findVaultPda(publicKey)
+    const info = await connection.getAccountInfo(vaultPda)
+    setVault(info ? parseVaultAccount(info.data) : null)
+  }, [publicKey, connection])
 
-  const refresh = useCallback(async () => {
-    if (!wallet) { setVault(null); return }
-    const v = await getVaultStatus(wallet, serverUrl)
-    setVault(v)
-  }, [wallet, serverUrl])
-
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refreshVault() }, [refreshVault])
 
   async function handleInitVault() {
-    if (!publicKey || !sendTransaction) return
-    setLoading(true)
+    if (!publicKey) return
+    setBusy("init"); setError(null)
     try {
-      const [vaultPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("vault"), publicKey.toBuffer()],
-        new PublicKey(PROGRAM_ID)
-      )
-      const data = Buffer.concat([
-        Buffer.from(DISC.initVault),
-        Buffer.from([0]), // opt_in = false
-      ])
-      const ix = {
-        programId: new PublicKey(PROGRAM_ID),
-        keys: [
-          { pubkey: vaultPda,              isSigner: false, isWritable: true },
-          { pubkey: publicKey,             isSigner: true,  isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        data,
-      }
+      const vaultPda = findVaultPda(publicKey)
+      const ix = buildInitVaultIx(publicKey, vaultPda)
       const { blockhash } = await connection.getLatestBlockhash()
       const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
       tx.add(ix)
       const sig = await sendTransaction(tx, connection)
       await connection.confirmTransaction(sig, "confirmed")
-      onTxSuccess?.(sig, "Vault initialised")
-      await refresh()
-    } catch (e: unknown) {
-      onTxError?.(String(e), "init_vault failed")
+      onTxSuccess(sig, "init vault")
+      await refreshVault()
+    } catch (e: any) {
+      setError(e?.message ?? "Failed")
+      onTxError(e, "init vault")
     } finally {
-      setLoading(false)
-      setAction(null)
+      setBusy(null)
     }
   }
 
   async function handleDeposit() {
-    if (!publicKey || !sendTransaction || !lamports) return
-    setLoading(true)
+    if (!publicKey) return
+    const solAmt  = parseFloat(depositAmt)
+    if (!solAmt || solAmt <= 0) return
+    const lamports = BigInt(Math.round(solAmt * 1e9))
+    setBusy("deposit"); setError(null)
     try {
-      const [vaultPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("vault"), publicKey.toBuffer()],
-        new PublicKey(PROGRAM_ID)
-      )
-      // Anchor deposit instruction
-      const amountBuf = Buffer.allocUnsafe(8)
-      amountBuf.writeBigUInt64LE(BigInt(lamports))
-      const data = Buffer.concat([Buffer.from(DISC.deposit), amountBuf])
-      const ix = {
-        programId: new PublicKey(PROGRAM_ID),
-        keys: [
-          { pubkey: vaultPda,              isSigner: false, isWritable: true },
-          { pubkey: publicKey,             isSigner: true,  isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        data,
+      const vaultPda    = findVaultPda(publicKey)
+      const registryPda = findRegistryPda(publicKey, GUARD_PROGRAM_ID)
+      const needsPasskey = lamports >= LARGE_THRESHOLD_LAMPORTS
+      let sig: string
+
+      if (needsPasskey) {
+        const paramBuf = u64LE(lamports)
+        sig = await authorizeAndSend({
+          buildIntent: () => ({
+            targetProgramId:          VAULT_PROGRAM_ID,
+            instructionDiscriminator: DISC.deposit,
+            accounts: [
+              vaultPda,
+              publicKey,
+              SystemProgram.programId,
+              GUARD_PROGRAM_ID,
+              registryPda,
+              SYSVAR_INSTRUCTIONS_PUBKEY,
+            ],
+            params:  paramBuf,
+            policy:  "transfer.large",
+          }),
+          buildTransaction: async ({ recentBlockhash }) => {
+            const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
+            tx.add(buildDepositIx(publicKey, vaultPda, registryPda, lamports))
+            return tx
+          },
+        })
+      } else {
+        const { blockhash } = await connection.getLatestBlockhash()
+        const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
+        tx.add(buildDepositIx(publicKey, vaultPda, registryPda, lamports))
+        sig = await sendTransaction(tx, connection)
       }
-      const { blockhash } = await connection.getLatestBlockhash()
-      const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
-      tx.add(ix)
-      const sig = await sendTransaction(tx, connection)
+
       await connection.confirmTransaction(sig, "confirmed")
-      onTxSuccess?.(sig, `Deposited ${amountSol} SOL`)
-      setAmountStr("")
-      await refresh()
-    } catch (e: unknown) {
-      onTxError?.(String(e), "deposit failed")
+      setDepositAmt("")
+      onTxSuccess(sig, `deposit ${solAmt} SOL`)
+      await refreshVault()
+    } catch (e: any) {
+      setError(e?.message ?? "Deposit failed")
+      onTxError(e, `deposit ${solAmt} SOL`)
     } finally {
-      setLoading(false)
-      setAction(null)
+      setBusy(null)
     }
   }
 
   async function handleWithdraw() {
-    if (!publicKey || !signTransaction || !lamports || !destStr || !vault) return
-    setLoading(true)
+    if (!publicKey) return
+    const solAmt  = parseFloat(withdrawAmt)
+    if (!solAmt || solAmt <= 0) return
+    const lamports = BigInt(Math.round(solAmt * 1e9))
+    setBusy("withdraw"); setError(null)
     try {
-      let destKey: PublicKey
-      try { destKey = new PublicKey(destStr) }
-      catch { onTxError?.("Invalid destination address", "withdraw"); return }
+      const vaultPda    = findVaultPda(publicKey)
+      const registryPda = findRegistryPda(publicKey, GUARD_PROGRAM_ID)
+      const destination = publicKey
+      const needsPasskey = lamports >= LARGE_THRESHOLD_LAMPORTS
+      let sig: string
 
-      const [vaultPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("vault"), publicKey.toBuffer()],
-        new PublicKey(PROGRAM_ID)
-      )
-
-      const nonce  = vault.next_nonce
-      const expiry = Math.floor(Date.now() / 1000) + 300 // 5 min TTL
-
-      // ── Policy: Any([HighValueTransfer, UserOptIn]) ───────────────────────
-      const requires2FA =
-        amountSol >= THRESHOLD_SOL || vault.opt_in
-
-      let proof = null
-      if (requires2FA) {
-        const payload: VaultProofPayload = {
-          programId:   PROGRAM_ID,
-          instruction: "vault_withdraw",
-          vault:       vaultPda.toBase58(),
-          amount:      lamports,
-          nonce,
-          expiry,
-        }
-        proof = await getVaultProof(payload, serverUrl)
+      if (needsPasskey) {
+        const paramBuf = u64LE(lamports)
+        sig = await authorizeAndSend({
+          buildIntent: () => ({
+            targetProgramId:          VAULT_PROGRAM_ID,
+            instructionDiscriminator: DISC.withdraw,
+            accounts: [
+              vaultPda,
+              publicKey,
+              destination,
+              GUARD_PROGRAM_ID,
+              registryPda,
+              SYSVAR_INSTRUCTIONS_PUBKEY,
+            ],
+            params:  paramBuf,
+            policy:  "transfer.large",
+          }),
+          buildTransaction: async ({ recentBlockhash }) => {
+            const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
+            tx.add(buildWithdrawIx(publicKey, vaultPda, registryPda, destination, lamports))
+            return tx
+          },
+        })
+      } else {
+        const { blockhash } = await connection.getLatestBlockhash()
+        const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
+        tx.add(buildWithdrawIx(publicKey, vaultPda, registryPda, destination, lamports))
+        sig = await sendTransaction(tx, connection)
       }
 
-      // ── Build vault_withdraw instruction ─────────────────────────────────
-      const [configPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("config")],
-        new PublicKey(PROGRAM_ID)
-      )
-      const amountBuf  = Buffer.allocUnsafe(8)
-      const nonceBuf   = Buffer.allocUnsafe(8)
-      const expiryBuf  = Buffer.allocUnsafe(8)
-      const hashBuf    = proof ? Buffer.from(proof.payloadHash) : Buffer.alloc(32)
-      amountBuf.writeBigUInt64LE(BigInt(lamports))
-      nonceBuf.writeBigUInt64LE(BigInt(nonce))
-      expiryBuf.writeBigInt64LE(BigInt(expiry))
-
-      const data = Buffer.concat([
-        Buffer.from(DISC.vaultWithdraw),
-        amountBuf,
-        nonceBuf,
-        hashBuf,
-        expiryBuf,
-      ])
-      const ix = {
-        programId: new PublicKey(PROGRAM_ID),
-        keys: [
-          { pubkey: configPda,             isSigner: false, isWritable: false },
-          { pubkey: vaultPda,              isSigner: false, isWritable: true  },
-          { pubkey: publicKey,             isSigner: true,  isWritable: false },
-          { pubkey: destKey,               isSigner: false, isWritable: true  },
-          { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
-        ],
-        data,
-      }
-
-      const { blockhash } = await connection.getLatestBlockhash()
-      let tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
-      tx.add(ix)
-      if (proof) tx = attachProof(tx, proof)
-
-      const signed = await signTransaction(tx)
-      const sig    = await connection.sendRawTransaction(signed.serialize())
       await connection.confirmTransaction(sig, "confirmed")
-
-      onTxSuccess?.(sig, `Withdrew ${amountSol} SOL${requires2FA ? " (2FA verified)" : ""}`)
-      setAmountStr("")
-      setDestStr("")
-      await refresh()
-    } catch (e: unknown) {
-      const msg = String(e)
-      const label =
-        msg.includes("MissingProof")   ? "❌ FAIL: MissingProof — no proof attached"       :
-        msg.includes("InvalidNonce")   ? "❌ FAIL: InvalidNonce — replay attempt rejected"  :
-        msg.includes("PayloadMismatch")? "❌ FAIL: PayloadMismatch — tampered parameters"   :
-        msg.includes("ProofExpired")   ? "❌ FAIL: ProofExpired — proof too old"            :
-        "Withdraw failed"
-      onTxError?.(msg, label)
+      setWithdrawAmt("")
+      onTxSuccess(sig, `withdraw ${solAmt} SOL`)
+      await refreshVault()
+    } catch (e: any) {
+      setError(e?.message ?? "Withdraw failed")
+      onTxError(e, `withdraw ${solAmt} SOL`)
     } finally {
-      setLoading(false)
-      setAction(null)
+      setBusy(null)
     }
   }
 
-  if (!wallet) return null
+  if (vault === "loading") {
+    return (
+      <section className="border border-gray-800 rounded-lg p-5 bg-gray-900/20">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Vault</h2>
+        <p className="text-xs text-gray-600">Loading…</p>
+      </section>
+    )
+  }
+
+  const depositSol  = parseFloat(depositAmt  || "0")
+  const withdrawSol = parseFloat(withdrawAmt || "0")
 
   return (
-    <div className="border border-gray-800 rounded-lg bg-gray-900/30 overflow-hidden">
-      {/* Vault header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-        <div>
-          <h2 className="text-sm font-bold text-gray-200">Guarded Vault</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {vault?.initialized
-              ? "Deposits protected — private key alone cannot withdraw"
-              : "Create a vault to begin the demo"}
-          </p>
-        </div>
-        {vault?.initialized && (
-          <div className="text-right">
-            <div className="text-xl font-bold text-indigo-300 tabular-nums">
-              {vault.balance_sol.toFixed(4)}
-              <span className="text-sm text-gray-500 ml-1">SOL</span>
-            </div>
-            <div className="text-xs text-gray-600">available</div>
-          </div>
+    <section className="border border-gray-800 rounded-lg p-5 bg-gray-900/20 space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Vault</h2>
+        {vault && (
+          <span className="text-sm font-mono text-gray-200">
+            {(Number(vault.balance) / 1e9).toFixed(4)} SOL
+          </span>
         )}
       </div>
 
-      <div className="p-5 space-y-4">
-        {/* Init vault */}
-        {!vault?.initialized && (
+      {error && (
+        <p className="text-xs text-red-400 break-all" title={error}>
+          {error.length > 120 ? error.slice(0, 120) + "…" : error}
+        </p>
+      )}
+
+      {vault === null ? (
+        /* ── Not initialized ─────────────────────────────────────────── */
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">No vault. Initialize one to start the demo.</p>
           <button
             onClick={handleInitVault}
-            disabled={loading || !PROGRAM_ID}
-            className="w-full bg-indigo-700 hover:bg-indigo-600 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded px-4 py-2.5 text-sm font-mono transition-colors"
+            disabled={busy === "init"}
+            className="text-xs px-3 py-1.5 rounded border border-gray-700 bg-gray-800/40 text-gray-300 hover:bg-gray-700/40 disabled:opacity-50 transition-colors"
           >
-            {loading ? "Creating…" : "Create vault →"}
+            {busy === "init" ? "Initializing…" : "Init Vault"}
           </button>
-        )}
+        </div>
+      ) : (
+        /* ── Initialized ─────────────────────────────────────────────── */
+        <div className="space-y-4">
 
-        {vault?.initialized && (
-          <>
-            {/* Action selector */}
+          {/* Deposit */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-500">Deposit</label>
+              {depositSol >= 1 && (
+                <span className="text-xs text-yellow-500/80">passkey required</span>
+              )}
+            </div>
             <div className="flex gap-2">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="0.0 SOL"
+                value={depositAmt}
+                onChange={e => setDepositAmt(e.target.value)}
+                disabled={!!busy}
+                className="flex-1 text-xs bg-black/30 border border-gray-700 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-700 disabled:opacity-50"
+              />
               <button
-                onClick={() => setAction(action === "deposit" ? null : "deposit")}
-                className={`flex-1 text-xs py-2 rounded border transition-colors ${
-                  action === "deposit"
-                    ? "border-green-700 bg-green-900/30 text-green-300"
-                    : "border-gray-700 bg-gray-800/50 text-gray-400 hover:text-gray-200"
-                }`}
+                onClick={handleDeposit}
+                disabled={!depositAmt || !!busy}
+                className="text-xs px-3 py-1.5 rounded border border-indigo-700 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/50 disabled:opacity-40 transition-colors whitespace-nowrap"
               >
-                + Deposit
-              </button>
-              <button
-                onClick={() => setAction(action === "withdraw" ? null : "withdraw")}
-                className={`flex-1 text-xs py-2 rounded border transition-colors ${
-                  action === "withdraw"
-                    ? "border-orange-700 bg-orange-900/30 text-orange-300"
-                    : "border-gray-700 bg-gray-800/50 text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                → Withdraw
+                {busy === "deposit" ? "…" : depositSol >= 1 ? "Deposit 🔐" : "Deposit"}
               </button>
             </div>
+          </div>
 
-            {/* Deposit form */}
-            {action === "deposit" && (
-              <div className="space-y-2">
-                <input
-                  type="number" step="0.1" min="0.001"
-                  placeholder="Amount (SOL)"
-                  value={amountStr}
-                  onChange={(e) => setAmountStr(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-green-600"
-                />
-                <button
-                  onClick={handleDeposit}
-                  disabled={loading || !lamports}
-                  className="w-full bg-green-800 hover:bg-green-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded px-4 py-2 text-sm font-mono transition-colors"
-                >
-                  {loading ? "Depositing…" : "Deposit →"}
-                </button>
-              </div>
-            )}
-
-            {/* Withdraw form */}
-            {action === "withdraw" && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number" step="0.1" min="0.001"
-                    placeholder="Amount (SOL)"
-                    value={amountStr}
-                    onChange={(e) => setAmountStr(e.target.value)}
-                    className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-orange-600"
-                  />
-                  <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${
-                    amountSol >= THRESHOLD_SOL || vault.opt_in
-                      ? "bg-orange-900/40 text-orange-400 border border-orange-800"
-                      : "bg-gray-800 text-gray-500 border border-gray-700"
-                  }`}>
-                    {amountSol >= THRESHOLD_SOL || vault.opt_in ? "🔑 2FA" : "No 2FA"}
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Destination address (base58)"
-                  value={destStr}
-                  onChange={(e) => setDestStr(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-orange-600"
-                />
-                <p className="text-xs text-gray-600">
-                  Threshold: {THRESHOLD_SOL} SOL — above this requires passkey approval
-                </p>
-                <button
-                  onClick={handleWithdraw}
-                  disabled={loading || !lamports || !destStr}
-                  className="w-full bg-orange-800 hover:bg-orange-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded px-4 py-2 text-sm font-mono transition-colors"
-                >
-                  {loading ? "Withdrawing…" : "Withdraw →"}
-                </button>
-              </div>
-            )}
-
-            {/* Vault details */}
-            <div className="text-xs text-gray-600 border-t border-gray-800/60 pt-3 space-y-1">
-              <div className="flex justify-between">
-                <span>Next nonce</span>
-                <span className="text-gray-500 tabular-nums">{vault.next_nonce}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Opt-in 2FA</span>
-                <span className={vault.opt_in ? "text-yellow-500" : "text-gray-500"}>
-                  {vault.opt_in ? "active" : "off"}
-                </span>
-              </div>
+          {/* Withdraw */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-500">Withdraw</label>
+              {withdrawSol >= 1 && (
+                <span className="text-xs text-yellow-500/80">passkey required</span>
+              )}
             </div>
-          </>
-        )}
-      </div>
-    </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="0.0 SOL"
+                value={withdrawAmt}
+                onChange={e => setWithdrawAmt(e.target.value)}
+                disabled={!!busy}
+                className="flex-1 text-xs bg-black/30 border border-gray-700 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-700 disabled:opacity-50"
+              />
+              <button
+                onClick={handleWithdraw}
+                disabled={!withdrawAmt || !!busy || vault.balance === 0n}
+                className="text-xs px-3 py-1.5 rounded border border-gray-700 bg-gray-800/40 text-gray-300 hover:bg-gray-700/40 disabled:opacity-40 transition-colors whitespace-nowrap"
+              >
+                {busy === "withdraw" ? "…" : withdrawSol >= 1 ? "Withdraw 🔐" : "Withdraw"}
+              </button>
+            </div>
+          </div>
+
+          {vault.optIn && (
+            <p className="text-xs text-indigo-400/60">
+              Opt-in mode active — all transactions require passkey
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

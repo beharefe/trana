@@ -1,871 +1,398 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::sysvar::instructions::{
-    load_instruction_at_checked, ID as INSTRUCTIONS_ID,
+    load_current_index_checked, load_instruction_at_checked, ID as INSTRUCTIONS_ID,
 };
 use sha2::{Digest, Sha256};
 
-/// The Ed25519 signature-verification precompile program ID.
-const ED25519_PROGRAM_ID: &str = "Ed25519SigVerify111111111111111111111111111";
-
-/// The secp256r1 (P-256) signature-verification precompile program ID.
-/// Used for native passkey / WebAuthn onchain verification.
 const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
 
-declare_id!("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6");
+/// Domain string embedded in every intent hash.
+const INTENT_DOMAIN: &str = "trana:v1";
 
-// ────────────────────────────────────────────────────────────────────────────
-//  Trana Guard — Onchain Authorization Primitive for Solana
+declare_id!("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb");
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Trana Guard — Onchain Authorization Primitive
 //
-//  Core guarantee:
-//    Any instruction calling `guard::cpi::enforce` cannot execute unless a
-//    valid second-factor passkey proof is present in the same transaction.
+//  The single guarantee:
+//    "This instruction cannot execute unless the registered passkey
+//     signed an intent hash that exactly describes this transaction."
 //
-//  Trust model:
-//    The onchain registry PDA is the trust anchor.
-//    No trusted backend. No trusted bridge. No server key.
-//    Authorization is enforced entirely by the Solana program and precompiles.
+//  Trust anchors (zero trusted backend):
+//    1. secp256r1 precompile (SIMD-0075) — native P-256 sig verify
+//    2. TwoFactorRegistry PDA — stores the user's P-256 pubkey onchain
+//    3. Intent hash — cryptographically binds proof to program/accounts/params
+//    4. Nonce — consumed on each proof, prevents replay
 //
-//  Enforcement:
-//    The guard reads the Instructions sysvar at execution time.
-//    A secp256r1 or Ed25519 precompile instruction must be present at index 0,
-//    signed by the authority's registered key, covering the exact payload hash.
-//    If absent or invalid the transaction fails atomically.
-// ────────────────────────────────────────────────────────────────────────────
+//  Transaction shape required by the SDK:
+//    ix[N-2]: secp256r1 precompile      — native P-256 sig verify
+//    ix[N-1]: guard::record_proof       — carries WebAuthn binding data
+//    ix[N]:   your protected instruction — calls guard::cpi::enforce()
+//
+//  Integration (3 lines):
+//    1. Add accounts: guard_program, trana_registry (mut), trana_instructions
+//    2. Call: guard::cpi::enforce(cpi_ctx)?
+//    3. SDK prepends secp256r1 + record_proof automatically
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── ProofData ─────────────────────────────────────────────────────────────────
+//
+// Borsh payload stored in the `record_proof` instruction data.
+// Deserialized by verify_via_sysvar from the Instructions sysvar.
+
+#[derive(AnchorDeserialize, AnchorSerialize, Clone)]
+pub struct ProofData {
+    pub version:            u8,
+    pub expiry:             i64,
+    pub cluster:            String,
+    pub policy:             String,
+    pub authenticator_data: Vec<u8>,
+    pub client_data_json:   Vec<u8>,
+}
 
 #[program]
 pub mod guard {
     use super::*;
 
-    // ── Core enforcement primitive (CPI endpoint) ─────────────────────────────
-    //
-    //  This is the main integration point for external Anchor programs.
-    //
-    //  Any program can add Trana's execution-time 2FA to any instruction by
-    //  calling this via CPI — one line, no vault required, no custody change.
-    //
-    //  External program Cargo.toml:
-    //    guard = { git = "...", features = ["cpi"] }
-    //
-    //  In the external instruction:
-    //    guard::cpi::enforce(cpi_ctx, payload_hash, expiry)?;
-    //
-    //  Trana reads the Instructions sysvar, finds the secp256r1 / Ed25519
-    //  precompile proof at index 0, and verifies it against the authority's
-    //  registered passkey PDA.  If missing or invalid → the entire transaction
-    //  fails atomically.  The calling program never executes its own logic.
+    // ── Passkey registration ──────────────────────────────────────────────────
 
-    /// Enforce passkey authorization via CPI from any Anchor program.
+    /// Register a P-256 passkey in the caller's onchain registry PDA.
     ///
-    /// This is the core integration point. Call it at the start of any
-    /// instruction you want protected. If the proof is absent or invalid
-    /// the entire transaction fails atomically — your logic never runs.
-    ///
-    /// # Arguments
-    /// * `policy`       — which policy rule triggered enforcement (emitted in event).
-    /// * `payload_hash` — sha256 of any canonical JSON your program defines.
-    /// * `expiry`       — unix timestamp after which the proof is rejected.
-    /// * `webauthn`     — optional WebAuthn assertion data for full passkey binding.
-    ///                    When Some: verifies authenticatorData || SHA256(clientDataJSON)
-    ///                    message format, UP flag, and challenge == payload_hash.
-    ///                    When None: verifies message == payload_hash directly
-    ///                    (for tests and direct P-256 signing).
-    pub fn enforce(
-        ctx: Context<Enforce>,
-        policy: Policy,
-        payload_hash: [u8; 32],
-        expiry: i64,
-        webauthn: Option<WebAuthnData>,
-    ) -> Result<()> {
-        let registry = &ctx.accounts.registry;
-
-        match registry.key_kind {
-            KeyKind::Secp256r1Passkey => {
-                verify_secp256r1_proof(
-                    &ctx.accounts.instructions,
-                    registry,
-                    &payload_hash,
-                    expiry,
-                    webauthn.as_ref(),
-                )?;
-            }
-            KeyKind::Ed25519 => {
-                let pk: [u8; 32] = registry.pubkey_bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| error!(GuardError::InvalidPubkeyLen))?;
-                verify_ed25519_proof(
-                    &ctx.accounts.instructions,
-                    &Pubkey::from(pk),
-                    &payload_hash,
-                    expiry,
-                )?;
-            }
-        }
-
-        emit!(EnforceEvent {
-            authority:    registry.owner,
-            registry:     ctx.accounts.registry.key(),
-            policy,
-            payload_hash,
-        });
-
-        Ok(())
-    }
-
-    // ── Configuration ─────────────────────────────────────────────────────────
-
-    /// Initialise the global guard config.  Called once by the deployer.
-    ///
-    /// `server_key` — Ed25519 pubkey of the trusted bridge signer.
-    /// `threshold`  — lamports above which transfers require a proof.
-    /// `enabled`    — master kill-switch.
-    pub fn initialize(
-        ctx: Context<Initialize>,
-        threshold: u64,
-        enabled: bool,
-    ) -> Result<()> {
-        let cfg = &mut ctx.accounts.config;
-        cfg.authority  = ctx.accounts.authority.key();
-        cfg.server_key = ctx.accounts.server_key.key();
-        cfg.threshold  = threshold;
-        cfg.enabled    = enabled;
-        cfg.bump       = ctx.bumps.config;
-        Ok(())
-    }
-
-    /// Update threshold / enabled flag.  Authority only.
-    pub fn update_config(
-        ctx: Context<UpdateConfig>,
-        threshold: u64,
-        enabled: bool,
-    ) -> Result<()> {
-        let cfg = &mut ctx.accounts.config;
-        cfg.server_key = ctx.accounts.server_key.key();
-        cfg.threshold  = threshold;
-        cfg.enabled    = enabled;
-        Ok(())
-    }
-
-    // ── Vault ─────────────────────────────────────────────────────────────────
-
-    /// Create a personal vault PDA for `owner`.
-    ///
-    /// Once funded, the owner's wallet key alone is insufficient to withdraw.
-    /// Every withdrawal is protected by the built-in policy.
-    pub fn init_vault(ctx: Context<InitVault>, opt_in: bool) -> Result<()> {
-        let vault = &mut ctx.accounts.vault;
-        vault.owner      = ctx.accounts.owner.key();
-        vault.next_nonce = 0;
-        vault.opt_in     = opt_in;
-        vault.bump       = ctx.bumps.vault;
-        Ok(())
-    }
-
-    /// Deposit SOL into the vault.
-    ///
-    /// No proof required — anyone can add funds.
-    /// The vault PDA accumulates lamports.
-    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
-        require!(amount > 0, GuardError::ZeroAmount);
-        anchor_lang::solana_program::program::invoke(
-            &anchor_lang::solana_program::system_instruction::transfer(
-                &ctx.accounts.owner.key(),
-                &ctx.accounts.vault.key(),
-                amount,
-            ),
-            &[
-                ctx.accounts.owner.to_account_info(),
-                ctx.accounts.vault.to_account_info(),
-            ],
-        )?;
-        emit!(DepositEvent {
-            vault: ctx.accounts.vault.key(),
-            owner: ctx.accounts.owner.key(),
-            amount,
-        });
-        Ok(())
-    }
-
-    /// Withdraw SOL from the vault.
-    ///
-    /// Built-in policy (Any([HighValueTransfer, UserOptIn])):
-    ///   Requires proof when amount >= config.threshold OR vault.opt_in == true.
-    ///
-    /// When proof is required the transaction MUST include an Ed25519 verify
-    /// instruction at index 0 whose:
-    ///   - signer  == config.server_key
-    ///   - message == sha256(canonical ProofPayload bound to this call's args)
-    ///   - expiry  > Clock::unix_timestamp
-    ///
-    /// Replay prevention: monotonic nonce stored in VaultState.
-    pub fn vault_withdraw(
-        ctx: Context<VaultWithdraw>,
-        amount: u64,
-        nonce: u64,
-        payload_hash: [u8; 32],
-        expiry: i64,
-    ) -> Result<()> {
-        let config    = &ctx.accounts.config;
-        let vault     = &mut ctx.accounts.vault;
-
-        require!(amount > 0, GuardError::ZeroAmount);
-
-        // ── Policy evaluation ─────────────────────────────────────────────────
-        // Any([HighValueTransfer { threshold }, UserOptIn])
-        let requires_2fa =
-            config.enabled && (amount >= config.threshold || vault.opt_in);
-
-        if requires_2fa {
-            // ── 1. Verify the Ed25519 bridge-signature proof ──────────────────
-            //       (passkey → bridge → chain)
-            verify_ed25519_proof(
-                &ctx.accounts.instructions,
-                &config.server_key,
-                &payload_hash,
-                expiry,
-            )?;
-
-            // ── 2. Enforce monotonic nonce (replay prevention) ────────────────
-            require!(
-                nonce == vault.next_nonce,
-                GuardError::InvalidNonce
-            );
-
-            // ── 3. Verify payload is bound to this exact call ─────────────────
-            let expected = compute_vault_payload_hash(
-                &ctx.program_id.to_string(),
-                &vault.key().to_string(),
-                amount,
-                nonce,
-                expiry,
-            );
-            require!(expected == payload_hash, GuardError::PayloadMismatch);
-        }
-
-        // Increment nonce regardless so each call is tracked.
-        vault.next_nonce = vault.next_nonce.checked_add(1)
-            .ok_or(GuardError::NonceOverflow)?;
-
-        // ── Execute withdrawal via lamport manipulation ───────────────────────
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let to_info    = ctx.accounts.to.to_account_info();
-
-        // Ensure vault stays rent-exempt after withdrawal.
-        let rent = Rent::get()?;
-        let min_balance = rent.minimum_balance(vault_info.data_len());
-        require!(
-            vault_info.lamports() >= amount + min_balance,
-            GuardError::InsufficientFunds
-        );
-
-        **vault_info.try_borrow_mut_lamports()? -= amount;
-        **to_info.try_borrow_mut_lamports()?   += amount;
-
-        emit!(WithdrawEvent {
-            vault:        ctx.accounts.vault.key(),
-            owner:        ctx.accounts.owner.key(),
-            to:           ctx.accounts.to.key(),
-            amount,
-            required_2fa: requires_2fa,
-        });
-
-        Ok(())
-    }
-
-    // ── Onchain 2FA Registry ──────────────────────────────────────────────────
-    //
-    //  Registers a second-factor public key directly onchain.
-    //  Supports secp256r1 (P-256) for passkeys and Ed25519 for hardware keys.
-    //  The bridge is demoted to a UX transport helper — it never holds secrets
-    //  and cannot forge proofs.  Security anchor = this PDA, not any server.
-
-    /// Register (or update) the caller's 2FA key in their onchain registry PDA.
-    ///
-    /// `key_kind`      — Secp256r1Passkey | Ed25519
-    /// `pubkey_bytes`  — 33-byte compressed P-256 pubkey, or 32-byte Ed25519 pubkey
-    /// `credential_id` — optional WebAuthn credential ID (stored for UX lookup)
+    /// Idempotent — re-registering updates the key.
+    /// The PDA (seeds: ["2fa", owner]) is the onchain source of truth.
+    /// No server required.
     pub fn register_two_fa(
         ctx: Context<RegisterTwoFa>,
         key_kind: KeyKind,
         pubkey_bytes: Vec<u8>,
         credential_id: Vec<u8>,
     ) -> Result<()> {
-        require!(!pubkey_bytes.is_empty(), GuardError::InvalidPubkeyLen);
         require!(
             pubkey_bytes.len() <= TwoFactorRegistry::MAX_PUBKEY_LEN,
-            GuardError::InvalidPubkeyLen
+            GuardError::InvalidProof
         );
         require!(
             credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
-            GuardError::InvalidPubkeyLen
+            GuardError::InvalidProof
         );
-        let reg        = &mut ctx.accounts.registry;
-        reg.owner      = ctx.accounts.owner.key();
-        reg.key_kind   = key_kind;
-        reg.pubkey_bytes  = pubkey_bytes;
-        reg.credential_id = credential_id;
-        reg.enabled    = true;
-        reg.nonce      = 0;
+
+        let r           = &mut ctx.accounts.registry;
+        r.owner         = ctx.accounts.owner.key();
+        r.key_kind      = key_kind;
+        r.pubkey_bytes  = pubkey_bytes;
+        r.credential_id = credential_id;
+        r.enabled       = true;
+        // Preserve nonce — re-registration must not reset replay protection
+        // r.nonce stays as-is (already zero on first init_if_needed)
         Ok(())
     }
 
-    /// Withdraw SOL from the vault using the caller's onchain 2FA registry.
+    // ── Data carrier ─────────────────────────────────────────────────────────
+
+    /// Pure data-carrier instruction. Carries WebAuthn proof data for
+    /// verify_via_sysvar to read from the Instructions sysvar.
     ///
-    /// Unlike `vault_withdraw` (which uses a shared bridge server key),
-    /// this instruction verifies a proof against the *caller's own* registered
-    /// 2FA public key.  No trusted bridge required.
-    ///
-    /// The proof must be a secp256r1 or Ed25519 precompile instruction at
-    /// index 0 of the transaction, signed by the registered key, covering
-    /// SHA256(canonical_vault_payload_json).
-    ///
-    /// Replay prevention: vault's monotonic next_nonce is embedded in the
-    /// canonical payload JSON at signing time.
-    pub fn registry_vault_withdraw(
-        ctx: Context<RegistryVaultWithdraw>,
-        amount: u64,
-        expiry: i64,
+    /// This instruction itself does nothing except validate version == 1.
+    /// It must be placed at ix[N-1] immediately before the protected instruction.
+    pub fn record_proof(
+        _ctx: Context<RecordProof>,
+        version: u8,
+        _expiry: i64,
+        _cluster: String,
+        _policy: String,
+        _authenticator_data: Vec<u8>,
+        _client_data_json: Vec<u8>,
     ) -> Result<()> {
-        require!(amount > 0, GuardError::ZeroAmount);
-
-        let nonce     = ctx.accounts.vault.next_nonce;
-        let vault_key = ctx.accounts.vault.key();
-
-        let payload_hash = compute_vault_payload_hash(
-            &ctx.program_id.to_string(),
-            &vault_key.to_string(),
-            amount,
-            nonce,
-            expiry,
-        );
-
-        match ctx.accounts.registry.key_kind {
-            KeyKind::Secp256r1Passkey => {
-                verify_secp256r1_proof(
-                    &ctx.accounts.instructions,
-                    &ctx.accounts.registry,
-                    &payload_hash,
-                    expiry,
-                    None,   // direct mode: vault uses payload_hash as message
-                )?;
-            }
-            KeyKind::Ed25519 => {
-                let pk: [u8; 32] = ctx.accounts.registry.pubkey_bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| error!(GuardError::InvalidPubkeyLen))?;
-                verify_ed25519_proof(
-                    &ctx.accounts.instructions,
-                    &Pubkey::from(pk),
-                    &payload_hash,
-                    expiry,
-                )?;
-            }
-        }
-
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let to_info    = ctx.accounts.to.to_account_info();
-
-        let rent        = Rent::get()?;
-        let min_balance = rent.minimum_balance(vault_info.data_len());
-        require!(
-            vault_info.lamports() >= amount + min_balance,
-            GuardError::InsufficientFunds
-        );
-
-        **vault_info.try_borrow_mut_lamports()? -= amount;
-        **to_info.try_borrow_mut_lamports()?   += amount;
-
-        ctx.accounts.vault.next_nonce = nonce
-            .checked_add(1)
-            .ok_or(GuardError::NonceOverflow)?;
+        require!(version == 1, GuardError::InvalidProof);
         Ok(())
     }
 
-    // ── Simple protected transfer (no vault, direct SOL) ──────────────────────
-    //
-    //  Demonstrates the enforcement primitive without vault custody.
-    //  Same policy; same proof mechanism.  Useful for threshold-transfer demos.
+    // ── Enforcement primitive ─────────────────────────────────────────────────
 
-    pub fn protected_transfer(
-        ctx: Context<ProtectedTransfer>,
-        amount: u64,
-        nonce: [u8; 32],
-        payload_hash: [u8; 32],
-        expiry: i64,
-        user_opt_in: bool,
-    ) -> Result<()> {
-        let config = &ctx.accounts.config;
-
-        // Any([HighValueTransfer { threshold }, UserOptIn])
-        let requires_2fa =
-            config.enabled && (amount >= config.threshold || user_opt_in);
-
-        if requires_2fa {
-            verify_ed25519_proof(
-                &ctx.accounts.instructions,
-                &config.server_key,
-                &payload_hash,
-                expiry,
-            )?;
-
-            let nonce_account = &mut ctx.accounts.nonce_account;
-            require!(!nonce_account.used, GuardError::NonceAlreadyUsed);
-            nonce_account.used = true;
-            nonce_account.bump = ctx.bumps.nonce_account;
-
-            let expected = compute_payload_hash(
-                &ctx.program_id.to_string(),
-                amount,
-                &nonce,
-                expiry,
-            );
-            require!(expected == payload_hash, GuardError::PayloadMismatch);
-        }
-
-        anchor_lang::solana_program::program::invoke(
-            &anchor_lang::solana_program::system_instruction::transfer(
-                &ctx.accounts.from.key(),
-                &ctx.accounts.to.key(),
-                amount,
-            ),
-            &[
-                ctx.accounts.from.to_account_info(),
-                ctx.accounts.to.to_account_info(),
-            ],
-        )?;
-
-        emit!(TransferEvent {
-            from:         ctx.accounts.from.key(),
-            to:           ctx.accounts.to.key(),
-            amount,
-            required_2fa: requires_2fa,
-        });
-
-        Ok(())
+    /// The core integration point. External programs call this via CPI.
+    ///
+    /// Reads proof data from the Instructions sysvar (ix[N-1] = record_proof,
+    /// ix[N-2] = secp256r1 precompile), verifies the P-256 signature, and
+    /// increments the registry nonce to prevent replay.
+    ///
+    /// On success: emits an event with the policy name (visible in logs).
+    /// On failure: returns a specific error code.
+    ///
+    /// Integration:
+    ///   guard::cpi::enforce(cpi_ctx)?;  ← entire integration
+    pub fn enforce(ctx: Context<Enforce>) -> Result<()> {
+        let owner_key = ctx.accounts.owner.key();
+        verify_via_sysvar(
+            &ctx.accounts.instructions,
+            &mut ctx.accounts.registry,
+            &owner_key,
+            ctx.program_id,
+        )
     }
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── Core: sysvar-based WebAuthn proof verification ────────────────────────────
+//
+// Called by enforce() — no WebAuthn data passes through instruction params.
+//
+// Steps:
+//   1. Read ProofData from record_proof at ix[N-1]
+//   2. Read protected instruction at ix[N] → derive target, accounts_hash, params_hash
+//   3. Expiry check
+//   4. Compute intent hash (canonical binary encoding)
+//   5. Challenge binding: base64url(clientDataJSON.challenge) == intentHash
+//   6. WebAuthn e-value: SHA-256(authData ‖ SHA-256(clientDataJSON))
+//   7. secp256r1 at ix[N-2]: verify pubkey matches registry, msg == e-value
+//   8. Consume nonce (increment — prevents replay)
+//   9. Emit ProofVerified event (policy visible in transaction logs)
 
-/// Validate that a successful Ed25519 precompile verify instruction appears at
-/// index 0 of the current transaction, signed by `expected_signer`, covering
-/// `expected_message`.
-///
-/// Precompiles are NOT callable via CPI — they must be top-level instructions.
-/// The guarded instruction validates the precompile result via the Instructions
-/// sysvar (which contains top-level instructions only).
-///
-/// Ed25519 instruction data layout (Solana spec):
-///   [0]      num_signatures (u8)
-///   [1]      padding
-///   per-sig header starting at [2] (14 bytes each):
-///     [2..4]   sig_offset   → 64-byte signature
-///     [4..6]   sig_ix_idx
-///     [6..8]   pk_offset    → 32-byte pubkey
-///     [8..10]  pk_ix_idx
-///     [10..12] msg_offset   → message bytes
-///     [12..14] msg_size
-///     [14..16] msg_ix_idx
-fn verify_ed25519_proof(
-    ix_sysvar: &AccountInfo,
-    expected_signer: &Pubkey,
-    expected_message: &[u8; 32],
-    expiry: i64,
+fn verify_via_sysvar(
+    ix_sysvar:        &AccountInfo,
+    registry:         &mut TwoFactorRegistry,
+    owner:            &Pubkey,
+    guard_program_id: &Pubkey,
 ) -> Result<()> {
-    // Expiry check first — cheapest.
+    // ── 0. Index bounds ───────────────────────────────────────────────────────
+    let current_idx = load_current_index_checked(ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+
+    require!(current_idx >= 2, GuardError::MissingProof);
+
+    // ── 1. Load ProofData from record_proof at ix[N-1] ────────────────────────
+    let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
+
+    // ── 2. Load protected instruction at ix[N] ────────────────────────────────
+    //
+    // When called via CPI, load_current_index_checked returns the top-level
+    // instruction's index — exactly the protected instruction we need to bind to.
+    let protected_ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+
+    let target_program_id = protected_ix.program_id;
+
+    require!(protected_ix.data.len() >= 8, GuardError::InvalidProof);
+    let mut discriminator = [0u8; 8];
+    discriminator.copy_from_slice(&protected_ix.data[..8]);
+
+    let mut acc_bytes: Vec<u8> = Vec::with_capacity(protected_ix.accounts.len() * 32);
+    for meta in &protected_ix.accounts {
+        acc_bytes.extend_from_slice(meta.pubkey.as_ref());
+    }
+    let accounts_hash = sha256_bytes(&acc_bytes);
+    let params_hash   = sha256_bytes(&protected_ix.data[8..]);
+
+    // ── 3. Expiry ──────────────────────────────────────────────────────────────
     let clock = Clock::get()?;
-    require!(clock.unix_timestamp < expiry, GuardError::ProofExpired);
+    require!(clock.unix_timestamp < proof.expiry, GuardError::ProofExpired);
 
-    let verify_ix =
-        load_instruction_at_checked(0, ix_sysvar)
-            .map_err(|_| error!(GuardError::MissingProof))?;
-
-    let ed25519_id: Pubkey = ED25519_PROGRAM_ID.parse().unwrap();
-    require!(
-        verify_ix.program_id == ed25519_id,
-        GuardError::MissingProof
+    // ── 4. Intent hash ────────────────────────────────────────────────────────
+    let intent_hash = compute_intent_hash(
+        INTENT_DOMAIN,
+        &proof.cluster,
+        owner,
+        guard_program_id,
+        &target_program_id,
+        &proof.policy,
+        &discriminator,
+        &accounts_hash,
+        &params_hash,
+        registry.nonce,
+        proof.expiry,
     );
 
-    let data = &verify_ix.data;
-    require!(data.len() >= 16, GuardError::InvalidProof);
+    // ── 5. Challenge binding ──────────────────────────────────────────────────
+    let challenge_b64 = extract_challenge(&proof.client_data_json)
+        .ok_or_else(|| error!(GuardError::InvalidProof))?;
+    let challenge_bytes = base64url_decode(challenge_b64)
+        .ok_or_else(|| error!(GuardError::InvalidProof))?;
+    require!(
+        challenge_bytes.as_slice() == intent_hash.as_ref(),
+        GuardError::PayloadMismatch
+    );
 
-    let pk_offset  = u16::from_le_bytes([data[6],  data[7]])  as usize;
-    let msg_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
-    let msg_size   = u16::from_le_bytes([data[12], data[13]]) as usize;
+    // ── 6. WebAuthn e-value ───────────────────────────────────────────────────
+    //
+    // The secp256r1 precompile hashes the message field with SHA-256 before
+    // verifying. We therefore pass the raw pre-hash bytes:
+    //   authenticatorData ‖ SHA-256(clientDataJSON)
+    //
+    // The precompile computes SHA-256 of that → the ECDSA e-value.
+    // We verify the same thing here: SHA-256(proof_message) == expected_e_value.
+    let client_data_hash = sha256_bytes(&proof.client_data_json);
+    let mut combined = Vec::with_capacity(proof.authenticator_data.len() + 32);
+    combined.extend_from_slice(&proof.authenticator_data);
+    combined.extend_from_slice(&client_data_hash);
+    let expected_e_value = sha256_bytes(&combined);
 
-    require!(data.len() >= pk_offset  + 32,      GuardError::InvalidProof);
-    require!(data.len() >= msg_offset + msg_size, GuardError::InvalidProof);
-
-    let pubkey_bytes  = &data[pk_offset..pk_offset + 32];
-    let message_bytes = &data[msg_offset..msg_offset + msg_size];
-
-    require!(pubkey_bytes  == expected_signer.as_ref(), GuardError::WrongSigner);
-    require!(message_bytes == expected_message.as_ref(), GuardError::PayloadMismatch);
-
-    Ok(())
-}
-
-/// Validate a secp256r1 (P-256) precompile instruction at index 0 of the
-/// current transaction.
-///
-/// Secp256r1 instruction data layout (HAS padding byte, same as Ed25519):
-///   [0]      num_signatures (u8)
-///   [1]      padding (u8)
-///   per-sig header starting at [2] (14 bytes):
-///     [2..4]   sig_offset   → 64-byte compact (r‖s) signature
-///     [4..6]   sig_ix_idx
-///     [6..8]   pk_offset    → 33-byte compressed P-256 pubkey
-///     [8..10]  pk_ix_idx
-///     [10..12] msg_offset   → message bytes
-///     [12..14] msg_size
-///     [14..16] msg_ix_idx
-///
-/// Two verification modes (selected by `webauthn` parameter):
-///
-/// **WebAuthn mode** (`webauthn = Some(...)`):
-///   message in precompile == authenticatorData || SHA256(clientDataJSON)
-///   clientDataJSON.challenge (base64url) == payload_hash
-///   authenticatorData flags bit 0 (user presence) must be set
-///   This is the production path for real passkeys (Touch ID, Face ID, YubiKey).
-///
-/// **Direct mode** (`webauthn = None`):
-///   message in precompile == payload_hash (32 bytes)
-///   This is the test / direct P-256 signing path.
-fn verify_secp256r1_proof(
-    ix_sysvar:             &AccountInfo,
-    registry:              &TwoFactorRegistry,
-    expected_payload_hash: &[u8; 32],
-    expiry:                i64,
-    webauthn:              Option<&WebAuthnData>,
-) -> Result<()> {
-    let clock = Clock::get()?;
-    require!(clock.unix_timestamp < expiry, GuardError::ProofExpired);
-
-    let secp_ix = load_instruction_at_checked(0, ix_sysvar)
-        .map_err(|_| error!(GuardError::MissingProof))?;
+    // ── 7. secp256r1 precompile at ix[N-2] ───────────────────────────────────
+    let secp_idx = (current_idx - 2) as usize;
+    let secp_ix  = load_instruction_at_checked(secp_idx, ix_sysvar)
+        .map_err(|_| { msg!("TRANA_MISSING_PROOF"); error!(GuardError::MissingProof) })?;
 
     let secp_id: Pubkey = SECP256R1_PROGRAM_ID.parse().unwrap();
-    require!(secp_ix.program_id == secp_id, GuardError::MissingProof);
+    if secp_ix.program_id != secp_id {
+        msg!("TRANA_MISSING_PROOF");
+        return Err(error!(GuardError::MissingProof));
+    }
 
     let data = &secp_ix.data;
     require!(data.len() >= 16 && data[0] == 1, GuardError::InvalidProof);
 
-    // Parse SignatureOffsets (starts at byte 2 — byte 1 is padding)
     let pk_offset  = u16::from_le_bytes([data[6],  data[7]])  as usize;
     let msg_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
     let msg_size   = u16::from_le_bytes([data[12], data[13]]) as usize;
 
-    require!(data.len() >= pk_offset + 33,        GuardError::InvalidProof);
-    require!(data.len() >= msg_offset + msg_size,  GuardError::InvalidProof);
+    require!(data.len() >= pk_offset  + 33,      GuardError::InvalidProof);
+    require!(data.len() >= msg_offset + msg_size, GuardError::InvalidProof);
+    require!(msg_size > 0,                        GuardError::InvalidProof);
 
     let proof_pubkey  = &data[pk_offset..pk_offset + 33];
     let proof_message = &data[msg_offset..msg_offset + msg_size];
 
-    // Pubkey must match the caller's registered 2FA key.
-    require!(
-        proof_pubkey == registry.pubkey_bytes.as_slice(),
-        GuardError::WrongSigner
+    // The precompile hashes the message; we verify the same:
+    // SHA-256(proof_message) must equal the expected WebAuthn e-value.
+    let proof_message_hash = sha256_bytes(proof_message);
+
+    require!(proof_pubkey          == registry.pubkey_bytes.as_slice(), GuardError::WrongSigner);
+    require!(proof_message_hash    == expected_e_value,                 GuardError::PayloadMismatch);
+
+    // ── 8. Consume nonce ──────────────────────────────────────────────────────
+    let old_nonce = registry.nonce;
+    registry.nonce = registry.nonce
+        .checked_add(1)
+        .ok_or(GuardError::NonceOverflow)?;
+
+    // ── 9. Policy log — visible in transaction logs for zero-trust auditing ───
+    msg!(
+        "TRANA enforce | policy={} | target={} | nonce={}",
+        proof.policy,
+        target_program_id,
+        old_nonce,
     );
 
-    if let Some(wa) = webauthn {
-        // ── WebAuthn mode: full passkey binding verification ──────────────────
-        //
-        // The precompile message is: authenticatorData || SHA256(clientDataJSON)
-        // (this is exactly what a WebAuthn authenticator signs)
-
-        require!(wa.authenticator_data.len() >= 37, GuardError::InvalidProof);
-
-        // 1. Verify user presence flag (bit 0 of authenticatorData[32])
-        let flags = wa.authenticator_data[32];
-        require!((flags & 0x01) != 0, GuardError::MissingProof);
-
-        // 2. Reconstruct expected message and compare against precompile
-        let client_data_hash = sha256_bytes(&wa.client_data_json);
-        let mut expected_message = Vec::with_capacity(
-            wa.authenticator_data.len() + 32
-        );
-        expected_message.extend_from_slice(&wa.authenticator_data);
-        expected_message.extend_from_slice(&client_data_hash);
-
-        require!(
-            proof_message == expected_message.as_slice(),
-            GuardError::PayloadMismatch
-        );
-
-        // 3. Verify challenge binding: clientDataJSON.challenge == base64url(payload_hash)
-        let challenge_bytes = extract_challenge_from_client_data(&wa.client_data_json)
-            .ok_or_else(|| error!(GuardError::InvalidProof))?;
-        require!(
-            challenge_bytes.as_slice() == expected_payload_hash.as_ref(),
-            GuardError::PayloadMismatch
-        );
-
-    } else {
-        // ── Direct mode: message == payload_hash (32 bytes) ──────────────────
-        // Used for tests and non-WebAuthn P-256 signing.
-        require!(
-            proof_message == expected_payload_hash.as_ref(),
-            GuardError::PayloadMismatch
-        );
-    }
+    emit!(ProofVerified {
+        owner:      *owner,
+        policy:     proof.policy.clone(),
+        target:     target_program_id,
+        nonce:      old_nonce,
+        expiry:     proof.expiry,
+    });
 
     Ok(())
 }
 
+/// Deserialise the `record_proof` instruction at ix[current_idx - 1].
+fn load_proof_from_preceding_ix(
+    ix_sysvar:   &AccountInfo,
+    current_idx: u16,
+) -> Result<ProofData> {
+    let idx = (current_idx as usize) - 1;
+    let proof_ix = load_instruction_at_checked(idx, ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+
+    let disc = &sha256_bytes(b"global:record_proof")[..8];
+    require!(proof_ix.data.len() >= 8,      GuardError::InvalidProof);
+    require!(&proof_ix.data[..8] == disc,   GuardError::InvalidProof);
+
+    ProofData::try_from_slice(&proof_ix.data[8..])
+        .map_err(|_| error!(GuardError::InvalidProof))
+}
+
+// ── Intent hash ───────────────────────────────────────────────────────────────
+//
+// Canonical binary encoding — must match TypeScript's hashIntent() exactly.
+// Length prefixes are u16 LE. All integers little-endian.
+//
+//   version (u8 = 1)
+//   domain  (u16-LE + UTF-8)
+//   cluster (u16-LE + UTF-8)
+//   wallet (32), guardProgramId (32), targetProgramId (32)
+//   policy  (u16-LE + UTF-8)
+//   discriminator (8), accountsHash (32), paramsHash (32)
+//   nonce (u64 LE, 8), expiry (i64 LE, 8)
+
+fn compute_intent_hash(
+    domain:            &str,
+    cluster:           &str,
+    wallet:            &Pubkey,
+    guard_program_id:  &Pubkey,
+    target_program_id: &Pubkey,
+    policy_id:         &str,
+    discriminator:     &[u8; 8],
+    accounts_hash:     &[u8; 32],
+    params_hash:       &[u8; 32],
+    nonce:             u64,
+    expiry:            i64,
+) -> [u8; 32] {
+    let domain_b  = domain.as_bytes();
+    let cluster_b = cluster.as_bytes();
+    let policy_b  = policy_id.as_bytes();
+
+    let mut buf = Vec::with_capacity(
+        1 + 2 + domain_b.len() + 2 + cluster_b.len()
+        + 32 + 32 + 32
+        + 2 + policy_b.len() + 8 + 32 + 32 + 8 + 8,
+    );
+
+    buf.push(1u8);
+    buf.extend_from_slice(&(domain_b.len()  as u16).to_le_bytes()); buf.extend_from_slice(domain_b);
+    buf.extend_from_slice(&(cluster_b.len() as u16).to_le_bytes()); buf.extend_from_slice(cluster_b);
+    buf.extend_from_slice(wallet.as_ref());
+    buf.extend_from_slice(guard_program_id.as_ref());
+    buf.extend_from_slice(target_program_id.as_ref());
+    buf.extend_from_slice(&(policy_b.len()  as u16).to_le_bytes()); buf.extend_from_slice(policy_b);
+    buf.extend_from_slice(discriminator);
+    buf.extend_from_slice(accounts_hash);
+    buf.extend_from_slice(params_hash);
+    buf.extend_from_slice(&nonce.to_le_bytes());
+    buf.extend_from_slice(&expiry.to_le_bytes());
+
+    sha256_bytes(&buf)
+}
+
 // ── WebAuthn helpers ──────────────────────────────────────────────────────────
 
-/// SHA-256 hash of arbitrary bytes.
+fn extract_challenge(client_data_json: &[u8]) -> Option<&[u8]> {
+    const KEY: &[u8] = b"\"challenge\":\"";
+    let start = client_data_json.windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let end   = client_data_json[start..].iter().position(|&b| b == b'"')? + start;
+    Some(&client_data_json[start..end])
+}
+
+fn base64url_decode(input: &[u8]) -> Option<Vec<u8>> {
+    if input.is_empty() { return Some(vec![]); }
+    let mut out = Vec::with_capacity((input.len() * 3 + 3) / 4);
+    let mut acc: u32 = 0;
+    let mut acc_len: u32 = 0;
+    for &c in input {
+        let val: u32 = match c {
+            b'A'..=b'Z' => (c - b'A') as u32,
+            b'a'..=b'z' => (c - b'a') as u32 + 26,
+            b'0'..=b'9' => (c - b'0') as u32 + 52,
+            b'-' | b'+' => 62,
+            b'_' | b'/' => 63,
+            b'='         => continue,
+            _            => return None,
+        };
+        acc = (acc << 6) | val;
+        acc_len += 6;
+        if acc_len >= 8 {
+            acc_len -= 8;
+            out.push((acc >> acc_len) as u8);
+            acc &= (1 << acc_len) - 1;
+        }
+    }
+    Some(out)
+}
+
 fn sha256_bytes(data: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(data);
     h.finalize().into()
 }
 
-/// Extract and base64url-decode the `challenge` field from WebAuthn clientDataJSON.
-///
-/// clientDataJSON is UTF-8 JSON:
-///   `{"type":"webauthn.get","challenge":"<base64url>","origin":"...",...}`
-///
-/// This uses a simple byte-scan rather than a full JSON parser to stay
-/// dependency-free.  The Trana payload hash was set as the challenge, so
-/// decoding it gives us the 32-byte payload hash to compare against.
-fn extract_challenge_from_client_data(client_data_json: &[u8]) -> Option<Vec<u8>> {
-    let json = core::str::from_utf8(client_data_json).ok()?;
-    let marker = r#""challenge":""#;
-    let start = json.find(marker)? + marker.len();
-    let end   = json[start..].find('"')? + start;
-    base64url_decode(json[start..end].as_bytes())
-}
-
-/// Minimal base64url decoder (RFC 4648 §5, no padding required).
-fn base64url_decode(input: &[u8]) -> Option<Vec<u8>> {
-    // Build lookup table: value for each ASCII byte, 0xFF = invalid
-    let mut lut = [0xFF_u8; 256];
-    for (i, &c) in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-        .iter()
-        .enumerate()
-    {
-        lut[c as usize] = i as u8;
-    }
-
-    let mut out   = Vec::with_capacity((input.len() * 3 + 3) / 4);
-    let mut bits  = 0u32;
-    let mut count = 0u32;
-
-    for &c in input {
-        if c == b'=' { break; }
-        let v = lut[c as usize];
-        if v == 0xFF { return None; }
-        bits   = (bits << 6) | v as u32;
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            out.push(((bits >> count) & 0xFF) as u8);
-        }
-    }
-
-    Some(out)
-}
-
-/// Canonical payload hash for `protected_transfer`.
-/// Must match SDK's `canonicalJson` key order exactly.
-fn compute_payload_hash(
-    program_id: &str,
-    amount: u64,
-    nonce: &[u8; 32],
-    expiry: i64,
-) -> [u8; 32] {
-    let json = format!(
-        r#"{{"programId":"{}","instruction":"transfer","amount":{},"nonce":"{}","expiry":{}}}"#,
-        program_id,
-        amount,
-        hex_encode(nonce),
-        expiry
-    );
-    sha256_str(&json)
-}
-
-/// Canonical payload hash for `vault_withdraw`.
-/// Must match SDK's `canonicalVaultJson` key order exactly.
-fn compute_vault_payload_hash(
-    program_id: &str,
-    vault_address: &str,
-    amount: u64,
-    nonce: u64,
-    expiry: i64,
-) -> [u8; 32] {
-    let json = format!(
-        r#"{{"programId":"{}","instruction":"vault_withdraw","vault":"{}","amount":{},"nonce":{},"expiry":{}}}"#,
-        program_id,
-        vault_address,
-        amount,
-        nonce,
-        expiry
-    );
-    sha256_str(&json)
-}
-
-fn sha256_str(s: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    hasher.finalize().into()
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
 // ── Accounts ──────────────────────────────────────────────────────────────────
-
-#[derive(Accounts)]
-pub struct Initialize<'info> {
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + Config::INIT_SPACE,
-        seeds = [b"config"],
-        bump
-    )]
-    pub config: Account<'info, Config>,
-
-    /// CHECK: only the public key is stored — no data is read from this account.
-    pub server_key: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UpdateConfig<'info> {
-    #[account(
-        mut,
-        seeds = [b"config"],
-        bump = config.bump,
-        has_one = authority
-    )]
-    pub config: Account<'info, Config>,
-
-    pub authority: Signer<'info>,
-
-    /// CHECK: only the public key is stored.
-    pub server_key: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-pub struct InitVault<'info> {
-    #[account(
-        init,
-        payer = owner,
-        space = 8 + VaultState::INIT_SPACE,
-        seeds = [b"vault", owner.key().as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, VaultState>,
-
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct Deposit<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", owner.key().as_ref()],
-        bump = vault.bump,
-        has_one = owner
-    )]
-    pub vault: Account<'info, VaultState>,
-
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-#[instruction(amount: u64, nonce: u64)]
-pub struct VaultWithdraw<'info> {
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-
-    #[account(
-        mut,
-        seeds = [b"vault", owner.key().as_ref()],
-        bump = vault.bump,
-        has_one = owner
-    )]
-    pub vault: Account<'info, VaultState>,
-
-    pub owner: Signer<'info>,
-
-    /// CHECK: destination wallet — any valid account.
-    #[account(mut)]
-    pub to: UncheckedAccount<'info>,
-
-    /// CHECK: Solana instructions sysvar.
-    #[account(address = INSTRUCTIONS_ID)]
-    pub instructions: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-#[instruction(amount: u64, nonce: [u8; 32])]
-pub struct ProtectedTransfer<'info> {
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-
-    #[account(
-        init_if_needed,
-        payer = from,
-        space = 8 + NonceAccount::INIT_SPACE,
-        seeds = [b"nonce", nonce.as_ref()],
-        bump
-    )]
-    pub nonce_account: Account<'info, NonceAccount>,
-
-    #[account(mut)]
-    pub from: Signer<'info>,
-
-    /// CHECK: destination wallet.
-    #[account(mut)]
-    pub to: UncheckedAccount<'info>,
-
-    /// CHECK: Solana instructions sysvar.
-    #[account(address = INSTRUCTIONS_ID)]
-    pub instructions: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-// ── Enforce (CPI endpoint) ────────────────────────────────────────────────────
-
-/// Accounts required when calling `guard::cpi::enforce` from an external program.
-///
-/// The calling program must pass:
-///   - `registry`     — the authority's Trana registry PDA: `[b"2fa", authority]`
-///   - `instructions` — `SYSVAR_INSTRUCTIONS_PUBKEY`
-#[derive(Accounts)]
-pub struct Enforce<'info> {
-    /// The authority's 2FA registry PDA.
-    /// Derived by the calling program: `[b"2fa", authority.key()]`
-    #[account(
-        seeds = [b"2fa", registry.owner.as_ref()],
-        bump,
-        constraint = registry.enabled @ GuardError::RegistryDisabled,
-    )]
-    pub registry: Account<'info, TwoFactorRegistry>,
-
-    /// CHECK: Solana Instructions sysvar.
-    /// Trana reads this to locate the precompile proof at instruction index 0.
-    #[account(address = INSTRUCTIONS_ID)]
-    pub instructions: UncheckedAccount<'info>,
-}
-
-// ── 2FA Registry accounts ─────────────────────────────────────────────────────
 
 #[derive(Accounts)]
 pub struct RegisterTwoFa<'info> {
@@ -884,110 +411,43 @@ pub struct RegisterTwoFa<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// No on-chain accounts — record_proof is a pure data carrier.
+/// Instructions sysvar included to satisfy Anchor's 'info lifetime.
 #[derive(Accounts)]
-pub struct RegistryVaultWithdraw<'info> {
+pub struct RecordProof<'info> {
+    /// CHECK: Solana Instructions sysvar — read-only context
+    #[account(address = INSTRUCTIONS_ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
+
+/// Accounts for the enforce() CPI primitive.
+/// External programs supply these when calling guard::cpi::enforce().
+#[derive(Accounts)]
+pub struct Enforce<'info> {
+    /// Registry PDA — nonce is incremented on every successful verification.
     #[account(
         mut,
-        seeds = [b"vault", owner.key().as_ref()],
-        bump = vault.bump,
-        has_one = owner,
-    )]
-    pub vault: Account<'info, VaultState>,
-
-    #[account(
         seeds = [b"2fa", owner.key().as_ref()],
         bump,
         constraint = registry.enabled @ GuardError::RegistryDisabled,
     )]
     pub registry: Account<'info, TwoFactorRegistry>,
 
+    /// The wallet whose registered passkey must authorize this action.
     pub owner: Signer<'info>,
 
-    /// CHECK: withdrawal destination
-    #[account(mut)]
-    pub to: UncheckedAccount<'info>,
-
-    /// CHECK: Solana Instructions sysvar
+    /// CHECK: Solana Instructions sysvar — used to read proof + protected ix.
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-#[account]
-#[derive(InitSpace)]
-pub struct Config {
-    pub authority:  Pubkey, // 32
-    pub server_key: Pubkey, // 32
-    pub threshold:  u64,    // 8
-    pub enabled:    bool,   // 1
-    pub bump:       u8,     // 1
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct VaultState {
-    /// Wallet that controls this vault.
-    pub owner:       Pubkey, // 32
-    /// Monotonic nonce — incremented on every withdraw call.
-    /// Prevents replay: a proof for nonce N cannot be reused for nonce N+1.
-    pub next_nonce:  u64,    // 8
-    /// User opted into always requiring 2FA regardless of threshold.
-    pub opt_in:      bool,   // 1
-    pub bump:        u8,     // 1
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct NonceAccount {
-    pub used: bool, // 1
-    pub bump: u8,   // 1
-}
-
-/// WebAuthn assertion data for full passkey proof verification.
-///
-/// Pass this to `enforce` when the proof was produced by a real WebAuthn
-/// authenticator (Touch ID, Face ID, YubiKey).  The program will verify:
-///   - precompile message == authenticatorData || SHA256(clientDataJSON)
-///   - clientDataJSON.challenge (base64url) == payload_hash
-///   - authenticatorData flags include user presence (bit 0)
-///
-/// Pass `None` for tests / direct P-256 signing (message == payload_hash).
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct WebAuthnData {
-    /// Raw authenticatorData bytes from the WebAuthn assertion response.
-    /// Layout: rpIdHash(32) | flags(1) | signCount(4) | extensions(var)
-    pub authenticator_data: Vec<u8>,
-    /// Raw clientDataJSON bytes (UTF-8 JSON).
-    /// Must contain: {"type":"webauthn.get","challenge":"<base64url>","origin":"..."}
-    pub client_data_json: Vec<u8>,
-}
-
-/// Which policy rule the calling program passed to `enforce`.
-///
-/// The program does not make behavioral changes based on the policy variant
-/// in V1 — all variants result in mandatory proof verification.  The policy
-/// is stored in the emitted event for audit / analytics purposes, and gives
-/// integrators a structured label for why enforcement was triggered.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub enum Policy {
-    /// An administrative instruction: upgrade authority, parameter change, migration.
-    AdminAction,
-    /// A high-value transfer.  `amount` is lamports.
-    HighValueTransfer { amount: u64 },
-    /// A vault withdrawal.
-    VaultWithdraw,
-    /// Always enforce regardless of context.
-    Always,
-}
-
-/// Which curve / protocol the registered 2FA key uses.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum KeyKind {
-    /// P-256 / secp256r1 — the curve used by WebAuthn passkeys and most
-    /// hardware authenticators (Touch ID, Face ID, YubiKey P-256 mode).
+    /// P-256 / secp256r1 — WebAuthn passkeys (Touch ID, Face ID, YubiKey).
     Secp256r1Passkey,
-    /// Ed25519 — used by hardware signing devices or a dedicated keypair.
+    /// Ed25519 — hardware signing devices or dedicated keypairs.
     Ed25519,
 }
 
@@ -995,99 +455,66 @@ pub enum KeyKind {
 ///
 /// Seeds: `[b"2fa", owner]`
 ///
-/// Stores the user's second-factor public key.  The bridge is only a UX
-/// transport — it never holds a secret and cannot forge proofs.
-/// The security anchor is this PDA, not any off-chain service.
+/// `nonce` is incremented on every successful passkey proof verification —
+/// old proofs cannot be replayed even if the signed intent was valid.
 #[account]
 pub struct TwoFactorRegistry {
     pub owner:         Pubkey,    // 32
-    pub key_kind:      KeyKind,   // 1
-    pub pubkey_bytes:  Vec<u8>,   // 4 + up to 33 (secp256r1 compressed)
-    pub credential_id: Vec<u8>,   // 4 + up to 128 (WebAuthn credential ID)
-    pub enabled:       bool,      // 1
-    pub nonce:         u64,       // 8  (reserved for future registry-level replay)
+    pub key_kind:      KeyKind,   //  1
+    pub pubkey_bytes:  Vec<u8>,   //  4 + up to 33  (P-256 compressed)
+    pub credential_id: Vec<u8>,   //  4 + up to 128 (WebAuthn credential ID)
+    pub enabled:       bool,      //  1
+    pub nonce:         u64,       //  8  — replay prevention counter
 }
 
 impl TwoFactorRegistry {
     pub const MAX_PUBKEY_LEN:  usize = 33;
     pub const MAX_CRED_ID_LEN: usize = 128;
-    /// Discriminator(8) + owner(32) + key_kind(1) + pubkey(4+33) + cred_id(4+128) + enabled(1) + nonce(8)
+    /// discriminator(8) + owner(32) + key_kind(1) + pubkey(4+33) + cred_id(4+128) + enabled(1) + nonce(8)
     pub const SPACE: usize = 8 + 32 + 1 + (4 + 33) + (4 + 128) + 1 + 8; // = 219
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-/// Emitted every time `enforce` is called and the proof is valid.
-/// Provides an onchain audit trail of what was authorized, by whom, and why.
+/// Emitted on every successful proof verification.
+/// Policy + target program are visible in on-chain transaction logs.
+/// This is the zero-trust audit trail.
 #[event]
-pub struct EnforceEvent {
-    pub authority:    Pubkey,
-    pub registry:     Pubkey,
-    pub policy:       Policy,
-    pub payload_hash: [u8; 32],
-}
-
-#[event]
-pub struct DepositEvent {
-    pub vault:  Pubkey,
+pub struct ProofVerified {
+    /// The wallet that authorized the action.
     pub owner:  Pubkey,
-    pub amount: u64,
-}
-
-#[event]
-pub struct WithdrawEvent {
-    pub vault:        Pubkey,
-    pub owner:        Pubkey,
-    pub to:           Pubkey,
-    pub amount:       u64,
-    pub required_2fa: bool,
-}
-
-#[event]
-pub struct TransferEvent {
-    pub from:         Pubkey,
-    pub to:           Pubkey,
-    pub amount:       u64,
-    pub required_2fa: bool,
+    /// Application-defined policy that triggered enforcement (e.g. "transfer.large").
+    pub policy: String,
+    /// The program whose instruction was protected.
+    pub target: Pubkey,
+    /// The nonce that was consumed (now invalid — cannot be replayed).
+    pub nonce:  u64,
+    /// Unix timestamp when this proof expires.
+    pub expiry: i64,
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 #[error_code]
 pub enum GuardError {
-    #[msg("2FA proof required — no Ed25519 verify instruction found at index 0")]
+    #[msg("Missing secp256r1 or record_proof instruction before the protected instruction")]
     MissingProof,
-
-    #[msg("Ed25519 verify instruction has an invalid format")]
-    InvalidProof,
-
-    #[msg("Proof was not signed by the trusted bridge server key")]
-    WrongSigner,
-
-    #[msg("Proof payload does not match this instruction's parameters")]
-    PayloadMismatch,
 
     #[msg("Proof has expired")]
     ProofExpired,
 
-    #[msg("Nonce already used — replay rejected")]
-    NonceAlreadyUsed,
+    #[msg("Intent hash does not match — transaction parameters were tampered")]
+    PayloadMismatch,
 
-    #[msg("Invalid nonce — expected the vault's next_nonce")]
-    InvalidNonce,
+    #[msg("Proof was signed by a key not in the registry")]
+    WrongSigner,
+
+    #[msg("Registry is disabled — register a passkey first")]
+    RegistryDisabled,
+
+    #[msg("Invalid proof data")]
+    InvalidProof,
 
     #[msg("Nonce overflow")]
     NonceOverflow,
-
-    #[msg("Insufficient vault balance (after maintaining rent-exempt minimum)")]
-    InsufficientFunds,
-
-    #[msg("Amount must be greater than zero")]
-    ZeroAmount,
-
-    #[msg("2FA registry is disabled for this account")]
-    RegistryDisabled,
-
-    #[msg("Public key length is invalid for the specified key kind")]
-    InvalidPubkeyLen,
 }

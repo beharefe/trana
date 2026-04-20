@@ -1,0 +1,370 @@
+{
+  "address": "572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6",
+  "metadata": {
+    "name": "guard",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Transaction Authorization Guard — Solana 2FA enforcement program"
+  },
+  "instructions": [
+    {
+      "name": "enforce",
+      "docs": [
+        "The core integration point. External programs call this via CPI.",
+        "",
+        "Reads proof data from the Instructions sysvar (ix[N-1] = record_proof,",
+        "ix[N-2] = secp256r1 precompile), verifies the P-256 signature, and",
+        "increments the registry nonce to prevent replay.",
+        "",
+        "On success: emits an event with the policy name (visible in logs).",
+        "On failure: returns a specific error code.",
+        "",
+        "Integration:",
+        "guard::cpi::enforce(cpi_ctx)?;  ← entire integration"
+      ],
+      "discriminator": [
+        145,
+        247,
+        86,
+        94,
+        97,
+        48,
+        101,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "registry",
+          "docs": [
+            "Registry PDA — nonce is incremented on every successful verification."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  50,
+                  102,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "The wallet whose registered passkey must authorize this action."
+          ],
+          "signer": true
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "record_proof",
+      "docs": [
+        "Pure data-carrier instruction. Carries WebAuthn proof data for",
+        "verify_via_sysvar to read from the Instructions sysvar.",
+        "",
+        "This instruction itself does nothing except validate version == 1.",
+        "It must be placed at ix[N-1] immediately before the protected instruction."
+      ],
+      "discriminator": [
+        144,
+        172,
+        144,
+        35,
+        124,
+        170,
+        93,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "version",
+          "type": "u8"
+        },
+        {
+          "name": "_expiry",
+          "type": "i64"
+        },
+        {
+          "name": "_cluster",
+          "type": "string"
+        },
+        {
+          "name": "_policy",
+          "type": "string"
+        },
+        {
+          "name": "_authenticator_data",
+          "type": "bytes"
+        },
+        {
+          "name": "_client_data_json",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "register_two_fa",
+      "docs": [
+        "Register a P-256 passkey in the caller's onchain registry PDA.",
+        "",
+        "Idempotent — re-registering updates the key.",
+        "The PDA (seeds: [\"2fa\", owner]) is the onchain source of truth.",
+        "No server required."
+      ],
+      "discriminator": [
+        208,
+        119,
+        132,
+        246,
+        251,
+        236,
+        119,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  50,
+                  102,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "key_kind",
+          "type": {
+            "defined": {
+              "name": "KeyKind"
+            }
+          }
+        },
+        {
+          "name": "pubkey_bytes",
+          "type": "bytes"
+        },
+        {
+          "name": "credential_id",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "TwoFactorRegistry",
+      "discriminator": [
+        132,
+        127,
+        42,
+        232,
+        223,
+        227,
+        161,
+        91
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ProofVerified",
+      "discriminator": [
+        181,
+        54,
+        148,
+        211,
+        237,
+        73,
+        131,
+        232
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "MissingProof",
+      "msg": "Missing secp256r1 or record_proof instruction before the protected instruction"
+    },
+    {
+      "code": 6001,
+      "name": "ProofExpired",
+      "msg": "Proof has expired"
+    },
+    {
+      "code": 6002,
+      "name": "PayloadMismatch",
+      "msg": "Intent hash does not match — transaction parameters were tampered"
+    },
+    {
+      "code": 6003,
+      "name": "WrongSigner",
+      "msg": "Proof was signed by a key not in the registry"
+    },
+    {
+      "code": 6004,
+      "name": "RegistryDisabled",
+      "msg": "Registry is disabled — register a passkey first"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidProof",
+      "msg": "Invalid proof data"
+    },
+    {
+      "code": 6006,
+      "name": "NonceOverflow",
+      "msg": "Nonce overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "KeyKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Secp256r1Passkey"
+          },
+          {
+            "name": "Ed25519"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProofVerified",
+      "docs": [
+        "Emitted on every successful proof verification.",
+        "Policy + target program are visible in on-chain transaction logs.",
+        "This is the zero-trust audit trail."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "The wallet that authorized the action."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "policy",
+            "docs": [
+              "Application-defined policy that triggered enforcement (e.g. \"transfer.large\")."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "target",
+            "docs": [
+              "The program whose instruction was protected."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "The nonce that was consumed (now invalid — cannot be replayed)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "expiry",
+            "docs": [
+              "Unix timestamp when this proof expires."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TwoFactorRegistry",
+      "docs": [
+        "Per-user onchain 2FA registry.",
+        "",
+        "Seeds: `[b\"2fa\", owner]`",
+        "",
+        "`nonce` is incremented on every successful passkey proof verification —",
+        "old proofs cannot be replayed even if the signed intent was valid."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "key_kind",
+            "type": {
+              "defined": {
+                "name": "KeyKind"
+              }
+            }
+          },
+          {
+            "name": "pubkey_bytes",
+            "type": "bytes"
+          },
+          {
+            "name": "credential_id",
+            "type": "bytes"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

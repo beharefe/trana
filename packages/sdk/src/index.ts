@@ -1,56 +1,15 @@
-/**
- * @trana-guard/sdk
- *
- * Client library for Trana — onchain execution-time authorization for Solana.
- *
- * Trust model:
- *   The onchain registry PDA is the only trust anchor.
- *   No trusted backend. No trusted bridge. No server key.
- *
- * Quick start (secp256r1 / passkey path — no bridge):
- *   1. Register passkey: call register_two_fa onchain via startOnchainRegistration()
- *   2. Protect a tx:     prepareTransaction({ ..., approve: redirectApprove(...) })
- *   3. Inject proof:     attachProofToTransaction(tx, proof)
- */
-
-// ── Core types ────────────────────────────────────────────────────────────────
+// Types
 export type {
-  TranaPolicy,
-  TranaPayload,
-  Secp256r1Proof,
-  Ed25519BridgeProof,
+  ProofPayload,
+  VaultProofPayload,
   PasskeyProof,
-  PrepareTransactionArgs,
   GuardRequirement,
   GuardContext,
   StatusResponse,
   VaultStatusResponse,
-  // Legacy
-  ProofPayload,
-  VaultProofPayload,
 } from "./types"
 
-export { isSecp256r1Proof } from "./types"
-
-// ── secp256r1 helpers ─────────────────────────────────────────────────────────
-export {
-  buildSecp256r1Ix,
-  buildWebAuthnMessage,
-  computePayloadHash,
-  SECP256R1_PROGRAM_ID,
-} from "./secp256r1"
-
-// ── High-level transaction API ────────────────────────────────────────────────
-export {
-  prepareTransaction,
-  attachProofToTransaction,
-  buildRegisterRedirectUrl,
-  buildApprovalRedirectUrl,
-  buildApproveRedirectUrl,       // @deprecated
-  parseApproveRedirectResult,
-} from "./transaction"
-
-// ── Policy evaluation (client-side, mirrors the Rust program) ────────────────
+// Policy
 export {
   evaluatePolicy,
   buildDefaultPolicy,
@@ -59,10 +18,10 @@ export {
   type PolicyContext,
 } from "./policy"
 
-// ── Requirement check ─────────────────────────────────────────────────────────
+// Requirement check (deterministic client-side policy evaluation)
 export { checkRequirement } from "./requirement"
 
-// ── WebAuthn / passkey (browser-only) ────────────────────────────────────────
+// Passkey / WebAuthn (browser-only)
 export {
   startPasskeyRegistration,
   getPasskeyProof,
@@ -71,7 +30,20 @@ export {
   canonicalVaultJson,
 } from "./passkey"
 
-// ── HTTP client helpers ───────────────────────────────────────────────────────
+// Transaction proof attachment
+export { attachProof } from "./proof"
+
+// Utilities
+export { sha256, sha256Bytes, generateNonce } from "./utils"
+
+// secp256r1 precompile (browser + Node)
+export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "./secp256r1"
+
+// Browser WebAuthn utilities (no backend required)
+export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
+
+
+// HTTP client (legacy backend bridge — not required for secp256r1 passkey flow)
 export {
   getPasskeyStatus,
   getVaultStatus,
@@ -81,8 +53,28 @@ export {
   verifyApproval,
 } from "./client"
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-export { sha256, generateNonce } from "./utils"
-
-// ── Legacy proof attachment (Ed25519 bridge path) ────────────────────────────
-export { attachProof } from "./proof"
+// ── React provider + hook (browser only) ─────────────────────────────────────
+//
+// Correct integration flow:
+//   1. Wrap app:  <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
+//   2. Call:      const { authorizeAndSend } = useTrana()
+//   3. Use:       await authorizeAndSend({ buildIntent, buildTransaction })
+//
+// Flow: Detect → Register (if needed) → Approve (device) → Build tx → Sign once → Send
+// Passkey approves the action intent. Wallet signs the final transaction. Both required.
+export { TranaProvider, useTranaContext } from "./react/provider"
+export type { TranaContextValue } from "./react/provider"
+export { useTrana } from "./react/useTrana"
+export type { AuthorizeAndSendArgs, IntentInput } from "./react/useTrana"
+export { TranaModal } from "./react/modal"
+export type { TranaConfig, TranaState, TranaAction } from "./react/state"
+export type { TranaIntent } from "./react/intent"
+export { buildIntent, hashIntent, intentToPayloadHash } from "./react/intent"
+export { findRegistryPda, fetchRegistry } from "./react/registry"
+export type { RegistryState } from "./react/registry"
+// Error-based detection utilities (for custom flows that catch failed tx errors)
+export { isTranaError, parseTranaError } from "./react/error"
+export type { TranaErrorKind } from "./react/error"
+// Simulation-based pre-detection (optional — authorizeAndSend does not require it)
+export { detectEnforcement, hasSecp256r1Ix } from "./react/detector"
+export type { DetectionResult } from "./react/detector"
