@@ -180,8 +180,12 @@ function buildWebAuthnProof(
     crossOrigin: false,
   }))
 
-  const eValue = sha256(Buffer.concat([authData, sha256(clientDataJSON)]))
-  const sig    = Uint8Array.from(p256.sign(eValue, privKey))
+  // rawMsg = authenticatorData ‖ SHA-256(clientDataJSON)
+  // The secp256r1 precompile hashes this internally to produce the ECDSA e-value.
+  // p256.sign also hashes its argument, so we pass rawMsg (not the pre-computed hash).
+  const rawMsg = Buffer.concat([authData, sha256(clientDataJSON)])
+  const sig    = Uint8Array.from(p256.sign(rawMsg, privKey))
+  const eValue = sha256(rawMsg)  // kept for reference; guard verifies sha256(rawMsg) == eValue
   return { authData, clientDataJSON, eValue, sig }
 }
 
@@ -328,9 +332,10 @@ describe("demo_vault — onchain policy enforcement", () => {
       expiry,
     )
 
-    const { authData, clientDataJSON, eValue, sig } =
+    const { authData, clientDataJSON, sig } =
       buildWebAuthnProof(intentHash, p256PrivKey)
-    const pubKey = p256.getPublicKey(p256PrivKey, true)
+    const pubKey  = p256.getPublicKey(p256PrivKey, true)
+    const rawMsg  = Buffer.concat([authData, sha256(clientDataJSON)])
 
     const withdrawIx = await vault.methods
       .withdraw(new BN(amount))
@@ -348,7 +353,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: payer.publicKey })
 
     if (withProof) {
-      tx.add(buildSecp256r1Ix(pubKey, sig, eValue))
+      tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
       tx.add(buildRecordProofIx(guard.programId, expiry, "localnet", policy, authData, clientDataJSON))
     }
     tx.add(withdrawIx)

@@ -23,17 +23,17 @@ export function derToCompact(der: Uint8Array): Uint8Array {
   // r
   if (der[i++] !== 0x02) throw new Error("Invalid DER: expected INTEGER for r")
   const rLen = der[i++]
-  let rStart = i
-  if (rLen > 32) rStart++ // skip leading 0x00 padding byte
-  const r = der.slice(rStart, i + rLen - (rLen > 32 ? 1 : 0))
+  const rStart = rLen > 32 ? i + 1 : i  // skip leading 0x00 when DER-padded
+  const rSize  = rLen > 32 ? 32 : rLen
+  const r = der.slice(rStart, rStart + rSize)
   i += rLen
 
   // s
   if (der[i++] !== 0x02) throw new Error("Invalid DER: expected INTEGER for s")
   const sLen = der[i++]
-  let sStart = i
-  if (sLen > 32) sStart++ // skip leading 0x00 padding byte
-  const s = der.slice(sStart, i + sLen - (sLen > 32 ? 1 : 0))
+  const sStart = sLen > 32 ? i + 1 : i
+  const sSize  = sLen > 32 ? 32 : sLen
+  const s = der.slice(sStart, sStart + sSize)
 
   const compact = new Uint8Array(64)
   compact.set(r.length < 32 ? padLeft(r, 32) : r, 0)

@@ -64,14 +64,14 @@ function buildSecp256r1Ix(
   const pkOffset  = 16
   const sigOffset = 49
   const msgOffset = 113
-  const data = Buffer.alloc(msgOffset + 32)
+  const data = Buffer.alloc(msgOffset + message.length)
   data[0] = 1; data[1] = 0
-  data.writeUInt16LE(sigOffset,      2)
-  data.writeUInt16LE(0xffff,         4)
-  data.writeUInt16LE(pkOffset,       6)
-  data.writeUInt16LE(0xffff,         8)
-  data.writeUInt16LE(msgOffset,      10)
-  data.writeUInt16LE(32,             12)
+  data.writeUInt16LE(sigOffset,        2)
+  data.writeUInt16LE(0xffff,           4)
+  data.writeUInt16LE(pkOffset,         6)
+  data.writeUInt16LE(0xffff,           8)
+  data.writeUInt16LE(msgOffset,        10)
+  data.writeUInt16LE(message.length,   12)
   data.writeUInt16LE(0xffff,         14)
   Buffer.from(pubkey).copy(data, pkOffset)
   Buffer.from(sig).copy(data,   sigOffset)
@@ -160,8 +160,9 @@ function buildWebAuthnProof(
     type: "webauthn.get", challenge: intentHash.toString("base64url"),
     origin: `http://${rpId}`, crossOrigin: false,
   }))
-  const eValue = sha256(Buffer.concat([authData, sha256(clientDataJSON)]))
-  const sig    = Uint8Array.from(p256.sign(eValue, privKey))
+  const rawMsg = Buffer.concat([authData, sha256(clientDataJSON)])
+  const sig    = Uint8Array.from(p256.sign(rawMsg, privKey))
+  const eValue = sha256(rawMsg)
   return { authData, clientDataJSON, eValue, sig }
 }
 
@@ -275,8 +276,9 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
       nonce, expiry,
     )
 
-    const { authData, clientDataJSON, eValue, sig } = buildWebAuthnProof(intentHash, privKey)
-    const pubKey = p256.getPublicKey(privKey, true)
+    const { authData, clientDataJSON, sig } = buildWebAuthnProof(intentHash, privKey)
+    const pubKey  = p256.getPublicKey(privKey, true)
+    const rawMsg  = Buffer.concat([authData, sha256(clientDataJSON)])
 
     const withdrawIx = await vault.methods
       .withdraw(new BN(actualAmount))
@@ -293,7 +295,7 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     const { blockhash } = await conn.getLatestBlockhash()
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
     if (withProof) {
-      tx.add(buildSecp256r1Ix(pubKey, sig, eValue))
+      tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
       tx.add(buildRecordProofIx(guard.programId, 1, expiry, "localnet", policy, authData, clientDataJSON))
     }
     tx.add(withdrawIx)

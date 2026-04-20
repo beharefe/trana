@@ -129,6 +129,7 @@ export function useTrana() {
 
     // ── 4. Build secp256r1 precompile instruction ─────────────────────────────
     const webAuthnMsg = buildWebAuthnMessage(approval.authenticatorData, approval.clientDataJSON)
+
     const secp256r1Ix = buildSecp256r1Ix(registry.pubkey, approval.sig, webAuthnMsg)
 
     // ── 5. Build guard::record_proof data-carrier instruction ─────────────────

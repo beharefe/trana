@@ -212,6 +212,13 @@ fn verify_via_sysvar(
     );
 
     // ── 6. WebAuthn e-value ───────────────────────────────────────────────────
+    //
+    // The secp256r1 precompile hashes the message field with SHA-256 before
+    // verifying. We therefore pass the raw pre-hash bytes:
+    //   authenticatorData ‖ SHA-256(clientDataJSON)
+    //
+    // The precompile computes SHA-256 of that → the ECDSA e-value.
+    // We verify the same thing here: SHA-256(proof_message) == expected_e_value.
     let client_data_hash = sha256_bytes(&proof.client_data_json);
     let mut combined = Vec::with_capacity(proof.authenticator_data.len() + 32);
     combined.extend_from_slice(&proof.authenticator_data);
@@ -238,13 +245,17 @@ fn verify_via_sysvar(
 
     require!(data.len() >= pk_offset  + 33,      GuardError::InvalidProof);
     require!(data.len() >= msg_offset + msg_size, GuardError::InvalidProof);
-    require!(msg_size == 32,                      GuardError::InvalidProof);
+    require!(msg_size > 0,                        GuardError::InvalidProof);
 
     let proof_pubkey  = &data[pk_offset..pk_offset + 33];
-    let proof_message = &data[msg_offset..msg_offset + 32];
+    let proof_message = &data[msg_offset..msg_offset + msg_size];
 
-    require!(proof_pubkey  == registry.pubkey_bytes.as_slice(), GuardError::WrongSigner);
-    require!(proof_message == expected_e_value.as_ref(),        GuardError::PayloadMismatch);
+    // The precompile hashes the message; we verify the same:
+    // SHA-256(proof_message) must equal the expected WebAuthn e-value.
+    let proof_message_hash = sha256_bytes(proof_message);
+
+    require!(proof_pubkey          == registry.pubkey_bytes.as_slice(), GuardError::WrongSigner);
+    require!(proof_message_hash    == expected_e_value,                 GuardError::PayloadMismatch);
 
     // ── 8. Consume nonce ──────────────────────────────────────────────────────
     let old_nonce = registry.nonce;

@@ -38,7 +38,7 @@ export const SECP256R1_PROGRAM_ID = new PublicKey(
  *
  * @param pubkey   33-byte compressed P-256 public key (from registry PDA)
  * @param sig      64-byte compact (r‖s) low-S normalized signature
- * @param message  authenticatorData ‖ SHA-256(clientDataJSON)
+ * @param message  authenticatorData ‖ SHA-256(clientDataJSON) — raw bytes, precompile hashes with SHA-256 internally
  */
 export function buildSecp256r1Ix(
   pubkey:  Uint8Array,
@@ -56,6 +56,7 @@ export function buildSecp256r1Ix(
   const msgOff    = 113
 
   const data = Buffer.allocUnsafe(msgOff + message.length)
+  const dv   = new DataView(data.buffer, data.byteOffset, data.byteLength)
   let i = 0
 
   // Header
@@ -63,13 +64,13 @@ export function buildSecp256r1Ix(
   data[i++] = 0   // padding
 
   // Secp256r1SignatureOffsets — 7 fields × 2 bytes LE = 14 bytes
-  data.writeUInt16LE(sigOff,          i); i += 2  // signature_offset
-  data.writeUInt16LE(0xffff,          i); i += 2  // signature_instruction_index (self)
-  data.writeUInt16LE(pubkeyOff,       i); i += 2  // public_key_offset
-  data.writeUInt16LE(0xffff,          i); i += 2  // public_key_instruction_index (self)
-  data.writeUInt16LE(msgOff,          i); i += 2  // message_data_offset
-  data.writeUInt16LE(message.length,  i); i += 2  // message_data_size
-  data.writeUInt16LE(0xffff,          i); i += 2  // message_instruction_index (self)
+  dv.setUint16(i, sigOff,          true); i += 2  // signature_offset
+  dv.setUint16(i, 0xffff,          true); i += 2  // signature_instruction_index (self)
+  dv.setUint16(i, pubkeyOff,       true); i += 2  // public_key_offset
+  dv.setUint16(i, 0xffff,          true); i += 2  // public_key_instruction_index (self)
+  dv.setUint16(i, msgOff,          true); i += 2  // message_data_offset
+  dv.setUint16(i, message.length,  true); i += 2  // message_data_size
+  dv.setUint16(i, 0xffff,          true); i += 2  // message_instruction_index (self)
 
   // Payload data (must match offsets above)
   data.set(pubkey,  pubkeyOff)
@@ -86,20 +87,17 @@ export function buildSecp256r1Ix(
 // ── WebAuthn message construction ─────────────────────────────────────────────
 
 /**
- * Compute the ECDSA e-value (32-byte prehash) for a WebAuthn assertion.
+ * Build the raw message bytes for a WebAuthn assertion secp256r1 instruction.
  *
- * The secp256r1 precompile uses verify_prehash — the message field must be
- * the 32-byte ECDSA e-value, NOT raw bytes. This matches how noble/curves
- * p256.sign() works: it treats the `msg` parameter as the prehash directly.
+ * The Solana secp256r1 precompile hashes the message field with SHA-256
+ * internally before ECDSA verification. So we pass the raw pre-hash data:
+ *   authenticatorData ‖ SHA-256(clientDataJSON)
  *
- * WebAuthn e-value = SHA-256(authenticatorData ‖ SHA-256(clientDataJSON))
+ * The precompile computes SHA-256(authenticatorData ‖ SHA-256(clientDataJSON))
+ * to produce the ECDSA e-value, which is what the browser authenticator signed.
  *
- * This is:
- *   - What a real browser authenticator produces internally before signing
- *   - What noble/curves p256.sign() in tests should receive as its msg argument
- *   - What the secp256r1 instruction's message field must contain (32 bytes)
- *
- * Do NOT pass the raw concatenation — the precompile does not hash internally.
+ * This is consistent with noble/curves p256.sign() in tests, which also
+ * applies SHA-256 to its msg argument before signing.
  */
 export function buildWebAuthnMessage(
   authenticatorData: Uint8Array,
@@ -109,7 +107,7 @@ export function buildWebAuthnMessage(
   const combined = new Uint8Array(authenticatorData.length + 32)
   combined.set(authenticatorData, 0)
   combined.set(clientDataHash, authenticatorData.length)
-  return sha256Bytes(combined)  // 32-byte e-value
+  return combined  // raw 69 bytes — precompile hashes internally
 }
 
 // ── record_proof instruction builder ─────────────────────────────────────────
@@ -144,12 +142,12 @@ export function buildRecordProofIx(
   // Anchor discriminator = SHA-256("global:record_proof")[0..8]
   const disc = Buffer.from(sha256Bytes(Buffer.from("global:record_proof"))).slice(0, 8)
 
-  const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); b.writeUInt32LE(n); return b }
+  const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); new DataView(b.buffer, b.byteOffset, 4).setUint32(0, n, true); return b }
   const borshStr   = (s: string)     => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32le(b.length), b]) }
   const borshBytes = (b: Uint8Array) => Buffer.concat([u32le(b.length), Buffer.from(b)])
 
   const expiryBuf = Buffer.allocUnsafe(8)
-  expiryBuf.writeBigInt64LE(BigInt(expiryUnix))
+  new DataView(expiryBuf.buffer, expiryBuf.byteOffset, 8).setBigInt64(0, BigInt(expiryUnix), true)
 
   const data = Buffer.concat([
     disc,

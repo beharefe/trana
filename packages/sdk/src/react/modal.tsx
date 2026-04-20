@@ -109,9 +109,9 @@ function buildRegisterIx(
   )
 
   const pkLenBuf   = Buffer.allocUnsafe(4)
-  pkLenBuf.writeUInt32LE(pubkey.length)
+  new DataView(pkLenBuf.buffer, pkLenBuf.byteOffset, 4).setUint32(0, pubkey.length, true)
   const credLenBuf = Buffer.allocUnsafe(4)
-  credLenBuf.writeUInt32LE(credentialId.length)
+  new DataView(credLenBuf.buffer, credLenBuf.byteOffset, 4).setUint32(0, credentialId.length, true)
 
   const ixData = Buffer.concat([
     REGISTER_DISCRIMINATOR,

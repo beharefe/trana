@@ -163,13 +163,13 @@ export function hashIntent(intent: TranaIntent): Uint8Array {
   const paramsBytes     = Buffer.from(intent.paramsHash, "hex")
 
   const nonceBuf   = Buffer.allocUnsafe(8)
-  nonceBuf.writeBigUInt64LE(BigInt(intent.nonce))
+  new DataView(nonceBuf.buffer, nonceBuf.byteOffset, 8).setBigUint64(0, BigInt(intent.nonce), true)
   const expiryBuf  = Buffer.allocUnsafe(8)
-  expiryBuf.writeBigInt64LE(BigInt(intent.expiryUnix))
+  new DataView(expiryBuf.buffer, expiryBuf.byteOffset, 8).setBigInt64(0, BigInt(intent.expiryUnix), true)
 
   const lenBuf = (n: number) => {
     const b = Buffer.allocUnsafe(2)
-    b.writeUInt16LE(n)
+    new DataView(b.buffer, b.byteOffset, 2).setUint16(0, n, true)
     return b
   }
 
