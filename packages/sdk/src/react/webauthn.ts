@@ -182,10 +182,10 @@ export async function doApproval(
 }> {
   const credential = await navigator.credentials.get({
     publicKey: {
-      challenge:        payloadHash,
+      challenge:        Buffer.from(payloadHash),
       rpId:             rpId ?? window.location.hostname,
       allowCredentials: [
-        { id: credentialId, type: "public-key" },
+        { id: Buffer.from(credentialId), type: "public-key" },
       ],
       userVerification: "required",
       timeout:          60000,

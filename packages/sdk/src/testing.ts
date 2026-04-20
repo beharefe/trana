@@ -43,7 +43,7 @@ export type TestPasskeyHandle = {
  *   ).accounts({ registry: registryPda, owner: owner.publicKey, ... }).rpc()
  */
 export function generateTestPasskey(): TestPasskeyHandle {
-  const privKey = p256.utils.randomPrivateKey()
+  const privKey = p256.utils.randomSecretKey()
   return {
     pubkey:       p256.getPublicKey(privKey, true),  // 33-byte compressed
     privKey,
@@ -103,9 +103,8 @@ export function buildTestProofIx(
   // 5. Sign the e-value directly with noble/curves
   //    p256.sign(msg, privKey): msg is the prehash — no additional hashing
   //    This matches exactly what a real browser passkey produces
-  const sig = Uint8Array.from(
-    p256.sign(eValue, handle.privKey).toCompactRawBytes()
-  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sig = Uint8Array.from((p256.sign(eValue, handle.privKey) as any).toCompactRawBytes())
 
   // 6. Build the secp256r1 verify instruction
   //    message = eValue (32 bytes) — precompile uses verify_prehash

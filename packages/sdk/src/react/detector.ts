@@ -70,17 +70,15 @@ export async function detectEnforcement(
   let logs: string[] = []
   try {
     let result
-    if (tx instanceof Transaction) {
-      result = await connection.simulateTransaction(tx, {
-        replaceRecentBlockhash: true,
-        sigVerify:              false,
-      })
-    } else {
-      result = await connection.simulateTransaction(tx as VersionedTransaction, {
-        replaceRecentBlockhash: true,
-        sigVerify:              false,
-      })
-    }
+    // simulateTransaction only accepts VersionedTransaction with config object;
+    // convert legacy Transaction via its serialized form to avoid overload mismatch.
+    const vtx = tx instanceof Transaction
+      ? VersionedTransaction.deserialize(tx.serialize({ requireAllSignatures: false, verifySignatures: false }))
+      : tx as VersionedTransaction
+    result = await connection.simulateTransaction(vtx, {
+      replaceRecentBlockhash: true,
+      sigVerify:              false,
+    })
     logs = result.value.logs ?? []
   } catch {
     // Simulation RPC failure — fall through conservatively (do not prompt)
