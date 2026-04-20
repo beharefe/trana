@@ -22,277 +22,209 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 // ── Why Trana animated slide ──────────────────────────────────────────────────
+//
+// Single continuous scene. 7 phases, ~18s loop:
+//   0 — phone pulses (Touch ID)
+//   1 — key materialises on phone
+//   2 — key travels from phone → attacker laptop
+//   3 — attacker fires raw tx → chain → Bypassed  (no guard)
+//   4 — passkey travels from phone → guard block (Trana installs)
+//   5 — attacker fires again → guard blocks → Rejected
+//   6 — pause before loop
 
-const STEP_DURATION = 900   // ms per animation step
-const ROW_DELAY     = 600   // ms between row starts
-const LOOP_PAUSE    = 2200  // ms pause before loop restart
+const P = [2000, 2000, 2200, 2200, 2400, 2200, 3000] // phase durations (ms)
 
-type RowStep = "idle" | "touch" | "key" | "sign" | "result"
+// Horizontal positions of the 4 scene nodes (% of container width)
+// Phone  Laptop  TX     Guard
+const NX = ["5%", "32%", "58%", "82%"] as const
 
-function useRowLoop(startDelay: number, enabled: boolean) {
-  const [step, setStep] = useState<RowStep>("idle")
-
+function useScene(active: boolean) {
+  const [phase, setPhase] = useState(0)
   useEffect(() => {
-    if (!enabled) { setStep("idle"); return }
-    let cancelled = false
-
-    async function run() {
+    if (!active) { setPhase(0); return }
+    let dead = false
+    ;(async () => {
       const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
-      while (!cancelled) {
-        await wait(startDelay)
-        if (cancelled) break
-        setStep("touch")
-        await wait(STEP_DURATION)
-        if (cancelled) break
-        setStep("key")
-        await wait(STEP_DURATION)
-        if (cancelled) break
-        setStep("sign")
-        await wait(STEP_DURATION)
-        if (cancelled) break
-        setStep("result")
-        await wait(LOOP_PAUSE)
-        if (cancelled) break
-        setStep("idle")
-        await wait(300)
+      while (!dead) {
+        for (let i = 0; i < P.length; i++) {
+          if (dead) return
+          setPhase(i)
+          await wait(P[i])
+        }
       }
-    }
-    run()
-    return () => { cancelled = true }
-  }, [startDelay, enabled])
-
-  return step
+    })()
+    return () => { dead = true }
+  }, [active])
+  return phase
 }
 
-function Pill({ children, color }: { children: React.ReactNode; color: "green" | "red" | "muted" }) {
-  const cls = color === "green"
-    ? "bg-accent-light text-accent border-accent/30"
-    : color === "red"
-    ? "bg-red-50 text-red-600 border-red-200"
-    : "bg-card text-faint border-border"
+function SceneNode({ x, icon, label, sub, pulse, lit, accent }: {
+  x: string; icon: string; label: string; sub: string
+  pulse?: boolean; lit?: boolean; accent?: boolean
+}) {
   return (
-    <span className={`inline-block text-xs font-mono font-medium px-2 py-0.5 rounded-full border ${cls}`}>
-      {children}
-    </span>
-  )
-}
-
-function PhoneIcon({ pulse, color }: { pulse: boolean; color: "green" | "red" }) {
-  const ring = color === "green" ? "bg-accent/20" : "bg-red-400/20"
-  const btn  = color === "green" ? "bg-accent/80"  : "bg-red-400/80"
-  return (
-    <div className="relative flex items-center justify-center">
-      {pulse && (
+    <div className="absolute top-0 flex flex-col items-center gap-1" style={{ left: x, transform: "translateX(-50%)" }}>
+      <div className="relative">
+        {pulse && (
+          <motion.div
+            className="absolute inset-[-6px] rounded-full bg-accent/25"
+            animate={{ scale: [1, 1.7], opacity: [0.6, 0] }}
+            transition={{ duration: 1.1, repeat: Infinity, ease: "easeOut" }}
+          />
+        )}
         <motion.div
-          className={`absolute w-10 h-10 rounded-full ${ring}`}
-          animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
-          transition={{ duration: 1, repeat: Infinity, ease: "easeOut" }}
-        />
-      )}
-      <div className="w-8 h-8 rounded-full border-2 border-border bg-card flex items-center justify-center text-base">
-        📱
-      </div>
-      <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-bg ${btn}`} />
-    </div>
-  )
-}
-
-function LaptopIcon() {
-  return <div className="text-xl">💻</div>
-}
-
-function Arrow({ active, color }: { active: boolean; color: "green" | "red" }) {
-  const c = color === "green" ? "#16A34A" : "#dc2626"
-  return (
-    <div className="flex items-center px-1">
-      <motion.div
-        animate={active ? { opacity: 1, x: 0 } : { opacity: 0.15, x: -4 }}
-        transition={{ duration: 0.3 }}
-        className="text-xs font-mono select-none"
-        style={{ color: c }}
-      >
-        ──▶
-      </motion.div>
-    </div>
-  )
-}
-
-function KeyBadge({ visible }: { visible: boolean }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.7, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.7 }}
-          transition={{ duration: 0.25 }}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-xs font-mono text-amber-700"
+          animate={{ opacity: lit ? 1 : 0.25 }}
+          transition={{ duration: 0.5 }}
+          className={`w-11 h-11 sm:w-13 sm:h-13 rounded-2xl flex items-center justify-center text-xl border-2
+            ${accent ? "border-accent bg-accent-light" : "border-border bg-card"}`}
         >
-          🔑 <span className="hidden sm:inline">0x9f3a…</span>
+          {icon}
         </motion.div>
-      )}
-    </AnimatePresence>
+      </div>
+      <motion.p animate={{ opacity: lit ? 1 : 0.3 }} className="text-xs font-medium text-ink leading-none">{label}</motion.p>
+      <p className="text-xs text-faint leading-none">{sub}</p>
+    </div>
   )
 }
 
-function BlockIcon({ locked, active }: { locked: boolean; active: boolean }) {
+function SceneLine({ x0, x1, active, red, green }: {
+  x0: string; x1: string; active: boolean; red?: boolean; green?: boolean
+}) {
+  const color = green ? "#16A34A" : red ? "#dc2626" : "#D8D4CE"
   return (
     <motion.div
-      animate={active ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-      transition={{ duration: 0.35 }}
-      className={`flex flex-col items-center justify-center w-10 h-10 rounded-xl border-2 text-sm font-bold
-        ${locked
-          ? "border-accent bg-accent-light text-accent"
-          : "border-border bg-card text-faint"}`}
-    >
-      {locked ? "🔒" : "⬜"}
-    </motion.div>
+      className="absolute h-px"
+      style={{ left: x0, width: `calc(${x1} - ${x0})`, top: "22px" }}
+      animate={{ opacity: active ? 1 : 0.18, backgroundColor: color }}
+      transition={{ duration: 0.5 }}
+    />
   )
 }
 
-function ResultBadge({ step, outcome }: { step: RowStep; outcome: "ok" | "bypassed" | "blocked" }) {
-  const visible = step === "result"
-  const cfg = {
-    ok:       { label: "✓ Executed",  cls: "bg-accent-light text-accent border-accent/30" },
-    bypassed: { label: "✓ Bypassed!", cls: "bg-red-50 text-red-600 border-red-200" },
-    blocked:  { label: "✗ Rejected",  cls: "bg-ink text-bg border-ink" },
-  }[outcome]
+// A token (key or passkey) that travels between node positions
+function TravelToken({ emoji, fromX, toX, visible, row }: {
+  emoji: string; fromX: string; toX: string; visible: boolean; row: number
+}) {
   return (
     <AnimatePresence>
       {visible && (
         <motion.div
-          initial={{ opacity: 0, x: 8 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          className={`text-xs font-mono font-bold px-3 py-1 rounded-full border ${cfg.cls}`}
+          className="absolute text-base sm:text-lg select-none pointer-events-none"
+          style={{ top: `${28 + row * 18}px` }}
+          initial={{ left: fromX, opacity: 0, scale: 0.6 }}
+          animate={{ left: toX, opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.6 }}
+          transition={{
+            left:    { duration: 1.4, ease: [0.4, 0, 0.2, 1] },
+            opacity: { duration: 0.4 },
+            scale:   { duration: 0.4 },
+          }}
         >
-          {cfg.label}
+          {emoji}
         </motion.div>
       )}
     </AnimatePresence>
   )
 }
 
-function Row({
-  label, sublabel, icon, step, color, outcome, showGuard, guardLocked,
-}: {
-  label: string; sublabel: string
-  icon: React.ReactNode
-  step: RowStep
-  color: "green" | "red"
-  outcome: "ok" | "bypassed" | "blocked"
-  showGuard?: boolean
-  guardLocked?: boolean
-}) {
-  const rowColor = color === "green" ? "border-accent/20 bg-accent-light/30" : "border-red-200 bg-red-50/40"
-  const signed = step === "sign" || step === "result"
-
-  return (
-    <div className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 rounded-2xl border px-4 sm:px-5 py-3 sm:py-4 ${rowColor}`}>
-      {/* Label */}
-      <div className="w-full sm:w-36 shrink-0">
-        <p className="text-xs font-medium text-ink">{label}</p>
-        <p className="text-xs text-faint mt-0.5">{sublabel}</p>
-      </div>
-
-      {/* Actor */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-1">
-        <div className="shrink-0">{icon}</div>
-
-        <Arrow active={step !== "idle"} color={color} />
-
-        {/* Key pill */}
-        <div className="w-24 flex justify-center">
-          <KeyBadge visible={step === "key" || step === "sign" || step === "result"} />
-        </div>
-
-        <Arrow active={signed} color={color} />
-
-        {/* TX block */}
-        <motion.div
-          animate={signed ? { opacity: 1 } : { opacity: 0.3 }}
-          className="text-xs font-mono px-2 py-1 rounded-lg border border-border bg-card text-muted whitespace-nowrap"
-        >
-          tx
-        </motion.div>
-
-        {/* Guard block (Trana row only) */}
-        {showGuard && (
-          <>
-            <Arrow active={signed} color={color} />
-            <BlockIcon locked={!!guardLocked} active={signed} />
-          </>
-        )}
-
-        <Arrow active={step === "result"} color={color} />
-
-        <ResultBadge step={step} outcome={outcome} />
-      </div>
-    </div>
-  )
-}
+const NARRATION = [
+  "Touch ID protects this wallet.",
+  "Private key is accessible inside the device.",
+  "Attacker steals the private key.",
+  "Attacker signs a raw transaction — wallet 2FA is bypassed.",
+  "Trana moves the passkey guard to the onchain instruction.",
+  "Attacker signs again — onchain guard blocks execution.",
+  "",
+]
 
 function WhyTranaSlide() {
   const ref = useRef<HTMLDivElement>(null)
   const inView = useInView(ref, { once: false, margin: "-10%" })
+  const phase  = useScene(inView)
 
-  const row1 = useRowLoop(0,              inView)
-  const row2 = useRowLoop(ROW_DELAY,      inView)
-  const row3 = useRowLoop(ROW_DELAY * 2,  inView)
+  const keyLeft      = phase >= 2 ? NX[1] : NX[0]  // phone → laptop
+  const passkeyLeft  = phase >= 5 ? NX[3] : NX[0]  // phone → guard (moves on phase 5)
+
+  const bypassed = phase === 3
+  const blocked  = phase === 5
 
   return (
     <div ref={ref} className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
       <Label>Why Trana</Label>
       <h2 className="font-serif text-3xl sm:text-4xl leading-tight tracking-tight text-ink mb-2">
-        Moving 2FA from the wallet<br className="hidden sm:block" />
-        <span className="italic text-accent"> to the chain.</span>
+        Moving the guard from wallet
+        <span className="italic text-accent"> to the instruction.</span>
       </h2>
-      <p className="text-muted text-sm mb-6 sm:mb-8 leading-relaxed">
-        Wallet-level guards can be bypassed. Onchain enforcement cannot.
-      </p>
 
-      <div className="space-y-3">
-        <Row
-          label="Protected wallet"
-          sublabel="2FA lives in the app"
-          icon={<PhoneIcon pulse={row1 === "touch"} color="green" />}
-          step={row1}
-          color="green"
-          outcome="ok"
-        />
-
-        <Row
-          label="Attacker"
-          sublabel="Stole the private key"
-          icon={<LaptopIcon />}
-          step={row2}
-          color="red"
-          outcome="bypassed"
-        />
-
-        <div className="flex items-center gap-3 py-1 pl-2">
-          <div className="h-px flex-1 bg-border" />
-          <p className="text-xs text-faint font-mono uppercase tracking-widest whitespace-nowrap">with Trana</p>
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
-        <Row
-          label="Attacker + Trana"
-          sublabel="Guard is onchain"
-          icon={<LaptopIcon />}
-          step={row3}
-          color="red"
-          outcome="blocked"
-          showGuard
-          guardLocked
-        />
+      {/* Narration */}
+      <div className="h-5 mb-8">
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={phase}
+            initial={{ opacity: 0, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.4 }}
+            className="text-sm text-muted"
+          >
+            {NARRATION[phase]}
+          </motion.p>
+        </AnimatePresence>
       </div>
 
-      <p className="text-xs text-faint mt-5 leading-relaxed max-w-lg">
-        The guard runs inside the Anchor instruction. No client-side component to bypass.
-        A stolen key alone is not sufficient.
-      </p>
+      {/* Scene canvas */}
+      <div className="relative w-full h-28 sm:h-32">
+
+        {/* Connecting lines */}
+        <SceneLine x0={NX[0]} x1={NX[1]} active={phase >= 2} red={phase >= 2 && phase < 4} />
+        <SceneLine x0={NX[1]} x1={NX[2]} active={phase === 3 || phase === 5} red={bypassed} green={blocked} />
+        <SceneLine x0={NX[2]} x1={NX[3]} active={phase === 3 || phase === 5} red={bypassed} green={blocked} />
+
+        {/* Nodes */}
+        <SceneNode x={NX[0]} icon="📱" label="Phone"    sub="user wallet"    pulse={phase === 0} lit={true} />
+        <SceneNode x={NX[1]} icon="💻" label="Attacker" sub="raw signer"     pulse={false}       lit={phase >= 2} />
+        <SceneNode x={NX[2]} icon="📄" label="TX"       sub=""               pulse={false}       lit={phase === 3 || phase === 5} />
+        <SceneNode x={NX[3]} icon={phase >= 4 ? "🔒" : "⬜"} label="Guard" sub={phase >= 4 ? "onchain" : "not set"} pulse={blocked} lit={phase >= 4} accent={phase >= 4} />
+
+        {/* Traveling key — moves phone → laptop on phase 2 */}
+        <TravelToken emoji="🔑" fromX={NX[0]} toX={keyLeft} visible={phase >= 1 && phase <= 4} row={0} />
+
+        {/* Traveling passkey — appears on phone at phase 4, travels to guard on phase 5 */}
+        <TravelToken emoji="🛡️" fromX={NX[0]} toX={passkeyLeft} visible={phase >= 4} row={1} />
+
+        {/* Result badge */}
+        <div className="absolute right-0 bottom-0">
+          <AnimatePresence mode="wait">
+            {bypassed && (
+              <motion.span key="bypassed"
+                initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                className="text-xs font-mono font-bold px-3 py-1 rounded-full border bg-red-50 text-red-600 border-red-200"
+              >
+                ✓ Bypassed
+              </motion.span>
+            )}
+            {blocked && (
+              <motion.span key="blocked"
+                initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                className="text-xs font-mono font-bold px-3 py-1 rounded-full border bg-ink text-bg border-ink"
+              >
+                ✗ Rejected
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Footer caption */}
+      <motion.p
+        animate={{ opacity: phase >= 4 ? 1 : 0.3 }}
+        transition={{ duration: 0.6 }}
+        className="text-xs text-faint mt-6 leading-relaxed max-w-lg"
+      >
+        {phase >= 4
+          ? "Guard runs inside the Anchor instruction. No client-side component to bypass. A stolen key alone is not sufficient."
+          : "Without Trana: wallet-level 2FA lives in the app — bypassed by sending raw transactions directly."}
+      </motion.p>
     </div>
   )
 }
