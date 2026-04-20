@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
+import { motion, AnimatePresence, useAnimate, useInView } from "framer-motion"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,282 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return (
     <div className={`p-4 sm:p-5 rounded-2xl border border-border bg-card ${className}`}>
       {children}
+    </div>
+  )
+}
+
+// ── Why Trana animated slide ──────────────────────────────────────────────────
+
+const STEP_DURATION = 900   // ms per animation step
+const ROW_DELAY     = 600   // ms between row starts
+const LOOP_PAUSE    = 2200  // ms pause before loop restart
+
+type RowStep = "idle" | "touch" | "key" | "sign" | "result"
+
+function useRowLoop(startDelay: number, enabled: boolean) {
+  const [step, setStep] = useState<RowStep>("idle")
+
+  useEffect(() => {
+    if (!enabled) { setStep("idle"); return }
+    let cancelled = false
+
+    async function run() {
+      const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+      while (!cancelled) {
+        await wait(startDelay)
+        if (cancelled) break
+        setStep("touch")
+        await wait(STEP_DURATION)
+        if (cancelled) break
+        setStep("key")
+        await wait(STEP_DURATION)
+        if (cancelled) break
+        setStep("sign")
+        await wait(STEP_DURATION)
+        if (cancelled) break
+        setStep("result")
+        await wait(LOOP_PAUSE)
+        if (cancelled) break
+        setStep("idle")
+        await wait(300)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [startDelay, enabled])
+
+  return step
+}
+
+function Pill({ children, color }: { children: React.ReactNode; color: "green" | "red" | "muted" }) {
+  const cls = color === "green"
+    ? "bg-accent-light text-accent border-accent/30"
+    : color === "red"
+    ? "bg-red-50 text-red-600 border-red-200"
+    : "bg-card text-faint border-border"
+  return (
+    <span className={`inline-block text-xs font-mono font-medium px-2 py-0.5 rounded-full border ${cls}`}>
+      {children}
+    </span>
+  )
+}
+
+function PhoneIcon({ pulse, color }: { pulse: boolean; color: "green" | "red" }) {
+  const ring = color === "green" ? "bg-accent/20" : "bg-red-400/20"
+  const btn  = color === "green" ? "bg-accent/80"  : "bg-red-400/80"
+  return (
+    <div className="relative flex items-center justify-center">
+      {pulse && (
+        <motion.div
+          className={`absolute w-10 h-10 rounded-full ${ring}`}
+          animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
+          transition={{ duration: 1, repeat: Infinity, ease: "easeOut" }}
+        />
+      )}
+      <div className="w-8 h-8 rounded-full border-2 border-border bg-card flex items-center justify-center text-base">
+        📱
+      </div>
+      <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-bg ${btn}`} />
+    </div>
+  )
+}
+
+function LaptopIcon() {
+  return <div className="text-xl">💻</div>
+}
+
+function Arrow({ active, color }: { active: boolean; color: "green" | "red" }) {
+  const c = color === "green" ? "#16A34A" : "#dc2626"
+  return (
+    <div className="flex items-center px-1">
+      <motion.div
+        animate={active ? { opacity: 1, x: 0 } : { opacity: 0.15, x: -4 }}
+        transition={{ duration: 0.3 }}
+        className="text-xs font-mono select-none"
+        style={{ color: c }}
+      >
+        ──▶
+      </motion.div>
+    </div>
+  )
+}
+
+function KeyBadge({ visible }: { visible: boolean }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.7, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.7 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-xs font-mono text-amber-700"
+        >
+          🔑 <span className="hidden sm:inline">0x9f3a…</span>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+function BlockIcon({ locked, active }: { locked: boolean; active: boolean }) {
+  return (
+    <motion.div
+      animate={active ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+      transition={{ duration: 0.35 }}
+      className={`flex flex-col items-center justify-center w-10 h-10 rounded-xl border-2 text-sm font-bold
+        ${locked
+          ? "border-accent bg-accent-light text-accent"
+          : "border-border bg-card text-faint"}`}
+    >
+      {locked ? "🔒" : "⬜"}
+    </motion.div>
+  )
+}
+
+function ResultBadge({ step, outcome }: { step: RowStep; outcome: "ok" | "bypassed" | "blocked" }) {
+  const visible = step === "result"
+  const cfg = {
+    ok:       { label: "✓ Executed",  cls: "bg-accent-light text-accent border-accent/30" },
+    bypassed: { label: "✓ Bypassed!", cls: "bg-red-50 text-red-600 border-red-200" },
+    blocked:  { label: "✗ Rejected",  cls: "bg-ink text-bg border-ink" },
+  }[outcome]
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className={`text-xs font-mono font-bold px-3 py-1 rounded-full border ${cfg.cls}`}
+        >
+          {cfg.label}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+function Row({
+  label, sublabel, icon, step, color, outcome, showGuard, guardLocked,
+}: {
+  label: string; sublabel: string
+  icon: React.ReactNode
+  step: RowStep
+  color: "green" | "red"
+  outcome: "ok" | "bypassed" | "blocked"
+  showGuard?: boolean
+  guardLocked?: boolean
+}) {
+  const rowColor = color === "green" ? "border-accent/20 bg-accent-light/30" : "border-red-200 bg-red-50/40"
+  const signed = step === "sign" || step === "result"
+
+  return (
+    <div className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 rounded-2xl border px-4 sm:px-5 py-3 sm:py-4 ${rowColor}`}>
+      {/* Label */}
+      <div className="w-full sm:w-36 shrink-0">
+        <p className="text-xs font-medium text-ink">{label}</p>
+        <p className="text-xs text-faint mt-0.5">{sublabel}</p>
+      </div>
+
+      {/* Actor */}
+      <div className="flex items-center gap-2 sm:gap-3 flex-1">
+        <div className="shrink-0">{icon}</div>
+
+        <Arrow active={step !== "idle"} color={color} />
+
+        {/* Key pill */}
+        <div className="w-24 flex justify-center">
+          <KeyBadge visible={step === "key" || step === "sign" || step === "result"} />
+        </div>
+
+        <Arrow active={signed} color={color} />
+
+        {/* TX block */}
+        <motion.div
+          animate={signed ? { opacity: 1 } : { opacity: 0.3 }}
+          className="text-xs font-mono px-2 py-1 rounded-lg border border-border bg-card text-muted whitespace-nowrap"
+        >
+          tx
+        </motion.div>
+
+        {/* Guard block (Trana row only) */}
+        {showGuard && (
+          <>
+            <Arrow active={signed} color={color} />
+            <BlockIcon locked={!!guardLocked} active={signed} />
+          </>
+        )}
+
+        <Arrow active={step === "result"} color={color} />
+
+        <ResultBadge step={step} outcome={outcome} />
+      </div>
+    </div>
+  )
+}
+
+function WhyTranaSlide() {
+  const ref = useRef<HTMLDivElement>(null)
+  const inView = useInView(ref, { once: false, margin: "-10%" })
+
+  const row1 = useRowLoop(0,              inView)
+  const row2 = useRowLoop(ROW_DELAY,      inView)
+  const row3 = useRowLoop(ROW_DELAY * 2,  inView)
+
+  return (
+    <div ref={ref} className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
+      <Label>Why Trana</Label>
+      <h2 className="font-serif text-3xl sm:text-4xl leading-tight tracking-tight text-ink mb-2">
+        Moving 2FA from the wallet<br className="hidden sm:block" />
+        <span className="italic text-accent"> to the chain.</span>
+      </h2>
+      <p className="text-muted text-sm mb-6 sm:mb-8 leading-relaxed">
+        Wallet-level guards can be bypassed. Onchain enforcement cannot.
+      </p>
+
+      <div className="space-y-3">
+        <Row
+          label="Protected wallet"
+          sublabel="2FA lives in the app"
+          icon={<PhoneIcon pulse={row1 === "touch"} color="green" />}
+          step={row1}
+          color="green"
+          outcome="ok"
+        />
+
+        <Row
+          label="Attacker"
+          sublabel="Stole the private key"
+          icon={<LaptopIcon />}
+          step={row2}
+          color="red"
+          outcome="bypassed"
+        />
+
+        <div className="flex items-center gap-3 py-1 pl-2">
+          <div className="h-px flex-1 bg-border" />
+          <p className="text-xs text-faint font-mono uppercase tracking-widest whitespace-nowrap">with Trana</p>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <Row
+          label="Attacker + Trana"
+          sublabel="Guard is onchain"
+          icon={<LaptopIcon />}
+          step={row3}
+          color="red"
+          outcome="blocked"
+          showGuard
+          guardLocked
+        />
+      </div>
+
+      <p className="text-xs text-faint mt-5 leading-relaxed max-w-lg">
+        The guard runs inside the Anchor instruction. No client-side component to bypass.
+        A stolen key alone is not sufficient.
+      </p>
     </div>
   )
 }
@@ -185,7 +462,13 @@ const SLIDES = [
     ),
   },
 
-  // 5 — Integration
+  // 5 — Animation: Why Trana
+  {
+    id: "why-trana",
+    render: () => <WhyTranaSlide />,
+  },
+
+  // 6 — Integration
   {
     id: "integration",
     render: () => (
