@@ -116,10 +116,15 @@ Segments: DeFi protocols, DAO treasury managers, protocol admin key holders, fin
 
 ### Slide 10 — Business Model `[15s]`
 
-Three paths:
-1. **Open core** — primitive is free, managed registry + SLA is paid.
-2. **Protocol fee** — micro-fee per guarded execution (like Pyth oracle fees).
-3. **Enterprise SDK** — audited builds + SLA.
+"trana is a public good — open source, permanently onchain. But it has a
+revenue model everyone understands."
+
+Use the IPFS analogy: "You pay per upload. Here, you pay per guarded execution.
+5,000 lamports — half a cent. Anti-spam, not a tax."
+
+Three paths: (1) fee per `enforce()` CPI call — atomically collected in-program;
+(2) managed registry + SLA for protocols that need key recovery and uptime;
+(3) enterprise SDK with audited builds.
 
 **KEY LINE:**
 > *"We don't hold keys. We don't hold custody. Integrate once, the safety layer is permanently onchain."*

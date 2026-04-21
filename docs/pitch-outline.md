@@ -164,18 +164,23 @@ Every failure is onchain, logged, auditable. `ProofVerified` event on every succ
 ---
 
 ### Slide 10 — Viability (25s)
-**Three paths to revenue:**
+**Public good with a clear revenue model.**
 
-1. **Open core** — primitive is open source, managed registry + SLA is paid
-2. **Protocol fee** — micro-fee per guarded transaction (think: Pyth oracle fees)
-3. **SDK licensing** — enterprise support for chains that want Trana deployed
+trana is open source — the program, the spec, the SDK. Any protocol can
+integrate today and it stays onchain forever.
 
-**Why the primitive model wins:**
-- We don't hold custody of anything
-- Protocols integrate once, we own the safety layer
-- More TVL guarded = more credibility = more integrations
+Revenue follows usage:
 
-**Colosseum angle:** Solana ecosystem needs this. We're building infrastructure, not a dApp.
+1. **Fee per guarded execution** — like IPFS charges per upload, trana charges per `enforce()` CPI call. 5,000–10,000 lamports (~$0.001) per call. Calculated in-program, paid atomically with the protected transaction. Anti-spam by design, not a tax.
+2. **Managed registry + SLA** — for protocols that need key recovery infrastructure and guaranteed uptime
+3. **Enterprise SDK** — audited builds and dedicated support
+
+**Why this model wins:**
+- We never hold custody of keys or funds
+- Protocols integrate once; the fee accrues forever
+- More TVL guarded → more volume → more revenue
+
+*Key line:* "You pay per upload. You pay per guarded execution."
 
 ---
 
