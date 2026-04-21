@@ -345,6 +345,7 @@ const SLIDES = [
   // 0 — Title
   {
     id: "title",
+    notes: "10s · Let the headline land in silence — 'Onchain execution should require approval.' Then: Trana enforces a second factor at execution time. No server. No custodian. Pure onchain. Advance immediately.",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
         <h1 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
@@ -362,6 +363,7 @@ const SLIDES = [
   // 1 — Problem
   {
     id: "problem",
+    notes: "40s · 'Every Solana exploit follows the same pattern: key stolen → raw transaction → protocol drained.' UI warnings? Bypassed with raw tx. Multisig? High overhead, still software keys. Custodians? You're trusting them. KEY LINE: 'If you can craft a raw transaction, you can bypass every UI-level security check on Solana today.'",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Problem</Label>
@@ -393,6 +395,7 @@ const SLIDES = [
   // 2 — Insight
   {
     id: "insight",
+    notes: "40s · 'February 2025 — SIMD-0075 ships: native P-256 on every Solana validator.' Why this matters: WebAuthn (Touch ID, Face ID, YubiKey) uses P-256 by default. For the first time passkey signatures are verifiable natively onchain — no server, no bridge, no trusted third party. KEY LINE: 'SIMD-0075 is 3 months old. We're the first to build production-grade authorization on top of it.'",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Insight</Label>
@@ -426,6 +429,7 @@ const SLIDES = [
   // 3 — Solution
   {
     id: "solution",
+    notes: "30s · Trana Guard — an onchain authorization primitive. One CPI call that enforces a passkey proof atomically with your instruction. Read the guarantee slowly: 'This instruction cannot execute unless the registered passkey signed an intent hash that exactly describes this transaction.' Enforced by the Solana runtime — not a UI check, not a simulation.",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Solution</Label>
@@ -457,12 +461,14 @@ const SLIDES = [
   // 4 — Animation: Why Trana
   {
     id: "why-trana",
+    notes: "45s · Let the animation run and narrate live. Phase 1–3: key stolen, attacker sends raw tx, wallet guard bypassed → 'Bypassed' stamp. Phase 4–5: Trana moves the guard onchain, attacker sends again — blocked at program level → 'Rejected' stamp. Closing: 'No client-side component to bypass. A stolen key alone cannot execute.'",
     render: () => <WhyTranaSlide />,
   },
 
   // 5 — Integration
   {
     id: "integration",
+    notes: "30s · Show the code blocks. 'For a Solana program author — this is the entire integration. Three extra accounts. One CPI call when your policy triggers. The SDK prepends secp256r1 + record_proof automatically.' KEY LINE: 'Three lines of Rust. One line of TypeScript. Everything else is handled.'",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>For Developers</Label>
@@ -517,6 +523,7 @@ const SLIDES = [
   // 6 — Demo / policies
   {
     id: "demo",
+    notes: "45s · Three policy types: Threshold (amount exceeds limit), Admin (privileged / irreversible), Always (every execution, no exceptions). 'Policies are declared in the program, stored onchain — auditable by anyone.' Demo: send 1 SOL withdrawal with NO proof → MissingProof (0x1770). Can't bypass in frontend, can't bypass at RPC. Fails in the program. That's the guarantee.",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Policies</Label>
@@ -547,6 +554,7 @@ const SLIDES = [
   // 7 — Where it matters
   {
     id: "where",
+    notes: "20s · 'Not every transaction — the ones that count.' Protocol upgrades, treasury transfers, vault withdrawals, admin actions. These are exactly where hacks happen. With Trana: a stolen key alone cannot execute any of these. It needs a live passkey approval tied to this exact action.",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Where This Matters</Label>
@@ -574,6 +582,7 @@ const SLIDES = [
   // 8 — Market
   {
     id: "market",
+    notes: "20s · Solana TVL $7B+ today. TAM $200B as P-256 verification spreads cross-chain. Segments: DeFi protocols, DAO treasury managers, protocol admin key holders, fintech / custodians on Solana. Why now: SIMD-0075 is live — we have a first-mover window before anyone else ships a production primitive.",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Market</Label>
@@ -607,6 +616,7 @@ const SLIDES = [
   // 9 — Business
   {
     id: "business",
+    notes: "15s · Three paths: (1) open core — primitive open source, managed registry + SLA paid; (2) protocol fee per guarded execution (think: Pyth oracle fees); (3) enterprise SDK with audited builds. KEY LINE: 'We don't hold keys. We don't hold custody. Integrate once, the safety layer is permanently onchain.'",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Business Model</Label>
@@ -639,6 +649,7 @@ const SLIDES = [
   // 10 — Close / Ask
   {
     id: "close",
+    notes: "10s · Deliver the closer with a pause between the two lines. 'Wallets made signing easier.' [pause] 'Trana makes execution safer.' Invite protocol partners (DM tonight), early builders, and mention devnet next week. Optional mic-drop: 'We built execution-time authorization in 3 months. Tonight you can try to hack it. You won't.'",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
         <h2 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
@@ -667,6 +678,7 @@ const SLIDES = [
   // 11 — About
   {
     id: "about",
+    notes: "5s · Briefly: 'Senior Engineer. Colosseum Breakout Infra track winner — Action Codes. Solana Foundation grantee. Now building the authorization layer Solana was missing.' Point to X / Telegram handle @beharefe for anyone wanting to connect. Thank the judges and exit confidently.",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
         <p className="text-xs font-medium tracking-widest uppercase text-faint mb-6 sm:mb-8">
@@ -707,6 +719,7 @@ const SLIDES = [
 export default function Slides() {
   const [current, setCurrent] = useState(0)
   const [vis, setVis] = useState(true)
+  const [showNotes, setShowNotes] = useState(false)
   const total = SLIDES.length
 
   const go = useCallback((next: number) => {
@@ -722,6 +735,7 @@ export default function Slides() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") { e.preventDefault(); next() }
       if (e.key === "ArrowLeft"  || e.key === "ArrowUp")                    { e.preventDefault(); prev() }
+      if (e.key === "n" || e.key === "N")                                   { e.preventDefault(); setShowNotes(s => !s) }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
@@ -741,6 +755,19 @@ export default function Slides() {
         {slide.render()}
       </div>
 
+      {/* Speaker notes panel — toggle with N key */}
+      {showNotes && (
+        <div
+          className="shrink-0 border-t border-border bg-card px-6 sm:px-10 py-3 max-h-28 overflow-y-auto"
+          onClick={e => e.stopPropagation()}
+        >
+          <p className="text-xs font-medium tracking-widest uppercase text-faint mb-1.5">
+            Speaker Notes · press N to hide
+          </p>
+          <p className="text-sm text-muted leading-relaxed">{slide.notes}</p>
+        </div>
+      )}
+
       {/* Bottom bar */}
       <div className="flex items-center justify-between px-6 sm:px-10 py-3 sm:py-4 border-t border-border shrink-0">
         <div className="flex gap-1.5">
@@ -753,6 +780,13 @@ export default function Slides() {
           ))}
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowNotes(s => !s) }}
+            className={`text-xs px-2 py-1 transition-colors ${showNotes ? "text-ink" : "text-faint hover:text-ink"}`}
+            title="Toggle speaker notes (N)"
+          >
+            notes
+          </button>
           <button
             onClick={(e) => { e.stopPropagation(); prev() }}
             disabled={current === 0}
