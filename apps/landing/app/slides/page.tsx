@@ -286,7 +286,7 @@ function WhyTranaSlide() {
           <div className="flex flex-col items-center gap-3 w-24 sm:w-32 shrink-0">
             <GuardBlock locked={phase >= 4} shake={blocked} />
             <p className="text-xs text-faint uppercase tracking-widest">
-              {phase >= 4 ? "Trana · onchain" : "Guard"}
+              {phase >= 4 ? "trana · onchain" : "Guard"}
             </p>
             <div className="h-8 flex items-center">
               <AnimatePresence>
@@ -329,8 +329,8 @@ function WhyTranaSlide() {
         </AnimatePresence>
       </div>
 
-      <motion.p animate={{ opacity: phase >= 4 ? 1 : 0.3 }} transition={{ duration: 0.7 }}
-        className="text-xs text-faint mt-4 text-center leading-relaxed">
+      <motion.p animate={{ opacity: phase >= 4 ? 1 : 0.5 }} transition={{ duration: 0.7 }}
+        className="text-sm text-ink mt-4 text-center leading-relaxed">
         {phase >= 4
           ? "No client-side component to bypass. A stolen key alone cannot execute."
           : "Wallet-level 2FA is bypassed by raw transactions. The chain has no way to object."}
@@ -347,9 +347,12 @@ const SLIDES = [
     id: "title",
 render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
+        <p className="font-serif text-5xl sm:text-6xl italic font-semibold text-accent mb-10 sm:mb-14 tracking-tight">
+          trana
+        </p>
         <h1 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
           Onchain execution should<br />
-          <span className="italic text-accent">require approval.</span>
+          <span className="italic text-orange-500">require approval.</span>
         </h1>
         <p className="text-xl sm:text-2xl text-muted max-w-2xl leading-relaxed">
           trana enforces second-factor authorization<br className="hidden sm:block" />
@@ -376,8 +379,8 @@ render: () => (
             ["Protocol is drained", "Funds gone in seconds. No approval was asked."],
           ].map(([title, body]) => (
             <Card key={title} className="p-6 sm:p-7">
-              <p className="font-medium text-ink text-base mb-2">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{body}</p>
+              <p className="font-medium text-ink text-lg mb-2">{title}</p>
+              <p className="text-muted text-base leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -429,13 +432,14 @@ render: () => (
 render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Solution</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
-          Trana
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight mt-2 mb-6 sm:mb-8">
+          <span className="italic text-accent">trana</span>
         </h2>
         <div className="border border-border rounded-2xl bg-card p-7 sm:p-10 mb-8 sm:mb-10">
           <p className="text-xs font-medium text-faint uppercase tracking-widest mb-4">The guarantee</p>
           <p className="font-serif text-2xl sm:text-3xl text-ink leading-snug">
-            &ldquo;This instruction cannot execute unless a second device explicitly approved it — right now, for exactly this action.&rdquo;
+            &ldquo;This instruction cannot execute unless a second device explicitly approved it —<br />
+            right now, for exactly this action.&rdquo;
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-auto">
@@ -445,8 +449,8 @@ render: () => (
             ["Enforced by the chain", "No server to compromise. No UI to bypass. Runtime enforced."],
           ].map(([title, sub]) => (
             <Card key={title} className="p-5 sm:p-6">
-              <p className="font-medium text-ink text-sm mb-2">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{sub}</p>
+              <p className="font-medium text-ink text-lg mb-2">{title}</p>
+              <p className="text-muted text-base leading-relaxed">{sub}</p>
             </Card>
           ))}
         </div>
@@ -562,8 +566,8 @@ render: () => (
             ["Admin actions", "Any irreversible onchain action. Exactly where hacks happen."],
           ].map(([title, body]) => (
             <Card key={title} className="p-5 sm:p-6">
-              <p className="font-medium text-ink text-sm mb-1.5">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{body}</p>
+              <p className="font-medium text-ink text-lg mb-1.5">{title}</p>
+              <p className="text-muted text-base leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -585,18 +589,18 @@ render: () => (
           <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
             <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Solana TVL today</p>
             <p className="font-serif text-5xl sm:text-6xl text-ink">$7B+</p>
-            <p className="text-sm text-muted mt-2">every protocol with TVL is in our market</p>
+            <p className="text-base text-muted mt-2">every protocol with TVL is in our market</p>
           </div>
           <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
             <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Total addressable</p>
             <p className="font-serif text-5xl sm:text-6xl text-ink">$200B</p>
-            <p className="text-sm text-muted mt-2">as P-256 verification spreads cross-chain</p>
+            <p className="text-base text-muted mt-2">as P-256 verification spreads cross-chain</p>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-auto">
           {["DeFi protocols", "DAO treasuries", "Protocol admins", "Fintech & custodians"].map(uc => (
             <Card key={uc} className="p-4 sm:p-5">
-              <p className="text-sm text-ink"><span className="text-accent mr-1.5">→</span>{uc}</p>
+              <p className="text-base text-ink"><span className="text-accent mr-1.5">→</span>{uc}</p>
             </Card>
           ))}
         </div>
@@ -618,12 +622,12 @@ render: () => (
           {[
             { n: "01", title: "Free primitive",  body: "Any protocol can integrate the onchain program. Managed registry, key recovery, and SLA are paid." },
             { n: "02", title: "Protocol fee",    body: "Micro-fee per guarded execution. As TVL grows, the fee grows with it." },
-            { n: "03", title: "Enterprise SDK",  body: "Audited builds and SLA for protocols that want Trana guaranteed." },
+            { n: "03", title: "Enterprise SDK",  body: "Audited builds and SLA for protocols that want trana guaranteed." },
           ].map(({ n, title, body }) => (
             <Card key={n} className="p-6 sm:p-7">
               <p className="text-xs font-mono text-faint mb-4">{n}</p>
-              <p className="font-medium text-ink text-base mb-2">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{body}</p>
+              <p className="font-medium text-ink text-lg mb-2">{title}</p>
+              <p className="text-muted text-base leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -646,17 +650,17 @@ render: () => (
           <span className="italic">easier.</span>
         </h2>
         <p className="font-serif text-3xl sm:text-4xl text-accent italic mb-12 sm:mb-16">
-          Trana makes execution safer.
+          trana makes execution safer.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 w-full max-w-3xl">
           {[
-            ["Protocol partners", "Integrate Trana in your program. We ship together."],
+            ["Protocol partners", "Integrate trana in your program. We ship together."],
             ["Early builders",    "Building on Solana? We want your use case."],
             ["Devnet next week",   "Code goes public before hackathon submission."],
           ].map(([title, body]) => (
             <Card key={title} className="text-left p-5 sm:p-6">
-              <p className="font-medium text-ink text-sm mb-2">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{body}</p>
+              <p className="font-medium text-ink text-lg mb-2">{title}</p>
+              <p className="text-muted text-base leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
