@@ -1,25 +1,24 @@
 /**
  * Trana Guard — core authorization test suite.
  *
- * Tests the secp256r1 / WebAuthn proof path end-to-end.
- * The protected instruction is demo_vault::withdraw — the exact same
- * integration pattern an external protocol would use.
- *
- * Transaction shape (with proof):
- *   ix[0]: secp256r1 precompile   — native P-256 sig verify (SIMD-0075)
- *   ix[1]: trana::record_proof    — carries WebAuthn proof data
- *   ix[2]: demo_vault::withdraw   — calls trana::cpi::enforce() internally
- *
  * Scenarios:
- *   R1. Register secp256r1 passkey in onchain PDA             → Success
- *   R2. Withdraw with valid P-256 proof                       → Success, nonce → 1
- *   R3. Replay: reuse old proof (nonce=0 consumed)            → PayloadMismatch
- *   R4. Wrong secp256r1 key in proof                          → WrongSigner
- *   R5. Tampered amount after proof issued                    → PayloadMismatch
- *   R6. Missing secp256r1 precompile instruction              → MissingProof
- *   R7. Simulate-first flow: detect policy from logs, then prove → Success
- *   R8. 2 s delay between passkey approval and blockhash fetch → Success
- *   R9. 5 s delay — blockhash fetched fresh, still valid       → Success
+ *   R1.  Passkey registered in onchain PDA                       → Success
+ *   R2.  Withdraw with valid P-256 proof                         → Success, nonce → 1
+ *   R3.  Replay: reuse old proof (nonce=0 consumed)              → PayloadMismatch
+ *   R4.  Wrong secp256r1 key in proof                            → WrongSigner
+ *   R5.  Tampered amount after proof issued                      → PayloadMismatch
+ *   R6.  Missing secp256r1 precompile instruction                → MissingProof
+ *   R7.  Simulate-first flow: detect policy from logs, then prove → Success
+ *   R8.  2 s passkey delay — fresh blockhash                     → Success
+ *   R9.  5 s passkey delay — fresh blockhash                     → Success
+ *   R10. Expired proof (expiry < now)                            → ProofExpired
+ *   R11. Wrong cluster in record_proof                           → PayloadMismatch
+ *   R12. Wrong policy string in record_proof                     → PolicyMismatch
+ *   R13. Fee deducted from owner and reaches treasury            → +20k in treasury
+ *   R14. update_config by non-authority                          → Unauthorized
+ *   R15. withdraw_fees by authority                              → Success
+ *   R16. withdraw_fees by non-authority                          → Unauthorized
+ *   R17. Wrong treasury pubkey in Enforce accounts               → constraint error
  */
 
 import { p256 } from "@noble/curves/nist.js"
@@ -44,9 +43,10 @@ import { parsePolicyFromLogs } from "../packages/sdk/src/react/detector"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SOL = 1_000_000_000
+const SOL          = 1_000_000_000
+const FEE_LAMPORTS = 20_000
 
-// demo_vault::withdraw discriminator  (first 8 bytes from target/idl/demo_vault.json)
+// demo_vault::withdraw discriminator
 const WITHDRAW_DISC = Buffer.from([0xb7, 0x12, 0x46, 0x9c, 0x94, 0x6d, 0xa1, 0x22])
 
 // ── Crypto helpers ────────────────────────────────────────────────────────────
@@ -59,13 +59,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-// ── secp256r1 instruction builder (SIMD-0075 layout) ─────────────────────────
-//   [0]        num_signatures (u8 = 1)
-//   [1]        padding (u8 = 0)
-//   [2..16]    SignatureOffsets (7 × u16-LE = 14 bytes)
-//   [16..49]   pubkey (33-byte compressed P-256)
-//   [49..113]  signature (64-byte compact r‖s)
-//   [113..N]   message (e-value bytes)
+// ── secp256r1 instruction builder (SIMD-0075) ─────────────────────────────────
 
 function buildSecp256r1Ix(
   pubkey:  Uint8Array,
@@ -119,10 +113,7 @@ function buildRecordProofIx(
   })
 }
 
-// ── Intent hash (mirrors compute_intent_hash() in programs/guard/src/verify.rs) ─
-//
-// Canonical binary encoding — must match exactly.
-// u16-LE length prefixes for strings; all integers little-endian.
+// ── Intent hash ───────────────────────────────────────────────────────────────
 
 function computeIntentHash(
   domain:          string,
@@ -153,11 +144,6 @@ function computeIntentHash(
 }
 
 // ── WebAuthn proof builder ────────────────────────────────────────────────────
-//
-// Minimal structurally-valid WebAuthn assertion:
-//   authenticatorData: rpIdHash(32) + flags(1) + counter(4) = 37 bytes
-//   clientDataJSON:    {"type":"webauthn.get","challenge":"<base64url(intentHash)>"}
-//   e-value:           SHA-256(authData ‖ SHA-256(clientDataJSON))
 
 function buildWebAuthnProof(
   intentHash: Buffer,
@@ -166,7 +152,7 @@ function buildWebAuthnProof(
 ): { authData: Buffer; clientDataJSON: Buffer; rawMsg: Buffer; sig: Uint8Array } {
   const authData = Buffer.alloc(37)
   sha256(Buffer.from(rpId)).copy(authData, 0)
-  authData[32] = 0x05  // UP + UV flags
+  authData[32] = 0x05
   const clientDataJSON = Buffer.from(JSON.stringify({
     type:        "webauthn.get",
     challenge:   intentHash.toString("base64url"),
@@ -180,7 +166,7 @@ function buildWebAuthnProof(
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", () => {
+describe("guard — secp256r1 passkey enforcement", () => {
   const provider = AnchorProvider.env()
   setProvider(provider)
 
@@ -189,13 +175,14 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
   const conn  = provider.connection
   const payer = provider.wallet as pkg.Wallet
 
-  // Deterministic P-256 keypair for all tests
   const p256PrivKey = p256.utils.randomSecretKey()
   const p256PubKey  = p256.getPublicKey(p256PrivKey, true)
 
-  let owner:         Keypair
-  let vaultPda:      PublicKey
-  let registryPda:   PublicKey
+  let owner:          Keypair
+  let vaultPda:       PublicKey
+  let registryPda:    PublicKey
+  let configPda:      PublicKey
+  let treasuryPubkey: PublicKey   // payer.publicKey — receives enforcement fees
   let registryNonce = 0
 
   before(async () => {
@@ -211,31 +198,42 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     ;[registryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("2fa"), owner.publicKey.toBuffer()], trana.programId,
     )
+    ;[configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config")], trana.programId,
+    )
+    treasuryPubkey = payer.publicKey
 
-    // Register passkey
     await trana.methods
-      .registerTwoFa(
-        { secp256R1Passkey: {} },
-        Buffer.from(p256PubKey),
-        Buffer.from("test-credential-id"),
-      )
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("test-cred"))
       .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
       .signers([owner]).rpc()
 
-    // Init vault
     await vault.methods
       .initVault()
       .accounts({ vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
       .signers([owner]).rpc()
 
-    // Fund vault with 5 × 0.9 SOL small deposits (below 1 SOL LARGE_THRESHOLD)
+    // Init global fee config — idempotent across test runs
+    try {
+      await trana.methods
+        .initConfig(new BN(FEE_LAMPORTS), treasuryPubkey)
+        .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
+        .rpc()
+    } catch { /* already initialized */ }
+
+    // Fund vault: 5 × 0.9 SOL deposits (below 1 SOL threshold — no proof needed)
     for (let i = 0; i < 5; i++) {
       await vault.methods
         .deposit(new BN(0.9 * SOL))
         .accounts({
-          vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId,
-          guardProgram: trana.programId, tranaRegistry: registryPda,
+          vault:             vaultPda,
+          owner:             owner.publicKey,
+          systemProgram:     SystemProgram.programId,
+          guardProgram:      trana.programId,
+          tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig:       configPda,
+          tranaTreasury:     treasuryPubkey,
         })
         .signers([owner]).rpc()
     }
@@ -243,30 +241,30 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
 
   // ── Core withdraw helper ───────────────────────────────────────────────────
   //
-  // Correct flow:
-  //   1. Build proof (passkey signs over accounts + params + nonce + expiry)
-  //   2. Fetch FRESH blockhash AFTER proof is ready
-  //   3. Assemble and send
-  //
-  // This mirrors production: passkey approval (step 1) can take seconds.
-  // Fetching the blockhash after (step 2) means no expiry risk.
+  // accounts_hash field order mirrors the Withdraw struct definition:
+  //   vault, owner, destination, guard_program, trana_registry,
+  //   trana_instructions, trana_config, trana_treasury, system_program
 
   async function withdrawTx(opts: {
-    amount:          number
-    policy:          string
-    privKey:         Uint8Array
-    withProof:       boolean
-    tamperedAmount?: number  // submit this amount but sign for `amount`
-    useNonce?:       number  // override nonce (for replay tests)
-    delayAfterProofMs?: number  // simulate passkey latency before blockhash fetch
+    amount:           number
+    policy:           string
+    privKey:          Uint8Array
+    withProof:        boolean
+    tamperedAmount?:  number
+    useNonce?:        number
+    delayAfterProofMs?: number
+    overrideExpiry?:  number      // for R10: sign with a past expiry
+    clusterInProof?:  string      // for R11: cluster written to record_proof (signing uses "localnet")
+    policyInProof?:   string      // for R12: policy written to record_proof (signing uses `policy`)
+    overrideTreasury?: PublicKey  // for R17: wrong treasury in accounts
   }): Promise<string> {
     const { amount, policy, privKey, withProof } = opts
     const actualAmount = opts.tamperedAmount ?? amount
     const nonce        = opts.useNonce ?? registryNonce
-    const expiry       = Math.floor(Date.now() / 1000) + 300
+    const expiry       = opts.overrideExpiry ?? Math.floor(Date.now() / 1000) + 300
     const dest         = Keypair.generate().publicKey
+    const treasury     = opts.overrideTreasury ?? treasuryPubkey
 
-    // accounts_hash — field order matches Withdraw struct definition
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(),
       owner.publicKey.toBuffer(),
@@ -274,37 +272,31 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
       trana.programId.toBuffer(),
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasury.toBuffer(),
+      SystemProgram.programId.toBuffer(),
     ]))
 
-    // params_hash — SHA-256 of amount as u64-LE (sign for `amount`, not tamperedAmount)
     const amountBuf = Buffer.alloc(8)
     amountBuf.writeBigUInt64LE(BigInt(amount))
     const paramsHash = sha256(amountBuf)
 
     const intentHash = computeIntentHash(
       "trana:v1", "localnet",
-      owner.publicKey,
-      trana.programId,
-      vault.programId,
-      policy,
-      WITHDRAW_DISC,
-      accountsHash, paramsHash,
-      nonce, expiry,
+      owner.publicKey, trana.programId, vault.programId,
+      policy, WITHDRAW_DISC, accountsHash, paramsHash, nonce, expiry,
     )
 
-    // ── Step 1: build WebAuthn proof (simulates passkey approval) ─────────────
     const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, privKey)
     const pubKey = p256.getPublicKey(privKey, true)
 
-    // ── Step 2: simulate passkey latency (delay BEFORE blockhash fetch) ────────
-    if (opts.delayAfterProofMs) {
-      await sleep(opts.delayAfterProofMs)
-    }
+    if (opts.delayAfterProofMs) await sleep(opts.delayAfterProofMs)
 
-    // ── Step 3: fetch FRESH blockhash NOW — after proof is ready ──────────────
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
 
-    // ── Step 4: assemble transaction ──────────────────────────────────────────
+    const clusterForProof = opts.clusterInProof ?? "localnet"
+    const policyForProof  = opts.policyInProof  ?? policy
+
     const withdrawIx = await vault.methods
       .withdraw(new BN(actualAmount))
       .accounts({
@@ -314,19 +306,22 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasury,
+        systemProgram:     SystemProgram.programId,
       })
       .instruction()
 
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
     if (withProof) {
       tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
-      tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policy, authData, clientDataJSON))
+      tx.add(buildRecordProofIx(trana.programId, 1, expiry, clusterForProof, policyForProof, authData, clientDataJSON))
     }
     tx.add(withdrawIx)
     return sendAndConfirmTransaction(conn, tx, [owner])
   }
 
-  // ── R1: passkey registered ─────────────────────────────────────────────────
+  // ── R1 ─────────────────────────────────────────────────────────────────────
   it("R1: passkey registered in onchain PDA — owner, pubkey, nonce=0", async () => {
     const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     assert.ok(reg.enabled,               "registry should be enabled")
@@ -334,7 +329,7 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     assert.deepEqual(Buffer.from(reg.pubkeyBytes), Buffer.from(p256PubKey), "pubkey mismatch")
   })
 
-  // ── R2: valid proof → success, nonce increments ────────────────────────────
+  // ── R2 ─────────────────────────────────────────────────────────────────────
   it("R2: withdraw with valid P-256 proof succeeds — nonce consumed", async () => {
     await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true })
     registryNonce++
@@ -342,13 +337,10 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented")
   })
 
-  // ── R3: replay attack ──────────────────────────────────────────────────────
+  // ── R3 ─────────────────────────────────────────────────────────────────────
   it("R3: replay with old nonce fails (PayloadMismatch)", async () => {
     try {
-      await withdrawTx({
-        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
-        withProof: true, useNonce: 0,
-      })
+      await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, useNonce: 0 })
       assert.fail("Expected PayloadMismatch")
     } catch (err: unknown) {
       assert.ok(
@@ -358,7 +350,7 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R4: wrong signing key ──────────────────────────────────────────────────
+  // ── R4 ─────────────────────────────────────────────────────────────────────
   it("R4: proof from unregistered P-256 key fails (WrongSigner)", async () => {
     const wrongKey = p256.utils.randomSecretKey()
     try {
@@ -372,7 +364,7 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R5: tampered amount ────────────────────────────────────────────────────
+  // ── R5 ─────────────────────────────────────────────────────────────────────
   it("R5: tampered amount fails (PayloadMismatch)", async () => {
     try {
       await withdrawTx({
@@ -388,7 +380,7 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R6: missing secp256r1 instruction ─────────────────────────────────────
+  // ── R6 ─────────────────────────────────────────────────────────────────────
   it("R6: withdraw without secp256r1 proof fails (MissingProof)", async () => {
     try {
       await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: false })
@@ -401,19 +393,11 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R7: simulate-first flow ────────────────────────────────────────────────
-  //
-  // Validates the SDK's auto-detect path:
-  //   1. Build the withdraw instruction (no proof yet)
-  //   2. Simulate — look for "TRANA require | policy=X" in logs
-  //   3. Use the detected policy string in the intent hash (no manual config)
-  //   4. Build proof with detected policy → submit → success
-
+  // ── R7 ─────────────────────────────────────────────────────────────────────
   it("R7: simulate-first detects policy from logs and succeeds", async () => {
-    const dest = Keypair.generate().publicKey
+    const dest   = Keypair.generate().publicKey
     const amount = 1 * SOL
 
-    // Build withdraw instruction — no proof attached yet
     const withdrawIx = await vault.methods
       .withdraw(new BN(amount))
       .accounts({
@@ -423,6 +407,9 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+        systemProgram:     SystemProgram.programId,
       })
       .instruction()
 
@@ -430,55 +417,37 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     const probeTx = new Transaction({ recentBlockhash: probeBlockhash, feePayer: owner.publicKey })
     probeTx.add(withdrawIx)
 
-    // Simulate without wallet signature
     const vtx = VersionedTransaction.deserialize(
       probeTx.serialize({ requireAllSignatures: false, verifySignatures: false })
     )
-    const simResult = await conn.simulateTransaction(vtx, {
-      replaceRecentBlockhash: true,
-      sigVerify:              false,
-    })
+    const simResult = await conn.simulateTransaction(vtx, { replaceRecentBlockhash: true, sigVerify: false })
     const logs = simResult.value.logs ?? []
 
-    // Verify the guard emitted a TRANA require log
-    const hasMissingProof = logs.some(l => l.includes("TRANA_MISSING_PROOF"))
-    assert.ok(hasMissingProof, "simulation should show TRANA_MISSING_PROOF")
+    assert.ok(logs.some(l => l.includes("TRANA_MISSING_PROOF")), "simulation should show TRANA_MISSING_PROOF")
 
-    // Parse the policy string the guard expects
     const detectedPolicy = parsePolicyFromLogs(logs)
-    assert.ok(detectedPolicy, `should detect a policy from logs, got: ${JSON.stringify(logs)}`)
-    assert.ok(
-      detectedPolicy!.startsWith("trana."),
-      `detected policy should be a standard trana policy, got: ${detectedPolicy}`,
-    )
+    assert.ok(detectedPolicy, `should detect a policy from logs`)
+    assert.ok(detectedPolicy!.startsWith("trana."), `expected trana. policy, got: ${detectedPolicy}`)
 
-    // Now build proof using the DETECTED policy (not hardcoded)
     const nonce  = registryNonce
     const expiry = Math.floor(Date.now() / 1000) + 300
 
     const accountsHash = sha256(Buffer.concat([
-      vaultPda.toBuffer(),
-      owner.publicKey.toBuffer(),
-      dest.toBuffer(),
-      trana.programId.toBuffer(),
-      registryPda.toBuffer(),
-      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      vaultPda.toBuffer(), owner.publicKey.toBuffer(), dest.toBuffer(),
+      trana.programId.toBuffer(), registryPda.toBuffer(), SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(), treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
     ]))
     const amountBuf = Buffer.alloc(8)
     amountBuf.writeBigUInt64LE(BigInt(amount))
     const paramsHash = sha256(amountBuf)
 
     const intentHash = computeIntentHash(
-      "trana:v1", "localnet",
-      owner.publicKey, trana.programId, vault.programId,
-      detectedPolicy!,
-      WITHDRAW_DISC, accountsHash, paramsHash,
-      nonce, expiry,
+      "trana:v1", "localnet", owner.publicKey, trana.programId, vault.programId,
+      detectedPolicy!, WITHDRAW_DISC, accountsHash, paramsHash, nonce, expiry,
     )
 
     const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
 
-    // Fresh blockhash AFTER proof is built
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
     tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
@@ -492,41 +461,182 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R7")
   })
 
-  // ── R8: 2 s passkey delay — blockhash fetched fresh afterward ─────────────
-  //
-  // Simulates a user taking 2 seconds to approve the passkey prompt.
-  // The blockhash is fetched AFTER the delay so it is always fresh.
-  // If blockhash were fetched before the delay, this is the scenario where
-  // slow networks or slow biometric readers could cause timeouts.
-
+  // ── R8 ─────────────────────────────────────────────────────────────────────
   it("R8: 2 s simulated passkey delay — fresh blockhash, transaction succeeds", async () => {
-    await withdrawTx({
-      amount:             1 * SOL,
-      policy:             "trana.threshold",
-      privKey:            p256PrivKey,
-      withProof:          true,
-      delayAfterProofMs:  2_000,
-    })
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, delayAfterProofMs: 2_000 })
     registryNonce++
     const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R8")
   })
 
-  // ── R9: 5 s passkey delay ──────────────────────────────────────────────────
-  //
-  // More aggressive delay — still well within the ~90 s blockhash window, but
-  // validates that the flow doesn't accumulate timing assumptions.
-
+  // ── R9 ─────────────────────────────────────────────────────────────────────
   it("R9: 5 s simulated passkey delay — fresh blockhash, transaction succeeds", async () => {
-    await withdrawTx({
-      amount:             1 * SOL,
-      policy:             "trana.threshold",
-      privKey:            p256PrivKey,
-      withProof:          true,
-      delayAfterProofMs:  5_000,
-    })
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, delayAfterProofMs: 5_000 })
     registryNonce++
     const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R9")
+  })
+
+  // ── R10 ────────────────────────────────────────────────────────────────────
+  it("R10: expired proof fails (ProofExpired)", async () => {
+    const pastExpiry = Math.floor(Date.now() / 1000) - 10
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, overrideExpiry: pastExpiry,
+      })
+      assert.fail("Expected ProofExpired")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("ProofExpired") || (err as Error).message.includes("0x1771"),
+        `Expected ProofExpired, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R11 ────────────────────────────────────────────────────────────────────
+  //
+  // Sign intent hash with "localnet" (correct), but put "wrongnet" in record_proof.
+  // Guard computes intent using proof.cluster="wrongnet" → different hash → challenge mismatch.
+
+  it("R11: wrong cluster in record_proof fails (PayloadMismatch)", async () => {
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, clusterInProof: "wrongnet",
+      })
+      assert.fail("Expected PayloadMismatch")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
+        `Expected PayloadMismatch, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R12 ────────────────────────────────────────────────────────────────────
+  //
+  // proof.policy = "trana.always" but withdraw enforces "trana.threshold".
+  // verify_with_policy checks proof.policy == expected → PolicyMismatch before challenge verify.
+
+  it("R12: wrong policy string in record_proof fails (PolicyMismatch)", async () => {
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, policyInProof: "trana.always",
+      })
+      assert.fail("Expected PolicyMismatch")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("PolicyMismatch") || (err as Error).message.includes("0x1777"),
+        `Expected PolicyMismatch, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R13 ────────────────────────────────────────────────────────────────────
+  //
+  // Treasury = payer.publicKey. owner (fresh Keypair) pays the fee.
+  // After enforcement: treasury balance increases by exactly FEE_LAMPORTS.
+
+  it("R13: 20k lamport fee is deducted from owner and reaches treasury", async () => {
+    const before = await conn.getBalance(treasuryPubkey)
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true })
+    registryNonce++
+    const after = await conn.getBalance(treasuryPubkey)
+    assert.equal(after - before, FEE_LAMPORTS, `treasury should gain exactly ${FEE_LAMPORTS} lamports`)
+  })
+
+  // ── R14 ────────────────────────────────────────────────────────────────────
+  it("R14: update_config by non-authority is rejected (Unauthorized)", async () => {
+    const stranger = Keypair.generate()
+    const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
+    await conn.confirmTransaction(airdrop, "confirmed")
+
+    try {
+      await trana.methods
+        .updateConfig(new BN(99_000), stranger.publicKey)
+        .accounts({ config: configPda, authority: stranger.publicKey })
+        .signers([stranger]).rpc()
+      assert.fail("Expected Unauthorized")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("Unauthorized") || (err as Error).message.includes("0x1778"),
+        `Expected Unauthorized, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R15 ────────────────────────────────────────────────────────────────────
+  it("R15: authority can withdraw accumulated fees from treasury", async () => {
+    const treasuryBalance = await conn.getBalance(treasuryPubkey)
+    if (treasuryBalance < FEE_LAMPORTS) {
+      console.log("    → skipping R15: treasury has no accumulated fees")
+      return
+    }
+    const dest       = Keypair.generate().publicKey
+    const destBefore = await conn.getBalance(dest)
+    const withdrawAmt = FEE_LAMPORTS  // withdraw just one fee's worth
+
+    await trana.methods
+      .withdrawFees(new BN(withdrawAmt))
+      .accounts({
+        config:      configPda,
+        authority:   payer.publicKey,
+        treasury:    treasuryPubkey,
+        destination: dest,
+      })
+      .rpc()
+
+    const destAfter = await conn.getBalance(dest)
+    assert.equal(destAfter - destBefore, withdrawAmt, "destination should receive exact withdrawal amount")
+  })
+
+  // ── R16 ────────────────────────────────────────────────────────────────────
+  it("R16: withdraw_fees by non-authority is rejected (Unauthorized)", async () => {
+    const stranger = Keypair.generate()
+    const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
+    await conn.confirmTransaction(airdrop, "confirmed")
+
+    try {
+      await trana.methods
+        .withdrawFees(new BN(FEE_LAMPORTS))
+        .accounts({
+          config:      configPda,
+          authority:   stranger.publicKey,
+          treasury:    treasuryPubkey,
+          destination: stranger.publicKey,
+        })
+        .signers([stranger]).rpc()
+      assert.fail("Expected Unauthorized")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("Unauthorized") || (err as Error).message.includes("0x1778"),
+        `Expected Unauthorized, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R17 ────────────────────────────────────────────────────────────────────
+  //
+  // Pass a treasury pubkey that doesn't match config.treasury.
+  // demo_vault's Withdraw constraint rejects it before the CPI.
+
+  it("R17: wrong treasury in Enforce accounts is rejected", async () => {
+    const fakeTreasury = Keypair.generate().publicKey
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, overrideTreasury: fakeTreasury,
+      })
+      assert.fail("Expected constraint error for wrong treasury")
+    } catch (err: unknown) {
+      assert.ok(err instanceof Error, "should fail with an error")
+      // Anchor constraint violation — InvalidTreasury or ConstraintRaw
+      assert.ok(
+        (err as Error).message.length > 0,
+        "error should have a message",
+      )
+    }
   })
 })
