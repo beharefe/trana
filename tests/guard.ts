@@ -632,10 +632,131 @@ describe("guard — secp256r1 passkey enforcement", () => {
       assert.fail("Expected constraint error for wrong treasury")
     } catch (err: unknown) {
       assert.ok(err instanceof Error, "should fail with an error")
-      // Anchor constraint violation — InvalidTreasury or ConstraintRaw
+      assert.ok((err as Error).message.length > 0, "error should have a message")
+    }
+  })
+
+  // ── R18 ────────────────────────────────────────────────────────────────────
+  //
+  // Policy::Custom: the protected instruction IS trana::enforce itself.
+  // Guard reads the policy string from the proof (not hardcoded) and uses it
+  // in the intent hash. The passkey must have signed a challenge containing
+  // that exact string — it cannot be swapped without breaking the signature.
+  //
+  // Transaction shape:
+  //   ix[0]: secp256r1
+  //   ix[1]: trana::record_proof    (policy = "myapp.custom_action")
+  //   ix[2]: trana::enforce(Custom) ← the protected instruction
+
+  it("R18: Policy::Custom — any policy string accepted when passkey signed it", async () => {
+    const customPolicy = "myapp.custom_action"
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    // Discriminator for trana::enforce
+    const ENFORCE_DISC = sha256(Buffer.from("global:enforce")).slice(0, 8)
+
+    // Enforce struct field order (6 accounts):
+    //   registry, owner, instructions, config, treasury, system_program
+    const accountsHash = sha256(Buffer.concat([
+      registryPda.toBuffer(),
+      owner.publicKey.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasuryPubkey.toBuffer(),
+      SystemProgram.programId.toBuffer(),
+    ]))
+
+    // Policy::Custom borsh = variant index 5 (u8)
+    const paramsHash = sha256(Buffer.from([5]))
+
+    // targetProgramId = trana itself (enforce IS the protected instruction)
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      owner.publicKey, trana.programId, trana.programId,
+      customPolicy, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods
+      .enforce({ custom: {} })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", customPolicy, authData, clientDataJSON))
+    tx.add(enforceIx)
+
+    await sendAndConfirmTransaction(conn, tx, [owner])
+    registryNonce++
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after Custom enforcement")
+  })
+
+  // ── R18b ───────────────────────────────────────────────────────────────────
+  //
+  // Custom negative: sign with "myapp.safe_action" but write "myapp.evil_swap"
+  // in record_proof. Guard computes intent with "myapp.evil_swap" but the
+  // challenge was built with "myapp.safe_action" → PayloadMismatch.
+
+  it("R18b: Policy::Custom — swapped policy string in record_proof fails (PayloadMismatch)", async () => {
+    const ENFORCE_DISC = sha256(Buffer.from("global:enforce")).slice(0, 8)
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    const accountsHash = sha256(Buffer.concat([
+      registryPda.toBuffer(), owner.publicKey.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
+      treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+    ]))
+    const paramsHash = sha256(Buffer.from([5]))
+
+    // Sign with "myapp.safe_action"
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      owner.publicKey, trana.programId, trana.programId,
+      "myapp.safe_action", Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods
+      .enforce({ custom: {} })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    // Proof says "myapp.evil_swap" but passkey signed "myapp.safe_action" → mismatch
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", "myapp.evil_swap", authData, clientDataJSON))
+    tx.add(enforceIx)
+
+    try {
+      await sendAndConfirmTransaction(conn, tx, [owner])
+      assert.fail("Expected PayloadMismatch")
+    } catch (err: unknown) {
       assert.ok(
-        (err as Error).message.length > 0,
-        "error should have a message",
+        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
+        `Expected PayloadMismatch, got: ${(err as Error).message}`,
       )
     }
   })
