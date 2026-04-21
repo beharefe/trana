@@ -98,7 +98,7 @@ pub enum Policy {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[program]
-pub mod guard {
+pub mod trana {
     use super::*;
 
     // ── Passkey registration ──────────────────────────────────────────────────

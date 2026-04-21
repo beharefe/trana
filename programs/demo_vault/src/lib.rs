@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use guard::cpi::accounts::Enforce;
-use guard::program::Guard;
-use guard::Policy;
+use trana::cpi::accounts::Enforce;
+use trana::program::Trana;
+use trana::Policy;
 
 declare_id!("RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW");
 
@@ -13,7 +13,7 @@ declare_id!("RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW");
 //  the guard program and is audited once for every protocol that imports it.
 //
 //  Integration pattern:
-//    guard::cpi::enforce(ctx, Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 })?
+//    trana::cpi::enforce(ctx, Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 })?
 //
 //  The condition evaluation happens inside guard, not here. Users can verify
 //  the policy by reading Trana's source — they don't need to audit this vault.
@@ -60,12 +60,12 @@ pub mod demo_vault {
 
     // ── Emergency freeze — Policy::Admin ──────────────────────────────────────
     //
-    // guard::cpi::enforce(ctx, Policy::Admin) is the entire trust story here.
+    // trana::cpi::enforce(ctx, Policy::Admin) is the entire trust story here.
     // Any user auditing this vault can see: "freeze requires trana.admin",
     // then read trana's source to verify what trana.admin does.
 
     pub fn emergency_freeze(ctx: Context<EmergencyFreeze>, freeze: bool) -> Result<()> {
-        guard::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Admin)?;
+        trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Admin)?;
         ctx.accounts.vault.frozen = freeze;
         emit!(FreezeEvent { owner: ctx.accounts.owner.key(), frozen: freeze });
         Ok(())
@@ -78,7 +78,7 @@ pub mod demo_vault {
         require!(!ctx.accounts.vault.frozen, VaultError::VaultFrozen);
 
         // Large deposits require passkey — guard reads amount from instruction directly
-        guard::cpi::enforce(
+        trana::cpi::enforce(
             ctx.accounts.trana_cpi_ctx(),
             Policy::Threshold { param_offset: 0, threshold: LARGE_THRESHOLD },
         )?;
@@ -128,10 +128,10 @@ pub mod demo_vault {
 
         if ctx.accounts.vault.opt_in {
             // User opted into always-require passkey
-            guard::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Always)?;
+            trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Always)?;
         } else {
             // Rapid drain: guard evaluates deposit time + amount inside guard
-            guard::cpi::enforce(
+            trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
                 Policy::RapidDrain {
                     last_deposit_at:     ctx.accounts.vault.last_large_deposit_at,
@@ -142,7 +142,7 @@ pub mod demo_vault {
             )?;
 
             // Velocity: guard evaluates already_withdrawn + current > threshold
-            guard::cpi::enforce(
+            trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
                 Policy::Velocity {
                     param_offset:      WITHDRAW_AMOUNT_OFFSET,
@@ -152,7 +152,7 @@ pub mod demo_vault {
             )?;
 
             // Threshold: guard reads amount from instruction, checks >= LARGE_THRESHOLD
-            guard::cpi::enforce(
+            trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
                 Policy::Threshold {
                     param_offset: WITHDRAW_AMOUNT_OFFSET,
@@ -217,7 +217,7 @@ pub struct EmergencyFreeze<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
     pub owner: Signer<'info>,
-    pub guard_program: Program<'info, Guard>,
+    pub guard_program: Program<'info, Trana>,
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -225,7 +225,7 @@ pub struct EmergencyFreeze<'info> {
         seeds::program = guard_program.key(),
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -238,7 +238,7 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     pub system_program: Program<'info, System>,
-    pub guard_program: Program<'info, Guard>,
+    pub guard_program: Program<'info, Trana>,
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -246,7 +246,7 @@ pub struct Deposit<'info> {
         seeds::program = guard_program.key(),
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -260,7 +260,7 @@ pub struct Withdraw<'info> {
     /// CHECK: withdrawal destination
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
-    pub guard_program: Program<'info, Guard>,
+    pub guard_program: Program<'info, Trana>,
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -268,7 +268,7 @@ pub struct Withdraw<'info> {
         seeds::program = guard_program.key(),
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
