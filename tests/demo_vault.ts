@@ -34,7 +34,7 @@ import {
 } from "@solana/web3.js"
 import { createHash } from "crypto"
 import assert from "assert"
-import type { Guard }     from "../target/types/guard"
+import type { Trana }    from "../target/types/trana"
 import type { DemoVault } from "../target/types/demo_vault"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ describe("demo_vault — onchain policy enforcement", () => {
   const provider   = AnchorProvider.env()
   setProvider(provider)
 
-  const guard     = workspace.Guard     as Program<Guard>
+  const trana     = workspace.Trana     as Program<Trana>
   const vault     = workspace.DemoVault as Program<DemoVault>
   const conn      = provider.connection
   const payer     = provider.wallet as pkg.Wallet
@@ -227,12 +227,12 @@ describe("demo_vault — onchain policy enforcement", () => {
     // Registry PDA: ["2fa", owner] in guard program
     ;[registryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("2fa"), payer.publicKey.toBuffer()],
-      guard.programId,
+      trana.programId,
     )
 
     // ── Register P-256 passkey in the guard registry ──────────────────────────
     try {
-      await guard.methods
+      await trana.methods
         .registerTwoFa(
           { secp256R1Passkey: {} },
           Buffer.from(p256PubKey),
@@ -249,7 +249,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     }
 
     // Sync nonce from chain
-    const reg = await guard.account.twoFactorRegistry.fetch(registryPda)
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     registryNonce = reg.nonce.toNumber()
 
     // ── Init demo_vault ───────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     useNonce?:  number
   }): Promise<string> {
     const { amount, withProof } = opts
-    const policy  = opts.policy ?? "transfer.large"
+    const policy  = opts.policy ?? "trana.threshold"
     const nonce   = opts.useNonce !== undefined ? opts.useNonce : registryNonce
     const expiry  = Math.floor(Date.now() / 1000) + 300
     const dest    = Keypair.generate().publicKey
@@ -309,7 +309,7 @@ describe("demo_vault — onchain policy enforcement", () => {
       vaultPda.toBuffer(),
       payer.publicKey.toBuffer(),
       dest.toBuffer(),
-      guard.programId.toBuffer(),
+      trana.programId.toBuffer(),
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
     ]))
@@ -322,7 +322,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     const intentHash = computeIntentHash(
       "trana:v1", "localnet",
       payer.publicKey,
-      guard.programId,
+      trana.programId,
       vault.programId,
       policy,
       WITHDRAW_DISC,
@@ -343,7 +343,7 @@ describe("demo_vault — onchain policy enforcement", () => {
         vault:              vaultPda,
         owner:              payer.publicKey,
         destination:        dest,
-        guardProgram:       guard.programId,
+        guardProgram:       trana.programId,
         tranaRegistry:      registryPda,
         tranaInstructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
       })
@@ -354,7 +354,7 @@ describe("demo_vault — onchain policy enforcement", () => {
 
     if (withProof) {
       tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
-      tx.add(buildRecordProofIx(guard.programId, expiry, "localnet", policy, authData, clientDataJSON))
+      tx.add(buildRecordProofIx(trana.programId, expiry, "localnet", policy, authData, clientDataJSON))
     }
     tx.add(withdrawIx)
 
@@ -444,7 +444,7 @@ describe("demo_vault — onchain policy enforcement", () => {
           vault:             vaultPda,
           owner:             payer.publicKey,
           systemProgram:     SystemProgram.programId,
-          guardProgram:      guard.programId,
+          guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
         })
@@ -461,7 +461,7 @@ describe("demo_vault — onchain policy enforcement", () => {
 
     // Use 0.01 SOL — above rent-exempt threshold for a fresh destination account
     try {
-      await doWithdraw({ amount: 10_000_000, policy: "transfer.always", withProof: true })
+      await doWithdraw({ amount: 10_000_000, policy: "trana.always", withProof: true })
       registryNonce++
     } finally {
       // Always disable opt-in so later tests aren't affected
@@ -481,7 +481,7 @@ describe("demo_vault — onchain policy enforcement", () => {
           vault:             vaultPda,
           owner:             payer.publicKey,
           systemProgram:     SystemProgram.programId,
-          guardProgram:      guard.programId,
+          guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
         })
@@ -496,7 +496,7 @@ describe("demo_vault — onchain policy enforcement", () => {
       return
     }
 
-    await doWithdraw({ amount: 1 * SOL, policy: "transfer.large", withProof: true })
+    await doWithdraw({ amount: 1 * SOL, policy: "trana.threshold", withProof: true })
     registryNonce++
   })
 
@@ -506,9 +506,11 @@ describe("demo_vault — onchain policy enforcement", () => {
   //   programs/demo_vault/src/lib.rs  (12 unit tests, run with `cargo test --package demo_vault`)
   //
   // Below we confirm the policy strings are correct at the TypeScript layer:
-  it("policy constants match Rust source", () => {
-    assert.equal("transfer.large",      "transfer.large")
-    assert.equal("transfer.rapid_drain","transfer.rapid_drain")
-    assert.equal("transfer.always",     "transfer.always")
+  it("policy strings match Rust source", () => {
+    assert.equal("trana.threshold",  "trana.threshold")
+    assert.equal("trana.rapid_drain","trana.rapid_drain")
+    assert.equal("trana.always",     "trana.always")
+    assert.equal("trana.velocity",   "trana.velocity")
+    assert.equal("trana.admin",      "trana.admin")
   })
 })
