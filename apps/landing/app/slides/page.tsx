@@ -528,32 +528,23 @@ const SLIDES = [
           The protocol defines<br />
           <span className="italic text-accent">when to ask.</span>
         </h2>
-        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-8 sm:mb-10 max-w-2xl">
-          Policies are rules the developer declares in their program. When a rule triggers, execution is blocked until a passkey approves.
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
+          The developer declares an enforcement rule in their program. When it triggers, execution is blocked until a passkey approves.
         </p>
-        <div className="space-y-4 sm:space-y-5 mb-6 sm:mb-8">
+        <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
           {[
-            {
-              rule:  "Require approval for any withdrawal above 1 SOL",
-              why:   "Limits blast radius if a key is compromised.",
-            },
-            {
-              rule:  "Require approval for admin instructions",
-              why:   "Protocol upgrades and config changes need a second device.",
-            },
-            {
-              rule:  "Require approval on every execution",
-              why:   "Maximum protection for the most sensitive operations.",
-            },
-          ].map(({ rule, why }) => (
-            <div key={rule} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 border border-border bg-card rounded-2xl px-6 py-5">
-              <p className="font-medium text-ink text-base flex-1">{rule}</p>
-              <p className="text-muted text-sm sm:text-right sm:max-w-xs shrink-0">{why}</p>
+            { policy: "::Threshold", desc: "Require approval when an amount exceeds a limit." },
+            { policy: "::Admin",     desc: "Require approval for privileged or irreversible instructions." },
+            { policy: "::Always",    desc: "Require approval on every execution, no exceptions." },
+          ].map(({ policy, desc }) => (
+            <div key={policy} className="flex items-center gap-6 sm:gap-10 border border-border bg-card rounded-2xl px-6 sm:px-8 py-5 sm:py-6">
+              <span className="font-mono text-xl sm:text-2xl font-medium text-ink shrink-0">{policy}</span>
+              <span className="text-muted text-sm sm:text-base leading-relaxed">{desc}</span>
             </div>
           ))}
         </div>
         <Card className="p-5 sm:p-6 mt-auto">
-          <p className="font-medium text-ink text-sm mb-1.5">Attack demo: attacker has the key, no passkey</p>
+          <p className="font-medium text-ink text-sm mb-1.5">Attack demo — attacker holds the key, no passkey present</p>
           <p className="text-muted text-sm">→ Transaction fails onchain. <span className="font-medium text-ink">The key alone is not enough.</span></p>
         </Card>
       </div>
