@@ -225,7 +225,7 @@ function WhyTranaSlide() {
       </h2>
 
       {/* Narration */}
-      <div className="h-5 mb-8 sm:mb-10">
+      <div className="min-h-[2.5rem] mb-4 sm:mb-6">
         <AnimatePresence mode="wait">
           <motion.p key={phase}
             initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -363,9 +363,9 @@ const SLIDES = [
   {
     id: "problem",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Problem</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
           Protocols trust signatures<br />
           <span className="italic text-orange-500">blindly.</span>
         </h2>
@@ -394,13 +394,13 @@ const SLIDES = [
   {
     id: "insight",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Insight</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
           February 2025 —<br />
           <span className="italic text-accent">the missing piece arrives.</span>
         </h2>
-        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-6 sm:mb-8 max-w-2xl">
           Solana ships SIMD-0075: native P-256 signature verification on every validator.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8 sm:mb-10">
@@ -416,7 +416,7 @@ const SLIDES = [
         </div>
         <div className="border-l-2 border-border pl-6 mt-auto">
           <p className="font-serif text-xl sm:text-2xl text-ink italic">
-            &ldquo;For over a year, nobody built a real authorization primitive on top of it. We change that.&rdquo;
+            &ldquo;SIMD-0075 shipped in February. We&apos;re the first to build production authorization on top of it.&rdquo;
           </p>
         </div>
       </div>
@@ -427,9 +427,9 @@ const SLIDES = [
   {
     id: "solution",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>The Solution</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
           Trana
         </h2>
         <div className="border border-border rounded-2xl bg-card p-7 sm:p-10 mb-8 sm:mb-10">
@@ -446,7 +446,7 @@ const SLIDES = [
           ].map(([title, sub]) => (
             <Card key={title} className="p-5 sm:p-6">
               <p className="font-medium text-ink text-sm mb-2">{title}</p>
-              <p className="text-muted text-xs leading-relaxed">{sub}</p>
+              <p className="text-muted text-sm leading-relaxed">{sub}</p>
             </Card>
           ))}
         </div>
@@ -464,13 +464,13 @@ const SLIDES = [
   {
     id: "integration",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>For Developers</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
           One CPI call.<br />
           <span className="italic text-accent">Your Solana program.</span>
         </h2>
-        <p className="text-muted text-lg leading-relaxed mb-10 sm:mb-12">
+        <p className="text-muted text-lg leading-relaxed mb-6 sm:mb-8">
           No new wallet. No custody change. No infrastructure.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-8 mt-auto">
@@ -502,13 +502,11 @@ const SLIDES = [
                 <span className="text-accent">await</span>
                 <span className="text-bg/70"> trana</span>
               </p>
-              <p className="pl-6">
-                <span className="text-bg/60">.authorizeAndSend(</span>
-              </p>
-              <p className="pl-8">
+              <p className="pl-4">
+                <span className="text-bg/70">.authorizeAndSend(</span>
                 <span className="text-muted">tx</span>
+                <span className="text-bg/70">)</span>
               </p>
-              <p className="pl-6"><span className="text-bg/70">)</span></p>
             </div>
           </div>
         </div>
@@ -520,7 +518,7 @@ const SLIDES = [
   {
     id: "demo",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Policies</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
           The protocol defines<br />
@@ -550,9 +548,9 @@ const SLIDES = [
   {
     id: "where",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Where This Matters</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
           Not every transaction —<br />
           <span className="italic text-accent">the ones that count.</span>
         </h2>
@@ -565,7 +563,7 @@ const SLIDES = [
           ].map(([title, body]) => (
             <Card key={title} className="p-5 sm:p-6">
               <p className="font-medium text-ink text-sm mb-1.5">{title}</p>
-              <p className="text-muted text-xs leading-relaxed">{body}</p>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -577,9 +575,9 @@ const SLIDES = [
   {
     id: "market",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Market</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
           Every protocol holding TVL<br />
           <span className="italic">needs this.</span>
         </h2>
@@ -587,7 +585,7 @@ const SLIDES = [
           <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
             <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Solana TVL today</p>
             <p className="font-serif text-5xl sm:text-6xl text-ink">$7B+</p>
-            <p className="text-sm text-muted mt-2">every dollar is a potential customer</p>
+            <p className="text-sm text-muted mt-2">every protocol with TVL is in our market</p>
           </div>
           <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
             <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Total addressable</p>
@@ -610,13 +608,13 @@ const SLIDES = [
   {
     id: "business",
     render: () => (
-      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-10 sm:pt-14 pb-8 overflow-y-auto">
         <Label>Business Model</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-6 sm:mb-8">
           Free to integrate.<br />
           <span className="italic text-accent">Own the safety layer.</span>
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-10 sm:mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {[
             { n: "01", title: "Free primitive",  body: "Any protocol can integrate the onchain program. Managed registry, key recovery, and SLA are paid." },
             { n: "02", title: "Protocol fee",    body: "Micro-fee per guarded execution. As TVL grows, the fee grows with it." },
@@ -631,7 +629,7 @@ const SLIDES = [
         </div>
         <div className="border-l-2 border-border pl-6 mt-auto">
           <p className="font-serif text-xl sm:text-2xl text-ink italic leading-snug">
-            &ldquo;We don&apos;t hold keys. We don&apos;t hold custody. Protocols integrate once and we own the safety layer they depend on.&rdquo;
+            &ldquo;We don&apos;t hold keys. We don&apos;t hold custody. Integrate once, the safety layer is permanently onchain.&rdquo;
           </p>
         </div>
       </div>
@@ -654,11 +652,11 @@ const SLIDES = [
           {[
             ["Protocol partners", "Integrate Trana in your program. We ship together."],
             ["Early builders",    "Building on Solana? We want your use case."],
-            ["Devnet this week",  "Live on devnet now. Source opening post-Colosseum."],
+            ["Devnet next week",   "Code goes public before hackathon submission."],
           ].map(([title, body]) => (
             <Card key={title} className="text-left p-5 sm:p-6">
               <p className="font-medium text-ink text-sm mb-2">{title}</p>
-              <p className="text-muted text-xs leading-relaxed">{body}</p>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -671,22 +669,21 @@ const SLIDES = [
     id: "about",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
-        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-10 sm:mb-12">
+        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-6 sm:mb-8">
           Built by
         </p>
         <h2 className="font-serif text-5xl sm:text-6xl leading-[1.1] tracking-tight text-ink mb-4 sm:mb-5">
           Efe Behar
         </h2>
-        <p className="text-lg sm:text-xl text-muted mb-10 sm:mb-12 leading-relaxed max-w-xl">
+        <p className="text-lg sm:text-xl text-muted mb-6 sm:mb-8 leading-relaxed max-w-xl">
           Senior Engineer ·{" "}
-          <span className="text-ink font-medium">Colosseum Breakout Hackathon Winner</span>
-          {" "}(Infra track) with Action Codes ·{" "}
-          Solana Foundation Grants recipient
+          <span className="text-ink font-medium">Colosseum Breakout — Infra track winner</span>
+          {" "}with Action Codes · Solana Foundation grantee
         </p>
-        <p className="font-serif text-2xl sm:text-3xl text-muted italic mb-12 sm:mb-14">
-          Now competing again for better Solana.
+        <p className="font-serif text-xl sm:text-2xl text-muted italic mb-8 sm:mb-10">
+          Now building the authorization layer Solana was missing.
         </p>
-        <p className="font-serif text-3xl sm:text-4xl text-ink italic mb-10 sm:mb-12">
+        <p className="font-serif text-3xl sm:text-4xl text-ink italic mb-8 sm:mb-10">
           Thank you.
         </p>
         <div className="flex gap-8 sm:gap-12">

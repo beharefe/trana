@@ -99,8 +99,8 @@ export default function Home() {
                   body: "Attackers pre-sign with a valid durable nonce, wait for the right moment, then execute without further interaction from the signer.",
                 },
                 {
-                  title: "Automatic execution",
-                  body: "Once a valid signature exists, no mechanism on the execution path can object. The transaction runs.",
+                  title: "No checkpoint at execution",
+                  body: "Once a valid signature exists, nothing on the execution path can object. The transaction runs.",
                 },
               ].map(({ title, body }) => (
                 <div key={title} className="p-5 rounded-2xl border border-border bg-card">
@@ -238,7 +238,7 @@ export default function Home() {
                 body: "Collateral unlocks and high-value transfers require explicit approval at the moment the instruction executes.",
               },
               {
-                title: "High-value actions",
+                title: "Any instruction you can't undo",
                 body: "Any irreversible onchain action where a single compromised signer would cause unrecoverable damage.",
               },
             ].map(({ title, body }) => (
@@ -393,7 +393,7 @@ export default function Home() {
                 GitHub
               </a>
               <span className="text-faint text-xs">
-                Colosseum Frontier Hackathon · April 2026
+                Pitch Contest Kraków · April 2026
               </span>
             </div>
           </div>
