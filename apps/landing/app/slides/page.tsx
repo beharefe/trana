@@ -346,23 +346,17 @@ const SLIDES = [
   {
     id: "title",
     render: () => (
-      <div className="flex flex-col items-center justify-center h-full text-center px-6 sm:px-16">
-        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-6 sm:mb-8 border border-border rounded-full px-4 py-1.5">
-          Solana · devnet live
+      <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
+        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-8 sm:mb-10 border border-border rounded-full px-4 py-1.5">
+          Solana · execution-time authorization
         </p>
-        <h1 className="font-serif text-5xl sm:text-7xl leading-tight tracking-tight text-ink mb-4">
-          Trana<span className="italic text-accent">Guard</span>
+        <h1 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-6 sm:mb-8">
+          A signature is not<br />
+          <span className="italic text-accent">enough anymore.</span>
         </h1>
-        <p className="text-lg sm:text-xl text-muted max-w-2xl leading-relaxed">
-          Execution-time passkey enforcement for Solana
+        <p className="text-xl sm:text-2xl text-muted max-w-2xl leading-relaxed">
+          Every major exploit today uses a valid signature.
         </p>
-        <div className="mt-10 sm:mt-12 flex flex-wrap justify-center gap-4 sm:gap-6 text-xs sm:text-sm text-faint">
-          <span>No server</span>
-          <span className="text-border">·</span>
-          <span>No custodian</span>
-          <span className="text-border">·</span>
-          <span>Pure onchain</span>
-        </div>
       </div>
     ),
   },
@@ -371,32 +365,29 @@ const SLIDES = [
   {
     id: "problem",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>The Problem</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          Every Solana exploit<br className="hidden sm:block" />
-          <span className="italic"> follows the same pattern.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Protocols trust signatures<br />
+          <span className="italic">blindly.</span>
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {[
-            ["01", "Attacker gets the private key"],
-            ["02", "Sends raw transactions directly"],
-            ["03", "Protocol is drained"],
-          ].map(([n, t]) => (
-            <Card key={n}>
-              <p className="text-xs font-medium text-faint font-mono mb-3">{n}</p>
-              <p className="text-sm font-medium text-ink">{t}</p>
+            ["Admin key is stolen", "A single compromised key is enough. No second check."],
+            ["Attacker signs directly", "The transaction is valid. The chain cannot object."],
+            ["Protocol is drained", "Funds gone in seconds. No approval was asked."],
+          ].map(([title, body]) => (
+            <Card key={title} className="p-6 sm:p-7">
+              <p className="font-medium text-ink text-base mb-2">{title}</p>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
-        <Card>
-          <p className="text-xs text-faint uppercase tracking-widest mb-3">Existing &ldquo;solutions&rdquo;</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 text-sm">
-            <span className="text-muted">UI warnings <span className="text-ink font-medium">→ bypassed with raw tx</span></span>
-            <span className="text-muted">Multisig <span className="text-ink font-medium">→ high coordination overhead</span></span>
-            <span className="text-muted">Custodians <span className="text-ink font-medium">→ you&apos;re trusting them</span></span>
-          </div>
-        </Card>
+        <div className="border-l-2 border-border pl-6 mt-auto">
+          <p className="font-serif text-xl sm:text-2xl text-ink italic leading-snug">
+            &ldquo;Crypto has authentication. It doesn&apos;t have authorization.&rdquo;
+          </p>
+        </div>
       </div>
     ),
   },
@@ -405,29 +396,29 @@ const SLIDES = [
   {
     id: "insight",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>The Insight</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-3">
-          February 2025:<br />
-          <span className="italic text-accent">Solana ships SIMD-0075.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
+          February 2025 —<br />
+          <span className="italic text-accent">the missing piece arrives.</span>
         </h2>
-        <p className="text-muted text-base sm:text-lg mb-6 sm:mb-8 leading-relaxed">
-          Native secp256r1 (P-256) signature verification — on every validator.
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
+          Solana ships SIMD-0075: native P-256 signature verification on every validator.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8 sm:mb-10">
           {[
-            ["WebAuthn uses P-256", "Touch ID, Face ID, YubiKey, Windows Hello — all produce secp256r1 signatures by default."],
-            ["Now verifiable onchain", "For the first time: passkeys can be verified natively by the Solana runtime. No server. No bridge."],
+            ["Passkeys already use P-256", "Touch ID, Face ID, YubiKey, Windows Hello — all produce P-256 signatures by design."],
+            ["Now verifiable onchain", "For the first time: a passkey approval can be verified by the Solana runtime itself. No server. No bridge."],
           ].map(([title, body]) => (
-            <Card key={title}>
+            <Card key={title} className="p-6 sm:p-7">
               <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">{title}</p>
-              <p className="text-sm text-muted leading-relaxed">{body}</p>
+              <p className="text-base text-muted leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
-        <div className="border-l-2 border-border pl-5 sm:pl-6">
-          <p className="font-serif text-lg sm:text-xl text-ink leading-relaxed">
-            &ldquo;SIMD-0075 is 3 months old. We&apos;re the first to build a production-grade authorization primitive on top of it.&rdquo;
+        <div className="border-l-2 border-border pl-6 mt-auto">
+          <p className="font-serif text-xl sm:text-2xl text-ink italic">
+            &ldquo;This precompile is 3 months old. We are the first authorization primitive built on top of it.&rdquo;
           </p>
         </div>
       </div>
@@ -438,27 +429,26 @@ const SLIDES = [
   {
     id: "solution",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>The Solution</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6">
-          One CPI call.<br />
-          <span className="italic text-accent">Execution-time enforcement.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Trana Guard
         </h2>
-        <div className="border border-border rounded-2xl bg-card p-5 sm:p-7 mb-6 sm:mb-8">
-          <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">The guarantee</p>
-          <p className="font-serif text-xl sm:text-2xl text-ink leading-relaxed">
-            &ldquo;This instruction cannot execute unless the registered passkey signed an intent hash that exactly describes this transaction.&rdquo;
+        <div className="border border-border rounded-2xl bg-card p-7 sm:p-10 mb-8 sm:mb-10">
+          <p className="text-xs font-medium text-faint uppercase tracking-widest mb-4">The guarantee</p>
+          <p className="font-serif text-2xl sm:text-3xl text-ink leading-snug">
+            &ldquo;This instruction cannot execute unless a second device explicitly approved it — right now, for exactly this action.&rdquo;
           </p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-auto">
           {[
-            ["Enforced by Solana runtime", "Not by a server or UI"],
-            ["Atomic with execution", "Proof + action together"],
-            ["Device-bound passkey", "Private key never leaves hardware"],
+            ["Not replacing wallets", "We add a second layer. Everyday transactions work as usual."],
+            ["No custody change", "Keys stay where they are. We add a second check at execution."],
+            ["Enforced by the chain", "No server to compromise. No UI to bypass. Runtime enforced."],
           ].map(([title, sub]) => (
-            <Card key={title}>
-              <p className="font-medium text-ink text-sm mb-1">{title}</p>
-              <p className="text-muted text-xs">{sub}</p>
+            <Card key={title} className="p-5 sm:p-6">
+              <p className="font-medium text-ink text-sm mb-2">{title}</p>
+              <p className="text-muted text-xs leading-relaxed">{sub}</p>
             </Card>
           ))}
         </div>
@@ -466,154 +456,141 @@ const SLIDES = [
     ),
   },
 
-  // 4 — How it works
-  {
-    id: "how",
-    render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>How It Works</Label>
-        <h2 className="font-serif text-3xl sm:text-4xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          Transaction shape
-        </h2>
-        <div className="space-y-2 sm:space-y-3 mb-6 sm:mb-8">
-          {[
-            { ix: "N-2", name: "secp256r1 precompile", note: "Native P-256 sig verify (SIMD-0075)", highlight: false },
-            { ix: "N-1", name: "guard::record_proof",  note: "Carries WebAuthn binding data",       highlight: false },
-            { ix: "N",   name: "your_program::action", note: "→ calls guard::cpi::enforce()",       highlight: true  },
-          ].map(({ ix, name, note, highlight }) => (
-            <div key={ix} className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-2xl border ${highlight ? "border-accent/40 bg-accent-light" : "border-border bg-card"}`}>
-              <span className="text-xs font-mono font-medium text-faint shrink-0">ix[{ix}]</span>
-              <span className="font-medium text-ink text-sm flex-1">{name}</span>
-              <span className="text-muted text-xs">{note}</span>
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {[
-            ["intent hash", "SHA-256(policy | program | accounts | params | nonce | expiry)"],
-            ["nonce",       "Consumed on use — replay impossible"],
-            ["atomic",      "All 3 succeed or all fail — runtime guarantee"],
-          ].map(([k, v]) => (
-            <Card key={k}>
-              <p className="font-medium text-accent text-xs mb-1">{k}</p>
-              <p className="text-muted text-xs leading-relaxed">{v}</p>
-            </Card>
-          ))}
-        </div>
-      </div>
-    ),
-  },
-
-  // 5 — Animation: Why Trana
+  // 4 — Animation: Why Trana
   {
     id: "why-trana",
     render: () => <WhyTranaSlide />,
   },
 
-  // 6 — Integration
+  // 5 — Integration
   {
     id: "integration",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>The Integration</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-2 sm:mb-3">
-          3 accounts. 1 call.<br />
-          <span className="italic text-accent">That&apos;s everything.</span>
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+        <Label>For Developers</Label>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
+          One line.<br />
+          <span className="italic text-accent">Any Anchor program.</span>
         </h2>
-        <p className="text-muted text-base leading-relaxed mb-6 sm:mb-8">
-          Copy this into your Anchor program. Ship it.
+        <p className="text-muted text-lg leading-relaxed mb-10 sm:mb-12">
+          No new wallet. No custody change. No infrastructure.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-          <div className="bg-ink rounded-2xl p-5 sm:p-6 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
-            <p className="text-faint text-xs mb-3 uppercase tracking-widest">Rust / Anchor</p>
-            <p className="text-faint">{"// 3 extra accounts"}</p>
-            <p><span className="text-accent">pub</span> <span className="text-muted">guard_program</span><span className="text-bg/80">: Program{"<"}Guard{">"},</span></p>
-            <p><span className="text-accent">pub</span> <span className="text-muted">trana_registry</span><span className="text-bg/80">: Account{"<"}Registry{">"},</span></p>
-            <p><span className="text-accent">pub</span> <span className="text-muted">instructions</span><span className="text-bg/80">: UncheckedAccount,</span></p>
-            <p className="mt-4 text-faint">{"// 1 CPI call"}</p>
-            <p><span className="text-muted">guard</span><span className="text-bg/80">::cpi::</span><span className="text-accent">enforce</span><span className="text-bg/80">(cpi_ctx)?;</span></p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-8 mt-auto">
+          {/* Rust */}
+          <div className="bg-ink rounded-2xl p-7 sm:p-8">
+            <p className="text-faint text-xs uppercase tracking-widest mb-6">In your Anchor program</p>
+            <div className="font-mono text-sm sm:text-base leading-relaxed space-y-1">
+              <p className="text-faint text-sm">{"// protect any instruction"}</p>
+              <p>
+                <span className="text-accent">trana</span>
+                <span className="text-bg/70">::enforce(</span>
+              </p>
+              <p className="pl-6">
+                <span className="text-bg/60">&ctx,</span>
+              </p>
+              <p className="pl-6">
+                <span className="text-accent">Policy</span>
+                <span className="text-bg/70">::HighValue,</span>
+              </p>
+              <p><span className="text-bg/70">)?;</span></p>
+            </div>
           </div>
-          <div className="bg-ink rounded-2xl p-5 sm:p-6 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
-            <p className="text-faint text-xs mb-3 uppercase tracking-widest">TypeScript / SDK</p>
-            <p className="text-faint">{"// SDK handles everything"}</p>
-            <p><span className="text-accent">await</span> <span className="text-bg/80">authorizeAndSend{"({"}</span></p>
-            <p className="pl-4"><span className="text-muted">buildIntent</span><span className="text-bg/80">: () ={">"} {"({"}</span></p>
-            <p className="pl-8"><span className="text-bg/70">targetProgramId,</span></p>
-            <p className="pl-8"><span className="text-bg/70">accounts, params,</span></p>
-            <p className="pl-4"><span className="text-bg/80">{"}),"},</span></p>
-            <p className="pl-4"><span className="text-muted">buildTransaction</span><span className="text-bg/80">: ...</span></p>
-            <p><span className="text-bg/80">{"});"}</span></p>
+          {/* TypeScript */}
+          <div className="bg-ink rounded-2xl p-7 sm:p-8">
+            <p className="text-faint text-xs uppercase tracking-widest mb-6">In your frontend</p>
+            <div className="font-mono text-sm sm:text-base leading-relaxed space-y-1">
+              <p className="text-faint text-sm">{"// SDK handles everything"}</p>
+              <p>
+                <span className="text-accent">await</span>
+                <span className="text-bg/70"> trana</span>
+              </p>
+              <p className="pl-6">
+                <span className="text-bg/60">.authorizeAndSend(</span>
+              </p>
+              <p className="pl-8">
+                <span className="text-muted">tx</span>
+              </p>
+              <p className="pl-6"><span className="text-bg/70">)</span></p>
+            </div>
           </div>
         </div>
       </div>
     ),
   },
 
-  // 6 — Demo
+  // 6 — Demo / policies
   {
     id: "demo",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>Live Demo · Localnet</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          3 onchain policies. Working now.
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+        <Label>Live Demo</Label>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Three policies.<br />
+          <span className="italic text-accent">Working tonight.</span>
         </h2>
-        <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
+        <div className="space-y-4 sm:space-y-5 mb-8 sm:mb-10">
           {[
-            { id: "transfer.large",       label: "Large transfer",  rule: "≥ 1 SOL withdrawal" },
-            { id: "transfer.rapid_drain", label: "Rapid drain",     rule: "Withdrawal within 5 min of ≥ 5 SOL deposit" },
-            { id: "transfer.always",      label: "Always (opt-in)", rule: "Every withdrawal requires passkey" },
-          ].map(({ id, label, rule }) => (
-            <div key={id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 border border-border bg-card rounded-2xl p-3 sm:p-4">
-              <span className="text-xs font-mono font-medium text-faint shrink-0">{id}</span>
-              <span className="font-medium text-ink text-sm flex-1">{label}</span>
-              <span className="text-muted text-xs">{rule}</span>
+            {
+              name:  "High-Value Withdrawal",
+              desc:  "Any withdrawal above a threshold triggers approval.",
+              when:  "Amount ≥ 1 SOL",
+            },
+            {
+              name:  "Suspicious Drain",
+              desc:  "Large deposit followed immediately by withdrawal — classic rug pattern.",
+              when:  "Withdrawal within 5 min of a large deposit",
+            },
+            {
+              name:  "Always Approve",
+              desc:  "User chose maximum protection. Every action requires a second factor.",
+              when:  "Every withdrawal, no exceptions",
+            },
+          ].map(({ name, desc, when }) => (
+            <div key={name} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 border border-border bg-card rounded-2xl px-6 py-5">
+              <div className="flex-1">
+                <p className="font-medium text-ink text-base mb-1">{name}</p>
+                <p className="text-muted text-sm leading-relaxed">{desc}</p>
+              </div>
+              <div className="shrink-0 text-xs font-mono text-faint bg-bg border border-border rounded-lg px-3 py-1.5 whitespace-nowrap">
+                {when}
+              </div>
             </div>
           ))}
         </div>
-        <Card>
-          <p className="font-medium text-ink text-sm mb-1.5">Attack simulation — no proof, raw transaction</p>
-          <p className="text-sm text-muted">
-            → <span className="font-medium text-ink">MissingProof (0x1770)</span> — immediately, onchain, cannot be bypassed
-          </p>
+        <Card className="p-5 sm:p-6 mt-auto">
+          <p className="font-medium text-ink text-sm mb-1.5">Attack: compromised key, no second factor</p>
+          <p className="text-muted text-sm">→ Transaction fails onchain. <span className="font-medium text-ink">Even with the key, you cannot execute.</span></p>
         </Card>
       </div>
     ),
   },
 
-  // 7 — Attacks
+  // 7 — Where it matters
   {
-    id: "attacks",
+    id: "where",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>Security</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          Every attack vector has
-          <br className="hidden sm:block" />
-          <span className="italic text-accent"> a specific error code.</span>
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+        <Label>Where This Matters</Label>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
+          Protecting the most<br />
+          <span className="italic text-accent">expensive mistakes.</span>
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4 sm:mb-6">
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
+          Not for every transaction. For the ones where a single leaked key would be catastrophic.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-auto">
           {[
-            ["No proof in transaction",  "MissingProof",    "0x1770"],
-            ["Replay old proof",         "PayloadMismatch", "nonce consumed"],
-            ["Tamper amount",            "PayloadMismatch", "params_hash"],
-            ["Swap recipient",           "PayloadMismatch", "accounts_hash"],
-            ["Wrong passkey device",     "WrongSigner",     "pubkey check"],
-            ["Expired proof (>2 min)",   "ProofExpired",    "Solana clock"],
-          ].map(([attack, error, detail]) => (
-            <Card key={attack}>
-              <p className="text-muted text-xs mb-2 leading-snug">{attack}</p>
-              <p className="font-medium text-ink text-xs sm:text-sm">{error}</p>
-              <p className="text-faint text-xs mt-1 font-mono">{detail}</p>
+            ["Protocol upgrades", "Upgrade authority requires a second device. A stolen admin key alone cannot deploy malicious code."],
+            ["Treasury transfers", "Large disbursements are blocked without a device-bound approval at the moment of execution."],
+            ["Vault withdrawals", "Collateral unlocks require explicit approval. No pre-signed transactions."],
+            ["Admin actions", "Any irreversible onchain action. The exact operations where hacks happen."],
+          ].map(([title, body]) => (
+            <Card key={title} className="p-6 sm:p-7">
+              <p className="font-medium text-ink text-base mb-2">{title}</p>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
-        <Card>
-          <p className="text-sm text-muted">
-            <span className="font-medium text-ink">ProofVerified</span> event emitted on every success —{" "}
-            policy + program + nonce visible in every tx log. Zero-trust audit trail.
-          </p>
-        </Card>
       </div>
     ),
   },
@@ -622,27 +599,27 @@ const SLIDES = [
   {
     id: "market",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>Market</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          Every protocol holding TVL<br className="hidden sm:block" />
-          <span className="italic"> needs this.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Every protocol holding TVL<br />
+          <span className="italic">needs this.</span>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:gap-6 mb-4 sm:mb-6">
-          <div className="border border-border rounded-2xl bg-card p-5 sm:p-7">
-            <p className="text-xs font-medium text-faint uppercase tracking-widest mb-2">Solana TVL</p>
-            <p className="font-serif text-4xl sm:text-5xl text-ink">$7B+</p>
-            <p className="text-xs text-muted mt-1">every dollar is a potential customer</p>
+        <div className="grid grid-cols-2 gap-4 sm:gap-8 mb-8 sm:mb-10">
+          <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
+            <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Solana TVL today</p>
+            <p className="font-serif text-5xl sm:text-6xl text-ink">$7B+</p>
+            <p className="text-sm text-muted mt-2">every dollar is a potential customer</p>
           </div>
-          <div className="border border-border rounded-2xl bg-card p-5 sm:p-7">
-            <p className="text-xs font-medium text-faint uppercase tracking-widest mb-2">Addressable</p>
-            <p className="font-serif text-4xl sm:text-5xl text-ink">$200B</p>
-            <p className="text-xs text-muted mt-1">multi-chain as secp256r1 spreads to EVM</p>
+          <div className="border border-border rounded-2xl bg-card p-7 sm:p-10">
+            <p className="text-xs font-medium text-faint uppercase tracking-widest mb-3">Total addressable</p>
+            <p className="font-serif text-5xl sm:text-6xl text-ink">$200B</p>
+            <p className="text-sm text-muted mt-2">as P-256 verification spreads cross-chain</p>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {["DeFi vaults", "DAO treasuries", "Protocol admins", "Fintech / custodians"].map(uc => (
-            <Card key={uc}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-auto">
+          {["DeFi protocols", "DAO treasuries", "Protocol admins", "Fintech & custodians"].map(uc => (
+            <Card key={uc} className="p-4 sm:p-5">
               <p className="text-sm text-ink"><span className="text-accent mr-1.5">→</span>{uc}</p>
             </Card>
           ))}
@@ -651,93 +628,65 @@ const SLIDES = [
     ),
   },
 
-  // 9 — Viability
+  // 9 — Business
   {
-    id: "viability",
+    id: "business",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>Viability</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          Open source primitive.<br />
+      <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
+        <Label>Business Model</Label>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Open primitive.<br />
           <span className="italic text-accent">Own the safety layer.</span>
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6 sm:mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-10 sm:mb-12">
           {[
-            { n: "01", title: "Open core",    body: "Primitive is free. Managed registry + SLA + key recovery is paid." },
-            { n: "02", title: "Protocol fee", body: "Micro-fee per guarded transaction. TVL grows → fee grows." },
-            { n: "03", title: "SDK licensing",body: "Enterprise support, audited builds, SLA for chains wanting Trana." },
+            { n: "01", title: "Open core",     body: "The primitive is free and auditable. Managed registry, key recovery, and SLA are paid." },
+            { n: "02", title: "Protocol fee",  body: "Micro-fee per guarded execution. As TVL grows, the fee grows with it." },
+            { n: "03", title: "Enterprise SDK",body: "Audited builds and SLA for protocols and chains that want Trana guaranteed." },
           ].map(({ n, title, body }) => (
-            <Card key={n}>
-              <p className="text-xs font-mono text-faint mb-3">{n}</p>
-              <p className="font-medium text-ink text-sm mb-2">{title}</p>
-              <p className="text-muted text-xs leading-relaxed">{body}</p>
+            <Card key={n} className="p-6 sm:p-7">
+              <p className="text-xs font-mono text-faint mb-4">{n}</p>
+              <p className="font-medium text-ink text-base mb-2">{title}</p>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
-        <div className="border-l-2 border-border pl-5 sm:pl-6">
-          <p className="font-serif text-lg sm:text-xl text-ink leading-relaxed">
-            We don&apos;t hold custody. We don&apos;t hold keys. Protocols integrate once.{" "}
-            <span className="italic text-accent">We own the safety layer they depend on.</span>
+        <div className="border-l-2 border-border pl-6 mt-auto">
+          <p className="font-serif text-xl sm:text-2xl text-ink italic leading-snug">
+            &ldquo;We don&apos;t hold keys. We don&apos;t hold custody. Protocols integrate once and we own the safety layer they depend on.&rdquo;
           </p>
         </div>
       </div>
     ),
   },
 
-  // 10 — Team
+  // 10 — Close
   {
-    id: "team",
+    id: "close",
     render: () => (
-      <div className="flex flex-col justify-center h-full px-6 sm:px-16 overflow-y-auto py-6">
-        <Label>Team + Why Us</Label>
-        <h2 className="font-serif text-3xl sm:text-5xl leading-tight tracking-tight text-ink mb-6 sm:mb-8">
-          We understand SIMD-0075<br className="hidden sm:block" />
-          <span className="italic text-accent"> better than anyone building on it.</span>
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          {[
-            ["Built from scratch",   "Rust program + TypeScript SDK + React provider — no boilerplate, no shortcuts"],
-            ["Working demo tonight", "Not a slide. Not a mock. Live on localnet. Try to break it."],
-            ["Open source",         "Every line auditable. github.com/beharefe/trana-guard"],
-            ["Deep internals",      "secp256r1 DER→compact, WebAuthn binding, sysvar indexing — we wrote it all"],
-          ].map(([title, body]) => (
-            <Card key={title}>
-              <p className="font-medium text-ink text-sm mb-1.5">{title}</p>
-              <p className="text-muted text-xs leading-relaxed">{body}</p>
-            </Card>
-          ))}
-        </div>
-      </div>
-    ),
-  },
-
-  // 11 — Ask
-  {
-    id: "ask",
-    render: () => (
-      <div className="flex flex-col items-center justify-center h-full text-center px-6 sm:px-20 overflow-y-auto py-6">
-        <Label>The Ask</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-tight tracking-tight text-ink mb-4 mt-2">
-          Ships to mainnet<br />
-          <span className="italic text-accent">in 2 weeks.</span>
-        </h2>
-        <p className="text-muted text-base sm:text-lg mb-8 sm:mb-12 max-w-2xl leading-relaxed">
-          We built an execution-time authorization layer for Solana.<br className="hidden sm:block" />
-          Tonight you can try to hack it. You won&apos;t.
+      <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
+        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-10 sm:mb-12">
+          Colosseum Frontier · April 2026
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5 w-full max-w-3xl mb-8 sm:mb-12">
+        <h2 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
+          Wallets made signing<br />
+          <span className="italic">easier.</span>
+        </h2>
+        <p className="font-serif text-3xl sm:text-4xl text-accent italic mb-12 sm:mb-16">
+          Trana makes execution safer.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 w-full max-w-3xl">
           {[
             ["Protocol partners", "DM us tonight. First integrations ship with us."],
-            ["Colosseum",         "This is our submission. Infrastructure track."],
+            ["Colosseum",         "Infrastructure track. Demo is live."],
             ["Ecosystem grants",  "Open to Solana Foundation programs."],
           ].map(([title, body]) => (
-            <Card key={title} className="text-left">
+            <Card key={title} className="text-left p-5 sm:p-6">
               <p className="font-medium text-ink text-sm mb-2">{title}</p>
               <p className="text-muted text-xs leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
-        <p className="text-xs text-faint font-mono">github.com/beharefe/trana-guard · trana.so/slides</p>
       </div>
     ),
   },
