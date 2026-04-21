@@ -22,4 +22,7 @@ pub enum GuardError {
 
     #[msg("Nonce overflow")]
     NonceOverflow,
+
+    #[msg("Proof policy does not match the expected trana standard policy")]
+    PolicyMismatch,
 }

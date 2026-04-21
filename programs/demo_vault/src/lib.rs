@@ -7,57 +7,38 @@ declare_id!("RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW");
 // ─────────────────────────────────────────────────────────────────────────────
 //  Demo Vault — Trana Guard integration reference
 //
-//  Copy the pattern, not the vault.
+//  This program shows how to use Trana's standard audited policies.
+//  There is NO custom policy evaluation logic here — it all lives in
+//  the guard program and is audited once for every protocol that imports it.
 //
-//  Five policies demonstrate the full design space:
+//  Integration pattern:
+//    instead of:  if my_condition { guard::cpi::enforce(ctx)?; }
+//    use:         guard::cpi::enforce_threshold(ctx, 0, 1_000_000_000)?
 //
-//    POLICY_OPT_IN   — user opted into always-require-passkey mode
-//    POLICY_RAPID    — withdrawal within RAPID_WINDOW of a large deposit
-//    POLICY_VELOCITY — cumulative withdrawals exceed threshold in rolling window
-//    POLICY_LARGE    — single transfer above LARGE_THRESHOLD
-//    POLICY_FREEZE   — emergency freeze / unfreeze (admin action, always guarded)
+//  The condition evaluation happens inside guard, not here. Users can verify
+//  the policy by reading Trana's source — they don't need to audit this vault.
 //
-//  Integrating Trana takes three things:
-//    1. Three extra accounts  (guard_program, trana_registry, trana_instructions)
-//    2. One CPI call          (guard::cpi::enforce(...))
-//    3. A policy decision     (when does your protocol require approval?)
+//  Policies used:
+//    trana.always      — emergency_freeze and set_opt_in mode
+//    trana.admin       — emergency freeze / unfreeze
+//    trana.threshold   — withdrawals >= LARGE_THRESHOLD (guard reads amount)
+//    trana.velocity    — cumulative withdrawals exceed VELOCITY_THRESHOLD
+//    trana.rapid_drain — withdrawal shortly after a large deposit
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Thresholds ────────────────────────────────────────────────────────────────
-
-/// Any single transfer of this many lamports or more requires a passkey.
-pub const LARGE_THRESHOLD: u64 = 1_000_000_000; // 1 SOL
-
-/// A withdrawal within this many seconds of a large deposit triggers
-/// rapid-drain protection.
-pub const RAPID_WINDOW: i64 = 300; // 5 minutes
-
-/// A deposit is "large" for rapid-drain purposes if it exceeds this.
+pub const LARGE_THRESHOLD:        u64 = 1_000_000_000; // 1 SOL
+pub const RAPID_WINDOW:           i64 = 300;            // 5 minutes
 pub const RAPID_DEPOSIT_THRESHOLD: u64 = 5_000_000_000; // 5 SOL
+pub const VELOCITY_WINDOW:        i64 = 60;             // 1 minute
+pub const VELOCITY_THRESHOLD:     u64 = 2_000_000_000;  // 2 SOL
 
-/// Rolling window for velocity tracking.
-pub const VELOCITY_WINDOW: i64 = 60; // 1 minute
-
-/// Total withdrawn within VELOCITY_WINDOW that triggers rate-limit protection.
-pub const VELOCITY_THRESHOLD: u64 = 2_000_000_000; // 2 SOL
-
-// ── Policy identifiers ────────────────────────────────────────────────────────
-//
-// Bound into the intent hash — a proof signed for POLICY_LARGE cannot
-// authorize a POLICY_RAPID action, even on the same vault.
-
-pub const POLICY_OPT_IN:   &str = "transfer.always";
-pub const POLICY_RAPID:    &str = "transfer.rapid_drain";
-pub const POLICY_VELOCITY: &str = "transfer.velocity";
-pub const POLICY_LARGE:    &str = "transfer.large";
-pub const POLICY_FREEZE:   &str = "admin.freeze";
+// withdraw() serializes: amount: u64 — first param after discriminator
+const WITHDRAW_AMOUNT_OFFSET: u8 = 0;
 
 #[program]
 pub mod demo_vault {
     use super::*;
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     pub fn init_vault(ctx: Context<InitVault>) -> Result<()> {
         let vault                       = &mut ctx.accounts.vault;
@@ -77,36 +58,32 @@ pub mod demo_vault {
         Ok(())
     }
 
-    // ── Emergency freeze — admin.freeze policy ────────────────────────────────
+    // ── Emergency freeze — trana.admin policy ─────────────────────────────────
     //
-    // Requires a valid passkey regardless of vault state.
-    // While frozen, all deposits and withdrawals are blocked.
-    // Unfreeze also requires a passkey — prevents an attacker from freezing
-    // the vault and then immediately unfreezing it.
+    // guard::cpi::enforce_admin() is the entire trust story here.
+    // Any user auditing this vault can see: "freeze requires trana.admin",
+    // then read trana's source to verify what trana.admin does.
 
     pub fn emergency_freeze(ctx: Context<EmergencyFreeze>, freeze: bool) -> Result<()> {
-        guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+        guard::cpi::enforce_admin(ctx.accounts.trana_cpi_ctx())?;
         ctx.accounts.vault.frozen = freeze;
-        emit!(FreezeEvent {
-            owner:  ctx.accounts.owner.key(),
-            frozen: freeze,
-        });
+        emit!(FreezeEvent { owner: ctx.accounts.owner.key(), frozen: freeze });
         Ok(())
     }
 
     // ── Deposit ───────────────────────────────────────────────────────────────
-    //
-    // Large deposits are tracked so the rapid-drain policy can fire on
-    // subsequent withdrawals within RAPID_WINDOW seconds.
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
-        require!(amount > 0,                   VaultError::ZeroAmount);
-        require!(!ctx.accounts.vault.frozen,   VaultError::VaultFrozen);
+        require!(amount > 0,                 VaultError::ZeroAmount);
+        require!(!ctx.accounts.vault.frozen, VaultError::VaultFrozen);
 
+        // Large deposits require passkey — trana.threshold reads `amount`
+        // from the deposit instruction directly (guard reads it, not us).
+        guard::cpi::enforce_threshold(ctx.accounts.trana_cpi_ctx(), 0, LARGE_THRESHOLD)?;
+
+        // Track deposit time for rapid_drain policy on future withdrawals
         if amount >= LARGE_THRESHOLD {
-            guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
-
-            let vault = &mut ctx.accounts.vault;
+            let vault                       = &mut ctx.accounts.vault;
             vault.last_large_deposit_at     = Clock::get()?.unix_timestamp;
             vault.last_large_deposit_amount = amount;
         }
@@ -127,30 +104,54 @@ pub mod demo_vault {
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
 
-        emit!(DepositEvent {
-            owner:            ctx.accounts.owner.key(),
-            amount,
-            passkey_required: amount >= LARGE_THRESHOLD,
-        });
-
+        emit!(DepositEvent { owner: ctx.accounts.owner.key(), amount });
         Ok(())
     }
 
     // ── Withdraw ──────────────────────────────────────────────────────────────
     //
-    // Four independent withdrawal policies evaluated in priority order.
-    // First match wins — one CPI call per protected transaction.
+    // Each guard CPI call is a no-op if the policy condition is not met.
+    // All condition evaluation and passkey enforcement happens in the guard
+    // program — audited once, trusted everywhere.
+    //
+    // Priority: opt_in > rapid_drain > velocity > threshold
+    // (The guard CPIs are ordered; first one that fires ends the chain.)
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0,                           VaultError::ZeroAmount);
         require!(amount <= ctx.accounts.vault.balance, VaultError::InsufficientFunds);
         require!(!ctx.accounts.vault.frozen,           VaultError::VaultFrozen);
 
-        let now    = Clock::get()?.unix_timestamp;
-        let policy = evaluate_policy(&ctx.accounts.vault, amount, now);
+        let now = Clock::get()?.unix_timestamp;
 
-        if policy.is_some() {
-            guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+        if ctx.accounts.vault.opt_in {
+            // User opted into always-require passkey — trana.always
+            guard::cpi::enforce_always(ctx.accounts.trana_cpi_ctx())?;
+        } else {
+            // Rapid drain: trana.rapid_drain evaluates the condition inside guard
+            guard::cpi::enforce_rapid_drain(
+                ctx.accounts.trana_cpi_ctx(),
+                ctx.accounts.vault.last_large_deposit_at,
+                ctx.accounts.vault.last_large_deposit_amount,
+                RAPID_DEPOSIT_THRESHOLD,
+                RAPID_WINDOW,
+            )?;
+
+            // Velocity: guard evaluates already_withdrawn + current > threshold
+            // already_withdrawn comes from our state; current comes from the ix
+            guard::cpi::enforce_velocity(
+                ctx.accounts.trana_cpi_ctx(),
+                WITHDRAW_AMOUNT_OFFSET,
+                ctx.accounts.vault.velocity_withdrawn,
+                VELOCITY_THRESHOLD,
+            )?;
+
+            // Threshold: guard reads amount from instruction, checks >= LARGE_THRESHOLD
+            guard::cpi::enforce_threshold(
+                ctx.accounts.trana_cpi_ctx(),
+                WITHDRAW_AMOUNT_OFFSET,
+                LARGE_THRESHOLD,
+            )?;
         }
 
         let vault_info = ctx.accounts.vault.to_account_info();
@@ -162,7 +163,7 @@ pub mod demo_vault {
             .checked_sub(amount)
             .ok_or(VaultError::Overflow)?;
 
-        // Update velocity window
+        // Update velocity tracking for future withdrawals
         if now.saturating_sub(ctx.accounts.vault.velocity_window_start) >= VELOCITY_WINDOW {
             ctx.accounts.vault.velocity_window_start = now;
             ctx.accounts.vault.velocity_withdrawn    = amount;
@@ -172,50 +173,12 @@ pub mod demo_vault {
         }
 
         emit!(WithdrawEvent {
-            owner:            ctx.accounts.owner.key(),
-            destination:      ctx.accounts.destination.key(),
+            owner:       ctx.accounts.owner.key(),
+            destination: ctx.accounts.destination.key(),
             amount,
-            policy_triggered: policy.map(|s| s.to_string()),
         });
-
         Ok(())
     }
-}
-
-// ── Policy evaluation ─────────────────────────────────────────────────────────
-//
-// Pure function — easy to unit test, easy to read, easy to audit.
-// Returns the policy ID string, or None if no passkey is required.
-//
-// Priority (first match wins):
-//   opt_in > rapid_drain > velocity > large > None
-
-pub fn evaluate_policy(vault: &VaultState, amount: u64, now: i64) -> Option<&'static str> {
-    // 1. opt_in — user always wants passkey regardless of amount
-    if vault.opt_in {
-        return Some(POLICY_OPT_IN);
-    }
-
-    // 2. rapid drain — withdrawal shortly after a large deposit
-    if vault.last_large_deposit_amount >= RAPID_DEPOSIT_THRESHOLD {
-        let seconds_since = now.saturating_sub(vault.last_large_deposit_at);
-        if seconds_since < RAPID_WINDOW {
-            return Some(POLICY_RAPID);
-        }
-    }
-
-    // 3. velocity — cumulative withdrawals in rolling window exceed threshold
-    let in_window = now.saturating_sub(vault.velocity_window_start) < VELOCITY_WINDOW;
-    if in_window && vault.velocity_withdrawn.saturating_add(amount) > VELOCITY_THRESHOLD {
-        return Some(POLICY_VELOCITY);
-    }
-
-    // 4. large single transfer
-    if amount >= LARGE_THRESHOLD {
-        return Some(POLICY_LARGE);
-    }
-
-    None
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
@@ -230,10 +193,8 @@ pub struct InitVault<'info> {
         bump,
     )]
     pub vault: Account<'info, VaultState>,
-
     #[account(mut)]
     pub owner: Signer<'info>,
-
     pub system_program: Program<'info, System>,
 }
 
@@ -248,11 +209,8 @@ pub struct SetOptIn<'info> {
 pub struct EmergencyFreeze<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
-
     pub owner: Signer<'info>,
-
     pub guard_program: Program<'info, Guard>,
-
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -261,7 +219,6 @@ pub struct EmergencyFreeze<'info> {
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
-
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -271,14 +228,10 @@ pub struct EmergencyFreeze<'info> {
 pub struct Deposit<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
-
     #[account(mut)]
     pub owner: Signer<'info>,
-
     pub system_program: Program<'info, System>,
-
     pub guard_program: Program<'info, Guard>,
-
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -287,7 +240,6 @@ pub struct Deposit<'info> {
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
-
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -297,15 +249,11 @@ pub struct Deposit<'info> {
 pub struct Withdraw<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
-
     pub owner: Signer<'info>,
-
     /// CHECK: withdrawal destination
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
-
     pub guard_program: Program<'info, Guard>,
-
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
@@ -314,13 +262,12 @@ pub struct Withdraw<'info> {
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
-
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
 }
 
-// ── Trana CPI helper (copy this pattern into your program) ───────────────────
+// ── Trana CPI helpers ─────────────────────────────────────────────────────────
 
 impl<'info> EmergencyFreeze<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
@@ -359,14 +306,12 @@ impl<'info> Withdraw<'info> {
 pub struct VaultState {
     pub owner:   Pubkey, // 32
     pub balance: u64,    //  8
-    pub opt_in:  bool,   //  1 — always require passkey
-    pub frozen:  bool,   //  1 — emergency freeze (admin.freeze policy)
+    pub opt_in:  bool,   //  1
+    pub frozen:  bool,   //  1
 
-    // Rapid-drain tracking — updated on every large deposit
     pub last_large_deposit_at:     i64, //  8
     pub last_large_deposit_amount: u64, //  8
 
-    // Velocity window tracking — updated on every withdrawal
     pub velocity_window_start: i64, //  8
     pub velocity_withdrawn:    u64, //  8
 }
@@ -375,17 +320,15 @@ pub struct VaultState {
 
 #[event]
 pub struct DepositEvent {
-    pub owner:            Pubkey,
-    pub amount:           u64,
-    pub passkey_required: bool,
+    pub owner:  Pubkey,
+    pub amount: u64,
 }
 
 #[event]
 pub struct WithdrawEvent {
-    pub owner:            Pubkey,
-    pub destination:      Pubkey,
-    pub amount:           u64,
-    pub policy_triggered: Option<String>,
+    pub owner:       Pubkey,
+    pub destination: Pubkey,
+    pub amount:      u64,
 }
 
 #[event]
@@ -400,181 +343,12 @@ pub struct FreezeEvent {
 pub enum VaultError {
     #[msg("Amount must be greater than zero")]
     ZeroAmount,
-
     #[msg("Insufficient vault balance")]
     InsufficientFunds,
-
     #[msg("Arithmetic overflow")]
     Overflow,
-
     #[msg("Register a passkey before performing this action")]
     PasskeyNotRegistered,
-
     #[msg("Vault is frozen — call emergency_freeze(false) with a valid passkey to unfreeze")]
     VaultFrozen,
-}
-
-// ── Unit tests ────────────────────────────────────────────────────────────────
-//
-// Pure policy evaluation — no on-chain state required.
-// Run with: cargo test --package demo_vault
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_vault(
-        opt_in:             bool,
-        last_deposit_at:    i64,
-        last_deposit_amount: u64,
-        velocity_start:     i64,
-        velocity_withdrawn: u64,
-    ) -> VaultState {
-        VaultState {
-            owner:                      Pubkey::default(),
-            balance:                    100 * 1_000_000_000,
-            opt_in,
-            frozen:                     false,
-            last_large_deposit_at:      last_deposit_at,
-            last_large_deposit_amount:  last_deposit_amount,
-            velocity_window_start:      velocity_start,
-            velocity_withdrawn,
-        }
-    }
-
-    fn base() -> VaultState { make_vault(false, 0, 0, 0, 0) }
-
-    // ── POLICY_OPT_IN ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn opt_in_always_requires_passkey() {
-        let v = make_vault(true, 0, 0, 0, 0);
-        assert_eq!(evaluate_policy(&v, 1, 0), Some(POLICY_OPT_IN));
-    }
-
-    #[test]
-    fn opt_in_triggers_even_for_tiny_amount() {
-        let v = make_vault(true, 0, 0, 0, 0);
-        assert_eq!(evaluate_policy(&v, 1, 0), Some(POLICY_OPT_IN));
-    }
-
-    // ── POLICY_RAPID ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn rapid_drain_within_window_requires_passkey() {
-        let now = 1_000_000i64;
-        let v   = make_vault(false, now - 60, RAPID_DEPOSIT_THRESHOLD, 0, 0);
-        assert_eq!(evaluate_policy(&v, 100_000, now), Some(POLICY_RAPID));
-    }
-
-    #[test]
-    fn rapid_drain_outside_window_no_passkey() {
-        let now = 1_000_000i64;
-        let v   = make_vault(false, now - 600, RAPID_DEPOSIT_THRESHOLD, 0, 0);
-        assert_eq!(evaluate_policy(&v, 100_000, now), None);
-    }
-
-    #[test]
-    fn rapid_drain_only_triggers_if_deposit_large_enough() {
-        let now = 1_000_000i64;
-        let v   = make_vault(false, now - 60, RAPID_DEPOSIT_THRESHOLD - 1, 0, 0);
-        assert_eq!(evaluate_policy(&v, 100_000, now), None);
-    }
-
-    // ── POLICY_VELOCITY ───────────────────────────────────────────────────────
-
-    #[test]
-    fn velocity_triggers_when_cumulative_exceeds_threshold() {
-        let now = 1_000_000i64;
-        // 1.5 SOL already withdrawn; this 0.6 SOL would push total to 2.1 SOL > 2 SOL
-        let v = make_vault(false, 0, 0, now - 30, 1_500_000_000);
-        assert_eq!(evaluate_policy(&v, 600_000_000, now), Some(POLICY_VELOCITY));
-    }
-
-    #[test]
-    fn velocity_does_not_trigger_within_threshold() {
-        let now = 1_000_000i64;
-        // 0.5 + 0.5 = 1 SOL — below VELOCITY_THRESHOLD (2 SOL)
-        let v = make_vault(false, 0, 0, now - 30, 500_000_000);
-        assert_eq!(evaluate_policy(&v, 500_000_000, now), None);
-    }
-
-    #[test]
-    fn velocity_resets_after_window_expires() {
-        let now = 1_000_000i64;
-        // Window started 90s ago — VELOCITY_WINDOW is 60s, so window is expired
-        let v = make_vault(false, 0, 0, now - 90, 1_900_000_000);
-        assert_eq!(evaluate_policy(&v, 500_000_000, now), None);
-    }
-
-    #[test]
-    fn velocity_exactly_at_threshold_does_not_trigger() {
-        let now = 1_000_000i64;
-        // 1.5 SOL + 0.5 SOL = 2.0 SOL == VELOCITY_THRESHOLD; check is >, not >=
-        let v = make_vault(false, 0, 0, now - 30, 1_500_000_000);
-        assert_eq!(evaluate_policy(&v, 500_000_000, now), None);
-    }
-
-    // ── POLICY_LARGE ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn large_transfer_requires_passkey() {
-        assert_eq!(evaluate_policy(&base(), LARGE_THRESHOLD, 0), Some(POLICY_LARGE));
-    }
-
-    #[test]
-    fn below_threshold_no_passkey() {
-        assert_eq!(evaluate_policy(&base(), LARGE_THRESHOLD - 1, 0), None);
-    }
-
-    // ── Policy precedence — opt_in > rapid > velocity > large ─────────────────
-
-    #[test]
-    fn opt_in_beats_rapid_drain() {
-        let now = 1_000_000i64;
-        let v   = make_vault(true, now - 60, RAPID_DEPOSIT_THRESHOLD, 0, 0);
-        assert_eq!(evaluate_policy(&v, 100_000, now), Some(POLICY_OPT_IN));
-    }
-
-    #[test]
-    fn opt_in_beats_velocity() {
-        let now = 1_000_000i64;
-        let v   = make_vault(true, 0, 0, now - 30, 1_900_000_000);
-        assert_eq!(evaluate_policy(&v, 200_000_000, now), Some(POLICY_OPT_IN));
-    }
-
-    #[test]
-    fn opt_in_beats_large_transfer() {
-        let v = make_vault(true, 0, 0, 0, 0);
-        assert_eq!(evaluate_policy(&v, LARGE_THRESHOLD * 2, 0), Some(POLICY_OPT_IN));
-    }
-
-    #[test]
-    fn rapid_beats_velocity() {
-        let now = 1_000_000i64;
-        let v   = make_vault(false, now - 60, RAPID_DEPOSIT_THRESHOLD, now - 30, 1_900_000_000);
-        assert_eq!(evaluate_policy(&v, 200_000_000, now), Some(POLICY_RAPID));
-    }
-
-    #[test]
-    fn rapid_beats_large_transfer() {
-        let now = 1_000_000i64;
-        let v   = make_vault(false, now - 60, RAPID_DEPOSIT_THRESHOLD, 0, 0);
-        assert_eq!(evaluate_policy(&v, LARGE_THRESHOLD, now), Some(POLICY_RAPID));
-    }
-
-    #[test]
-    fn velocity_beats_large_transfer() {
-        let now = 1_000_000i64;
-        // Velocity triggered AND amount >= LARGE_THRESHOLD
-        let v = make_vault(false, 0, 0, now - 30, 1_500_000_000);
-        assert_eq!(evaluate_policy(&v, LARGE_THRESHOLD, now), Some(POLICY_VELOCITY));
-    }
-
-    // ── No policy ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn no_policy_small_amount_clean_state() {
-        assert_eq!(evaluate_policy(&base(), 500_000_000, 0), None); // 0.5 SOL
-    }
 }

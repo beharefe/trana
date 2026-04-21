@@ -10,41 +10,97 @@ use crate::state::{ProofData, TwoFactorRegistry};
 const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
 const INTENT_DOMAIN:        &str = "trana:v1";
 
-// ── Core: sysvar-based WebAuthn proof verification ────────────────────────────
-//
-// Called by enforce() — no WebAuthn data passes through instruction params.
-//
-// Steps:
-//   1. Index bounds — ix[N] must be at position >= 2
-//   2. Load ProofData from record_proof at ix[N-1]
-//   3. Load protected instruction at ix[N] → target, accounts_hash, params_hash
-//   4. Expiry check
-//   5. Compute intent hash (canonical binary encoding)
-//   6. Challenge binding: base64url(clientDataJSON.challenge) == intentHash
-//   7. WebAuthn e-value: SHA-256(authData ‖ SHA-256(clientDataJSON))
-//   8. secp256r1 at ix[N-2]: verify pubkey matches registry, msg == e-value
-//   9. Consume nonce (increment — prevents replay)
-//  10. Emit ProofVerified event (policy visible in transaction logs)
+// ── Public helpers ────────────────────────────────────────────────────────────
 
-pub fn verify_via_sysvar(
+/// Read the protected instruction at the current index and extract a u64
+/// from its parameter data at `byte_offset` bytes after the 8-byte discriminator.
+/// Used by standard policy instructions to read amounts trustlessly from the
+/// protected instruction itself — the caller cannot fake the value.
+pub fn read_u64_from_protected_ix(
+    ix_sysvar:   &AccountInfo,
+    byte_offset: u8,
+) -> Result<u64> {
+    let current_idx = load_current_index_checked(ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+    let ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+    let offset = 8 + byte_offset as usize; // skip Anchor discriminator
+    require!(ix.data.len() >= offset + 8, GuardError::InvalidProof);
+    Ok(u64::from_le_bytes(ix.data[offset..offset + 8].try_into().unwrap()))
+}
+
+// ── Core verification ─────────────────────────────────────────────────────────
+//
+// Two entry points:
+//
+//   verify_from_proof(...)   — used by enforce().
+//                              Reads policy string from proof data.
+//                              Application defines the policy string.
+//
+//   verify_with_policy(...)  — used by enforce_threshold / enforce_velocity etc.
+//                              Policy string is hardcoded by the standard instruction.
+//                              Verifies proof.policy matches — rejects mismatches.
+//                              This is what makes standard policies trustless.
+
+/// Called by `enforce()`. Reads the policy string from the proof.
+/// Use this for application-defined policies.
+pub fn verify_from_proof(
     ix_sysvar:        &AccountInfo,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
 ) -> Result<()> {
-    // ── 1. Index bounds ───────────────────────────────────────────────────────
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
-
     require!(current_idx >= 2, GuardError::MissingProof);
-
-    // ── 2. Load ProofData from record_proof at ix[N-1] ────────────────────────
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
+    let policy = proof.policy.clone();
+    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
+}
 
-    // ── 3. Load protected instruction at ix[N] ────────────────────────────────
-    //
-    // When called via CPI, load_current_index_checked returns the top-level
-    // instruction's index — exactly the protected instruction we need to bind to.
+/// Called by standard policy instructions (`enforce_threshold`, `enforce_always`, etc.).
+/// The policy string is owned by the guard program — the proof must match it exactly.
+/// Use this for Trana standard policies.
+pub fn verify_with_policy(
+    ix_sysvar:        &AccountInfo,
+    registry:         &mut TwoFactorRegistry,
+    owner:            &Pubkey,
+    guard_program_id: &Pubkey,
+    expected_policy:  &str,
+) -> Result<()> {
+    let current_idx = load_current_index_checked(ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+    require!(current_idx >= 2, GuardError::MissingProof);
+    let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
+    // Policy in the proof must match the standard policy — prevents a caller
+    // from sneaking a custom proof through a standard policy instruction.
+    require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
+    let policy = proof.policy.clone();
+    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
+}
+
+// ── Shared verification pipeline ─────────────────────────────────────────────
+//
+// Steps:
+//   1. Load protected instruction at ix[N] → target, accounts_hash, params_hash
+//   2. Expiry check
+//   3. Compute intent hash (canonical binary encoding)
+//   4. Challenge binding: base64url(clientDataJSON.challenge) == intentHash
+//   5. WebAuthn e-value: SHA-256(authData ‖ SHA-256(clientDataJSON))
+//   6. secp256r1 at ix[N-2]: verify pubkey matches registry, msg == e-value
+//   7. Consume nonce (increment — prevents replay)
+//   8. Emit ProofVerified event
+
+fn run_verification(
+    ix_sysvar:        &AccountInfo,
+    registry:         &mut TwoFactorRegistry,
+    owner:            &Pubkey,
+    guard_program_id: &Pubkey,
+    current_idx:      u16,
+    proof:            ProofData,
+    policy:           &str,
+) -> Result<()> {
+    // ── 1. Protected instruction ──────────────────────────────────────────────
     let protected_ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
 
@@ -61,18 +117,18 @@ pub fn verify_via_sysvar(
     let accounts_hash = sha256_bytes(&acc_bytes);
     let params_hash   = sha256_bytes(&protected_ix.data[8..]);
 
-    // ── 4. Expiry ─────────────────────────────────────────────────────────────
+    // ── 2. Expiry ─────────────────────────────────────────────────────────────
     let clock = Clock::get()?;
     require!(clock.unix_timestamp < proof.expiry, GuardError::ProofExpired);
 
-    // ── 5. Intent hash ────────────────────────────────────────────────────────
+    // ── 3. Intent hash ────────────────────────────────────────────────────────
     let intent_hash = compute_intent_hash(
         INTENT_DOMAIN,
         &proof.cluster,
         owner,
         guard_program_id,
         &target_program_id,
-        &proof.policy,
+        policy,
         &discriminator,
         &accounts_hash,
         &params_hash,
@@ -80,7 +136,7 @@ pub fn verify_via_sysvar(
         proof.expiry,
     );
 
-    // ── 6. Challenge binding ──────────────────────────────────────────────────
+    // ── 4. Challenge binding ──────────────────────────────────────────────────
     let challenge_b64   = extract_challenge(&proof.client_data_json)
         .ok_or_else(|| error!(GuardError::InvalidProof))?;
     let challenge_bytes = base64url_decode(challenge_b64)
@@ -90,20 +146,16 @@ pub fn verify_via_sysvar(
         GuardError::PayloadMismatch
     );
 
-    // ── 7. WebAuthn e-value ───────────────────────────────────────────────────
+    // ── 5. WebAuthn e-value ───────────────────────────────────────────────────
     //
-    // The secp256r1 precompile hashes the message field with SHA-256 before
-    // verifying. We therefore pass the raw pre-hash bytes:
-    //   authenticatorData ‖ SHA-256(clientDataJSON)
-    //
-    // The precompile computes SHA-256 of that → the ECDSA e-value.
+    // authenticatorData ‖ SHA-256(clientDataJSON) → SHA-256 → ECDSA e-value
     let client_data_hash = sha256_bytes(&proof.client_data_json);
     let mut combined = Vec::with_capacity(proof.authenticator_data.len() + 32);
     combined.extend_from_slice(&proof.authenticator_data);
     combined.extend_from_slice(&client_data_hash);
     let expected_e_value = sha256_bytes(&combined);
 
-    // ── 8. secp256r1 precompile at ix[N-2] ───────────────────────────────────
+    // ── 6. secp256r1 precompile at ix[N-2] ───────────────────────────────────
     let secp_idx = (current_idx - 2) as usize;
     let secp_ix  = load_instruction_at_checked(secp_idx, ix_sysvar)
         .map_err(|_| { msg!("TRANA_MISSING_PROOF"); error!(GuardError::MissingProof) })?;
@@ -132,23 +184,23 @@ pub fn verify_via_sysvar(
     require!(proof_pubkey       == registry.pubkey_bytes.as_slice(), GuardError::WrongSigner);
     require!(proof_message_hash == expected_e_value,                 GuardError::PayloadMismatch);
 
-    // ── 9. Consume nonce ──────────────────────────────────────────────────────
+    // ── 7. Consume nonce ──────────────────────────────────────────────────────
     let old_nonce  = registry.nonce;
     registry.nonce = registry.nonce
         .checked_add(1)
         .ok_or(GuardError::NonceOverflow)?;
 
-    // ── 10. Emit audit event ──────────────────────────────────────────────────
+    // ── 8. Emit audit event ───────────────────────────────────────────────────
     msg!(
         "TRANA enforce | policy={} | target={} | nonce={}",
-        proof.policy,
+        policy,
         target_program_id,
         old_nonce,
     );
 
     emit!(ProofVerified {
         owner:  *owner,
-        policy: proof.policy.clone(),
+        policy: policy.to_string(),
         target: target_program_id,
         nonce:  old_nonce,
         expiry: proof.expiry,
