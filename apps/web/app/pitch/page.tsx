@@ -350,6 +350,16 @@ export default function PitchDeck() {
         />
       </div>
 
+      {/* ── Brand mark ──────────────────────────────────────────────────────── */}
+      <div className="absolute top-5 left-1/2 -translate-x-1/2 z-20">
+        <span
+          className="text-green-400/80 tracking-tight"
+          style={{ fontFamily: "'Georgia', 'Times New Roman', serif", fontSize: "1.1rem", fontStyle: "italic", fontWeight: 500, letterSpacing: "-0.02em" }}
+        >
+          trana
+        </span>
+      </div>
+
       {/* ── Slide counter ────────────────────────────────────────────────────── */}
       <div className="absolute top-5 right-6 z-20 flex items-center gap-3">
         <span className="text-xs text-gray-700 font-mono tabular-nums">
@@ -404,7 +414,7 @@ export default function PitchDeck() {
 
           {/* Tag */}
           {slide.tag && (
-            <p className={`text-xs font-semibold uppercase tracking-widest ${
+            <p className={`text-sm font-semibold uppercase tracking-widest ${
               slide.accent === "red" ? "text-red-500/60" : "text-indigo-500/70"
             }`}>
               {slide.tag}
@@ -412,24 +422,18 @@ export default function PitchDeck() {
           )}
 
           {/* Title */}
-          <h1 className={`text-4xl md:text-5xl font-bold leading-tight tracking-tight ${
-            slide.id === "close"
-              ? "text-white"
-              : slide.accent === "red"
-              ? "text-white"
-              : "text-white"
-          }`}>
+          <h1 className="text-6xl md:text-7xl font-bold leading-tight tracking-tight text-white">
             {slide.title}
           </h1>
 
           {/* Body */}
-          <div>{slide.body}</div>
+          <div style={{ zoom: 1.5 }}>{slide.body}</div>
 
         </div>
       </div>
 
       {/* ── Keyboard hint ────────────────────────────────────────────────────── */}
-      <div className="absolute bottom-6 right-6 z-20 text-xs text-gray-800">
+      <div className="absolute bottom-6 right-6 z-20 text-sm font-semibold text-fuchsia-400">
         ← → to navigate
       </div>
 
