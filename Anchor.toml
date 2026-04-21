@@ -5,11 +5,11 @@ resolution = true
 seeds = true
 
 [programs.devnet]
-guard = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
 
 [programs.localnet]
-guard = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
+trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
 
 [registry]
