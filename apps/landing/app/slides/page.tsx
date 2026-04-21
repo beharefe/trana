@@ -347,15 +347,13 @@ const SLIDES = [
     id: "title",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
-        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-8 sm:mb-10 border border-border rounded-full px-4 py-1.5">
-          Solana · execution-time authorization
-        </p>
-        <h1 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-6 sm:mb-8">
-          A signature is not<br />
-          <span className="italic text-accent">enough anymore.</span>
+        <h1 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
+          Onchain execution should<br />
+          <span className="italic text-accent">require approval.</span>
         </h1>
         <p className="text-xl sm:text-2xl text-muted max-w-2xl leading-relaxed">
-          Every major exploit today uses a valid signature.
+          Trana enforces second-factor authorization<br className="hidden sm:block" />
+          at execution time.
         </p>
       </div>
     ),
