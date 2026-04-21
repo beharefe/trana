@@ -524,42 +524,37 @@ const SLIDES = [
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>Live Demo</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
-          Three policies.<br />
-          <span className="italic text-accent">Working tonight.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
+          The protocol defines<br />
+          <span className="italic text-accent">when to ask.</span>
         </h2>
-        <div className="space-y-4 sm:space-y-5 mb-8 sm:mb-10">
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-8 sm:mb-10 max-w-2xl">
+          Policies are rules the developer declares in their program. When a rule triggers, execution is blocked until a passkey approves.
+        </p>
+        <div className="space-y-4 sm:space-y-5 mb-6 sm:mb-8">
           {[
             {
-              name:  "High-Value Withdrawal",
-              desc:  "Any withdrawal above a threshold triggers approval.",
-              when:  "Amount ≥ 1 SOL",
+              rule:  "Require approval for any withdrawal above 1 SOL",
+              why:   "Limits blast radius if a key is compromised.",
             },
             {
-              name:  "Suspicious Drain",
-              desc:  "Large deposit followed immediately by withdrawal — classic rug pattern.",
-              when:  "Withdrawal within 5 min of a large deposit",
+              rule:  "Require approval for admin instructions",
+              why:   "Protocol upgrades and config changes need a second device.",
             },
             {
-              name:  "Always Approve",
-              desc:  "User chose maximum protection. Every action requires a second factor.",
-              when:  "Every withdrawal, no exceptions",
+              rule:  "Require approval on every execution",
+              why:   "Maximum protection for the most sensitive operations.",
             },
-          ].map(({ name, desc, when }) => (
-            <div key={name} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 border border-border bg-card rounded-2xl px-6 py-5">
-              <div className="flex-1">
-                <p className="font-medium text-ink text-base mb-1">{name}</p>
-                <p className="text-muted text-sm leading-relaxed">{desc}</p>
-              </div>
-              <div className="shrink-0 text-xs font-mono text-faint bg-bg border border-border rounded-lg px-3 py-1.5 whitespace-nowrap">
-                {when}
-              </div>
+          ].map(({ rule, why }) => (
+            <div key={rule} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 border border-border bg-card rounded-2xl px-6 py-5">
+              <p className="font-medium text-ink text-base flex-1">{rule}</p>
+              <p className="text-muted text-sm sm:text-right sm:max-w-xs shrink-0">{why}</p>
             </div>
           ))}
         </div>
         <Card className="p-5 sm:p-6 mt-auto">
-          <p className="font-medium text-ink text-sm mb-1.5">Attack: compromised key, no second factor</p>
-          <p className="text-muted text-sm">→ Transaction fails onchain. <span className="font-medium text-ink">Even with the key, you cannot execute.</span></p>
+          <p className="font-medium text-ink text-sm mb-1.5">Attack demo: attacker has the key, no passkey</p>
+          <p className="text-muted text-sm">→ Transaction fails onchain. <span className="font-medium text-ink">The key alone is not enough.</span></p>
         </Card>
       </div>
     ),
