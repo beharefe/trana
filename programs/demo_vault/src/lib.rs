@@ -216,6 +216,7 @@ pub struct SetOptIn<'info> {
 pub struct EmergencyFreeze<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
+    #[account(mut)]
     pub owner: Signer<'info>,
     pub guard_program: Program<'info, Trana>,
     #[account(
@@ -229,6 +230,12 @@ pub struct EmergencyFreeze<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
+    /// CHECK: treasury PDA validated inside trana
+    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
+    pub trana_treasury: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -250,12 +257,18 @@ pub struct Deposit<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
+    /// CHECK: treasury PDA validated inside trana
+    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
+    pub trana_treasury: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
     #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
     pub vault: Account<'info, VaultState>,
+    #[account(mut)]
     pub owner: Signer<'info>,
     /// CHECK: withdrawal destination
     #[account(mut)]
@@ -272,6 +285,12 @@ pub struct Withdraw<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
+    /// CHECK: treasury PDA validated inside trana
+    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
+    pub trana_treasury: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 // ── Trana CPI helpers ─────────────────────────────────────────────────────────
@@ -279,9 +298,12 @@ pub struct Withdraw<'info> {
 impl<'info> EmergencyFreeze<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:     self.trana_registry.to_account_info(),
-            owner:        self.owner.to_account_info(),
-            instructions: self.trana_instructions.to_account_info(),
+            registry:       self.trana_registry.to_account_info(),
+            owner:          self.owner.to_account_info(),
+            instructions:   self.trana_instructions.to_account_info(),
+            config:         self.trana_config.to_account_info(),
+            treasury:       self.trana_treasury.to_account_info(),
+            system_program: self.system_program.to_account_info(),
         })
     }
 }
@@ -289,9 +311,12 @@ impl<'info> EmergencyFreeze<'info> {
 impl<'info> Deposit<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:     self.trana_registry.to_account_info(),
-            owner:        self.owner.to_account_info(),
-            instructions: self.trana_instructions.to_account_info(),
+            registry:       self.trana_registry.to_account_info(),
+            owner:          self.owner.to_account_info(),
+            instructions:   self.trana_instructions.to_account_info(),
+            config:         self.trana_config.to_account_info(),
+            treasury:       self.trana_treasury.to_account_info(),
+            system_program: self.system_program.to_account_info(),
         })
     }
 }
@@ -299,9 +324,12 @@ impl<'info> Deposit<'info> {
 impl<'info> Withdraw<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:     self.trana_registry.to_account_info(),
-            owner:        self.owner.to_account_info(),
-            instructions: self.trana_instructions.to_account_info(),
+            registry:       self.trana_registry.to_account_info(),
+            owner:          self.owner.to_account_info(),
+            instructions:   self.trana_instructions.to_account_info(),
+            config:         self.trana_config.to_account_info(),
+            treasury:       self.trana_treasury.to_account_info(),
+            system_program: self.system_program.to_account_info(),
         })
     }
 }

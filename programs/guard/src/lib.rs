@@ -7,7 +7,11 @@ mod verify;
 
 pub use error::GuardError;
 pub use events::ProofVerified;
-pub use state::{Enforce, KeyKind, ProofData, RecordProof, RegisterTwoFa, TwoFactorRegistry};
+pub use state::{
+    Enforce, InitConfig, UpdateConfig, WithdrawFees,
+    KeyKind, ProofData, RecordProof, RegisterTwoFa,
+    TranaConfig, TwoFactorRegistry,
+};
 
 declare_id!("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb");
 
@@ -101,6 +105,49 @@ pub enum Policy {
 pub mod trana {
     use super::*;
 
+    // ── Fee config ────────────────────────────────────────────────────────────
+
+    /// One-time initialization of the global fee config PDA.
+    /// Called once by the Trana team after deployment.
+    /// Fee amount and treasury are publicly readable by anyone on-chain.
+    pub fn init_config(
+        ctx:          Context<InitConfig>,
+        fee_lamports: u64,
+        treasury:     Pubkey,
+    ) -> Result<()> {
+        let cfg          = &mut ctx.accounts.config;
+        cfg.authority    = ctx.accounts.authority.key();
+        cfg.treasury     = treasury;
+        cfg.fee_lamports = fee_lamports;
+        msg!("TRANA config | fee={} lamports | treasury={}", fee_lamports, treasury);
+        Ok(())
+    }
+
+    /// Update fee amount or treasury address.
+    /// Requires the config authority to sign — full audit trail on-chain.
+    pub fn update_config(
+        ctx:          Context<UpdateConfig>,
+        fee_lamports: u64,
+        treasury:     Pubkey,
+    ) -> Result<()> {
+        let cfg          = &mut ctx.accounts.config;
+        cfg.fee_lamports = fee_lamports;
+        cfg.treasury     = treasury;
+        msg!("TRANA config updated | fee={} lamports | treasury={}", fee_lamports, treasury);
+        Ok(())
+    }
+
+    /// Withdraw accumulated fees from the treasury PDA to any destination.
+    /// Only the config authority can call this.
+    pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
+        let treasury_info = ctx.accounts.treasury.to_account_info();
+        let dest_info     = ctx.accounts.destination.to_account_info();
+        **treasury_info.try_borrow_mut_lamports()? -= amount;
+        **dest_info.try_borrow_mut_lamports()?     += amount;
+        msg!("TRANA fees withdrawn | amount={} | destination={}", amount, ctx.accounts.destination.key());
+        Ok(())
+    }
+
     // ── Passkey registration ──────────────────────────────────────────────────
 
     /// Register a P-256 passkey in the caller's onchain registry PDA.
@@ -164,15 +211,22 @@ pub mod trana {
         let registry  = &mut ctx.accounts.registry;
         let pid       = ctx.program_id;
 
+        let fee = verify::FeeAccounts {
+            fee_lamports:   ctx.accounts.config.fee_lamports,
+            payer:          ctx.accounts.owner.as_ref(),
+            treasury:       ctx.accounts.treasury.as_ref(),
+            system_program: ctx.accounts.system_program.as_ref(),
+        };
+
         match policy {
             Policy::Always => {
                 msg!("TRANA require | policy=trana.always | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.always")
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.always", &fee)
             }
 
             Policy::Admin => {
                 msg!("TRANA require | policy=trana.admin | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.admin")
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.admin", &fee)
             }
 
             Policy::Threshold { param_offset, threshold } => {
@@ -182,7 +236,7 @@ pub mod trana {
                         "TRANA require | policy=trana.threshold | amount={} | threshold={} | owner={}",
                         amount, threshold, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.threshold")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.threshold", &fee)?;
                 }
                 Ok(())
             }
@@ -195,7 +249,7 @@ pub mod trana {
                         "TRANA require | policy=trana.velocity | amount={} | already_withdrawn={} | cumulative={} | threshold={} | owner={}",
                         amount, already_withdrawn, cumulative, threshold, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.velocity")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.velocity", &fee)?;
                 }
                 Ok(())
             }
@@ -209,7 +263,7 @@ pub mod trana {
                             "TRANA require | policy=trana.rapid_drain | deposit_amount={} | seconds_since_deposit={} | window={} | owner={}",
                             last_deposit_amount, seconds_since, window_secs, owner_key,
                         );
-                        verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.rapid_drain")?;
+                        verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.rapid_drain", &fee)?;
                     }
                 }
                 Ok(())
@@ -217,7 +271,7 @@ pub mod trana {
 
             Policy::Custom => {
                 msg!("TRANA require | policy=custom | owner={}", owner_key);
-                verify::verify_from_proof(ix, registry, &owner_key, pid)
+                verify::verify_from_proof(ix, registry, &owner_key, pid, &fee)
             }
         }
     }

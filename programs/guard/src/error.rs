@@ -25,4 +25,10 @@ pub enum GuardError {
 
     #[msg("Proof policy does not match the expected trana standard policy")]
     PolicyMismatch,
+
+    #[msg("Caller is not the config authority")]
+    Unauthorized,
+
+    #[msg("Treasury account does not match config.treasury")]
+    InvalidTreasury,
 }
