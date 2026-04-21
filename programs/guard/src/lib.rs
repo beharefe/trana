@@ -166,16 +166,22 @@ pub mod guard {
 
         match policy {
             Policy::Always => {
+                msg!("TRANA require | policy=trana.always | owner={}", owner_key);
                 verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.always")
             }
 
             Policy::Admin => {
+                msg!("TRANA require | policy=trana.admin | owner={}", owner_key);
                 verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.admin")
             }
 
             Policy::Threshold { param_offset, threshold } => {
                 let amount = verify::read_u64_from_protected_ix(ix, param_offset)?;
                 if amount >= threshold {
+                    msg!(
+                        "TRANA require | policy=trana.threshold | amount={} | threshold={} | owner={}",
+                        amount, threshold, owner_key,
+                    );
                     verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.threshold")?;
                 }
                 Ok(())
@@ -183,7 +189,12 @@ pub mod guard {
 
             Policy::Velocity { param_offset, already_withdrawn, threshold } => {
                 let amount = verify::read_u64_from_protected_ix(ix, param_offset)?;
-                if already_withdrawn.saturating_add(amount) > threshold {
+                let cumulative = already_withdrawn.saturating_add(amount);
+                if cumulative > threshold {
+                    msg!(
+                        "TRANA require | policy=trana.velocity | amount={} | already_withdrawn={} | cumulative={} | threshold={} | owner={}",
+                        amount, already_withdrawn, cumulative, threshold, owner_key,
+                    );
                     verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.velocity")?;
                 }
                 Ok(())
@@ -191,8 +202,13 @@ pub mod guard {
 
             Policy::RapidDrain { last_deposit_at, last_deposit_amount, deposit_threshold, window_secs } => {
                 if last_deposit_amount >= deposit_threshold {
-                    let now = Clock::get()?.unix_timestamp;
-                    if now.saturating_sub(last_deposit_at) < window_secs {
+                    let now           = Clock::get()?.unix_timestamp;
+                    let seconds_since = now.saturating_sub(last_deposit_at);
+                    if seconds_since < window_secs {
+                        msg!(
+                            "TRANA require | policy=trana.rapid_drain | deposit_amount={} | seconds_since_deposit={} | window={} | owner={}",
+                            last_deposit_amount, seconds_since, window_secs, owner_key,
+                        );
                         verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.rapid_drain")?;
                     }
                 }
@@ -200,6 +216,7 @@ pub mod guard {
             }
 
             Policy::Custom => {
+                msg!("TRANA require | policy=custom | owner={}", owner_key);
                 verify::verify_from_proof(ix, registry, &owner_key, pid)
             }
         }
