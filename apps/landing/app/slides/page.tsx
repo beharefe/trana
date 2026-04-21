@@ -32,15 +32,15 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 //   5  blocked    — passkey travels to guard, attacker tx rejected, green stamp
 //   6  pause
 
-const PHASE_MS = [2200, 2200, 2400, 2600, 2400, 2600, 2800]
+const PHASE_MS = [2800, 2800, 3200, 3400, 3200, 3400, 3600]
 
 const NARRATION = [
   "Touch ID protects this wallet — biometric bound to device.",
   "The private key lives inside the app.",
   "Attacker compromises the device and steals the key.",
-  "Attacker sends a raw transaction. Wallet 2FA is bypassed.",
-  "Trana: passkey guard moves to the onchain instruction.",
-  "Attacker sends again. Guard is onchain. Execution blocked.",
+  "Attacker sends a raw transaction. Wallet guard is bypassed.",
+  "Trana moves the passkey guard to the onchain instruction.",
+  "Attacker sends again — Trana blocks execution at the program level.",
   "",
 ]
 
@@ -286,7 +286,7 @@ function WhyTranaSlide() {
           <div className="flex flex-col items-center gap-3 w-24 sm:w-32 shrink-0">
             <GuardBlock locked={phase >= 4} shake={blocked} />
             <p className="text-xs text-faint uppercase tracking-widest">
-              {phase >= 4 ? "Guard ·  onchain" : "Guard"}
+              {phase >= 4 ? "Trana · onchain" : "Guard"}
             </p>
             <div className="h-8 flex items-center">
               <AnimatePresence>
@@ -367,7 +367,7 @@ const SLIDES = [
         <Label>The Problem</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
           Protocols trust signatures<br />
-          <span className="italic">blindly.</span>
+          <span className="italic text-orange-500">blindly.</span>
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {[
@@ -416,7 +416,7 @@ const SLIDES = [
         </div>
         <div className="border-l-2 border-border pl-6 mt-auto">
           <p className="font-serif text-xl sm:text-2xl text-ink italic">
-            &ldquo;This precompile is 3 months old. We are the first authorization primitive built on top of it.&rdquo;
+            &ldquo;For over a year, nobody built a real authorization primitive on top of it. We change that.&rdquo;
           </p>
         </div>
       </div>
@@ -430,7 +430,7 @@ const SLIDES = [
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>The Solution</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
-          Trana Guard
+          Trana
         </h2>
         <div className="border border-border rounded-2xl bg-card p-7 sm:p-10 mb-8 sm:mb-10">
           <p className="text-xs font-medium text-faint uppercase tracking-widest mb-4">The guarantee</p>
@@ -467,8 +467,8 @@ const SLIDES = [
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>For Developers</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
-          One line.<br />
-          <span className="italic text-accent">Any Anchor program.</span>
+          One CPI call.<br />
+          <span className="italic text-accent">Your Solana program.</span>
         </h2>
         <p className="text-muted text-lg leading-relaxed mb-10 sm:mb-12">
           No new wallet. No custody change. No infrastructure.
@@ -476,7 +476,7 @@ const SLIDES = [
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-8 mt-auto">
           {/* Rust */}
           <div className="bg-ink rounded-2xl p-7 sm:p-8">
-            <p className="text-faint text-xs uppercase tracking-widest mb-6">In your Anchor program</p>
+            <p className="text-faint text-xs uppercase tracking-widest mb-6">In your Solana program</p>
             <div className="font-mono text-sm sm:text-base leading-relaxed space-y-1">
               <p className="text-faint text-sm">{"// protect any instruction"}</p>
               <p>
@@ -488,7 +488,7 @@ const SLIDES = [
               </p>
               <p className="pl-6">
                 <span className="text-accent">Policy</span>
-                <span className="text-bg/70">::HighValue,</span>
+                <span className="text-bg/70">::Threshold,</span>
               </p>
               <p><span className="text-bg/70">)?;</span></p>
             </div>
@@ -521,15 +521,16 @@ const SLIDES = [
     id: "demo",
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
-        <Label>Live Demo</Label>
+        <Label>Policies</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
           The protocol defines<br />
           <span className="italic text-accent">when to ask.</span>
         </h2>
-        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
-          The developer declares an enforcement rule in their program. When it triggers, execution is blocked until a passkey approves.
+        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-8 sm:mb-10 max-w-2xl">
+          Policies are declared in the program and stored onchain — auditable by anyone.
+          When a policy triggers, execution is blocked until a passkey approves.
         </p>
-        <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
+        <div className="space-y-3 sm:space-y-4 mt-auto">
           {[
             { policy: "::Threshold", desc: "Require approval when an amount exceeds a limit." },
             { policy: "::Admin",     desc: "Require approval for privileged or irreversible instructions." },
@@ -541,10 +542,6 @@ const SLIDES = [
             </div>
           ))}
         </div>
-        <Card className="p-5 sm:p-6 mt-auto">
-          <p className="font-medium text-ink text-sm mb-1.5">Attack demo — attacker holds the key, no passkey present</p>
-          <p className="text-muted text-sm">→ Transaction fails onchain. <span className="font-medium text-ink">The key alone is not enough.</span></p>
-        </Card>
       </div>
     ),
   },
@@ -555,23 +552,20 @@ const SLIDES = [
     render: () => (
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>Where This Matters</Label>
-        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-4">
-          Protecting the most<br />
-          <span className="italic text-accent">expensive mistakes.</span>
+        <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
+          Not every transaction —<br />
+          <span className="italic text-accent">the ones that count.</span>
         </h2>
-        <p className="text-muted text-lg sm:text-xl leading-relaxed mb-10 sm:mb-12 max-w-2xl">
-          Not for every transaction. For the ones where a single leaked key would be catastrophic.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 mt-auto">
           {[
-            ["Protocol upgrades", "Upgrade authority requires a second device. A stolen admin key alone cannot deploy malicious code."],
-            ["Treasury transfers", "Large disbursements are blocked without a device-bound approval at the moment of execution."],
-            ["Vault withdrawals", "Collateral unlocks require explicit approval. No pre-signed transactions."],
-            ["Admin actions", "Any irreversible onchain action. The exact operations where hacks happen."],
+            ["Protocol upgrades", "A stolen admin key alone cannot deploy malicious code."],
+            ["Treasury transfers", "Large disbursements blocked without a device-bound approval."],
+            ["Vault withdrawals", "Collateral unlocks require explicit approval."],
+            ["Admin actions", "Any irreversible onchain action. Exactly where hacks happen."],
           ].map(([title, body]) => (
-            <Card key={title} className="p-6 sm:p-7">
-              <p className="font-medium text-ink text-base mb-2">{title}</p>
-              <p className="text-muted text-sm leading-relaxed">{body}</p>
+            <Card key={title} className="p-5 sm:p-6">
+              <p className="font-medium text-ink text-sm mb-1.5">{title}</p>
+              <p className="text-muted text-xs leading-relaxed">{body}</p>
             </Card>
           ))}
         </div>
@@ -619,14 +613,14 @@ const SLIDES = [
       <div className="flex flex-col h-full px-8 sm:px-20 pt-14 sm:pt-16 pb-8 overflow-y-auto">
         <Label>Business Model</Label>
         <h2 className="font-serif text-4xl sm:text-6xl leading-[1.1] tracking-tight text-ink mt-2 mb-10 sm:mb-12">
-          Open primitive.<br />
+          Free to integrate.<br />
           <span className="italic text-accent">Own the safety layer.</span>
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-10 sm:mb-12">
           {[
-            { n: "01", title: "Open core",     body: "The primitive is free and auditable. Managed registry, key recovery, and SLA are paid." },
-            { n: "02", title: "Protocol fee",  body: "Micro-fee per guarded execution. As TVL grows, the fee grows with it." },
-            { n: "03", title: "Enterprise SDK",body: "Audited builds and SLA for protocols and chains that want Trana guaranteed." },
+            { n: "01", title: "Free primitive",  body: "Any protocol can integrate the onchain program. Managed registry, key recovery, and SLA are paid." },
+            { n: "02", title: "Protocol fee",    body: "Micro-fee per guarded execution. As TVL grows, the fee grows with it." },
+            { n: "03", title: "Enterprise SDK",  body: "Audited builds and SLA for protocols that want Trana guaranteed." },
           ].map(({ n, title, body }) => (
             <Card key={n} className="p-6 sm:p-7">
               <p className="text-xs font-mono text-faint mb-4">{n}</p>
@@ -644,14 +638,11 @@ const SLIDES = [
     ),
   },
 
-  // 10 — Close
+  // 10 — Close / Ask
   {
     id: "close",
     render: () => (
       <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
-        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-10 sm:mb-12">
-          Colosseum Frontier · April 2026
-        </p>
         <h2 className="font-serif text-5xl sm:text-7xl leading-[1.1] tracking-tight text-ink mb-8 sm:mb-10">
           Wallets made signing<br />
           <span className="italic">easier.</span>
@@ -661,15 +652,53 @@ const SLIDES = [
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 w-full max-w-3xl">
           {[
-            ["Protocol partners", "DM us tonight. First integrations ship with us."],
-            ["Colosseum",         "Infrastructure track. Demo is live."],
-            ["Ecosystem grants",  "Open to Solana Foundation programs."],
+            ["Protocol partners", "Integrate Trana in your program. We ship together."],
+            ["Early builders",    "Building on Solana? We want your use case."],
+            ["Devnet this week",  "Live on devnet now. Source opening post-Colosseum."],
           ].map(([title, body]) => (
             <Card key={title} className="text-left p-5 sm:p-6">
               <p className="font-medium text-ink text-sm mb-2">{title}</p>
               <p className="text-muted text-xs leading-relaxed">{body}</p>
             </Card>
           ))}
+        </div>
+      </div>
+    ),
+  },
+
+  // 11 — About
+  {
+    id: "about",
+    render: () => (
+      <div className="flex flex-col items-center justify-center h-full text-center px-8 sm:px-24">
+        <p className="text-xs font-medium tracking-widest uppercase text-faint mb-10 sm:mb-12">
+          Built by
+        </p>
+        <h2 className="font-serif text-5xl sm:text-6xl leading-[1.1] tracking-tight text-ink mb-4 sm:mb-5">
+          Efe Behar
+        </h2>
+        <p className="text-lg sm:text-xl text-muted mb-10 sm:mb-12 leading-relaxed max-w-xl">
+          Senior Engineer ·{" "}
+          <span className="text-ink font-medium">Colosseum Breakout Hackathon Winner</span>
+          {" "}(Infra track) with Action Codes ·{" "}
+          Solana Foundation Grants recipient
+        </p>
+        <p className="font-serif text-2xl sm:text-3xl text-muted italic mb-12 sm:mb-14">
+          Now competing again for better Solana.
+        </p>
+        <p className="font-serif text-3xl sm:text-4xl text-ink italic mb-10 sm:mb-12">
+          Thank you.
+        </p>
+        <div className="flex gap-8 sm:gap-12">
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-xs font-medium tracking-widest uppercase text-faint">X</p>
+            <p className="font-mono text-base text-ink">beharefe</p>
+          </div>
+          <div className="w-px bg-border" />
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-xs font-medium tracking-widest uppercase text-faint">Telegram</p>
+            <p className="font-mono text-base text-ink">beharefe</p>
+          </div>
         </div>
       </div>
     ),
