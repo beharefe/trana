@@ -7,13 +7,9 @@ mod verify;
 
 pub use error::GuardError;
 pub use events::ProofVerified;
-pub use state::{
-    Enforce, InitConfig, UpdateConfig, WithdrawFees,
-    KeyKind, ProofData, RecordProof, RegisterTwoFa,
-    TranaConfig, TwoFactorRegistry,
-};
+pub use state::*;
 
-declare_id!("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb");
+declare_id!("EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5");
 
 // ── Policy enum ───────────────────────────────────────────────────────────────
 //

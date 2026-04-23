@@ -2,18 +2,15 @@
 
 [features]
 resolution = true
-seeds = true
+skip-lint = false
 
 [programs.devnet]
-trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
+trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 
 [programs.localnet]
-trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
-demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
-
-[registry]
-url = "https://api.apr.dev"
+demo_vault = "2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP"
+trana = "EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5"
 
 [provider]
 cluster = "localnet"
@@ -21,3 +18,5 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "pnpm exec ts-mocha -p ./tsconfig.test.json -t 1000000 tests/**/*.ts"
+
+[hooks]

@@ -3,7 +3,7 @@ use trana::cpi::accounts::Enforce;
 use trana::program::Trana;
 use trana::Policy;
 
-declare_id!("RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW");
+declare_id!("2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP");
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Demo Vault — Trana Guard integration reference

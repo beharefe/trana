@@ -65,7 +65,10 @@ pub fn verify_from_proof<'info>(
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
-    require!(current_idx >= 2, GuardError::MissingProof);
+    if current_idx < 2 {
+        msg!("TRANA_MISSING_PROOF");
+        return Err(error!(GuardError::MissingProof));
+    }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
     let policy = proof.policy.clone();
     run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy, fee)
@@ -81,7 +84,10 @@ pub fn verify_with_policy<'info>(
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
-    require!(current_idx >= 2, GuardError::MissingProof);
+    if current_idx < 2 {
+        msg!("TRANA_MISSING_PROOF");
+        return Err(error!(GuardError::MissingProof));
+    }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
     require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
