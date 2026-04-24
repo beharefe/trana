@@ -198,6 +198,7 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
             ],
             params: u64LE(lamports),
             policy: "trana.threshold",
+            label:  `Deposit ${solAmt} SOL`,
           }),
           buildTransaction: async ({ recentBlockhash }) => {
             const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
@@ -249,6 +250,7 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
             ],
             params: u64LE(lamports),
             policy: "trana.threshold",
+            label:  `Withdraw ${solAmt} SOL`,
           }),
           buildTransaction: async ({ recentBlockhash }) => {
             const tx = new Transaction({ recentBlockhash, feePayer: publicKey })

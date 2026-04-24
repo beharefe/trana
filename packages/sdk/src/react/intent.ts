@@ -30,6 +30,8 @@ export type IntentInput = {
   params?: Uint8Array
   /** Override the policy from TranaConfig for this specific action */
   policy?: string
+  /** Human-readable label shown in the confirmation modal. e.g. "Deposit 1.5 SOL". Not hashed into the proof. */
+  label?: string
 }
 
 // ── TranaIntent ───────────────────────────────────────────────────────────────
@@ -62,6 +64,9 @@ export type TranaIntent = {
   readonly paramsHash:               string            // hex-encoded SHA-256 of instruction params
   readonly nonce:                    string            // decimal bigint string (u64 from registry)
   readonly expiryUnix:               number
+  // Display-only fields — NOT included in hashIntent(), shown in confirmation modal
+  readonly rawParamsHex:             string            // hex of raw params bytes (for decoded display)
+  readonly accountsCount:            number            // number of accounts bound in accountsHash
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
@@ -121,6 +126,8 @@ export function buildIntent(
     paramsHash,
     nonce:                    nonce.toString(10),
     expiryUnix:               Math.floor(Date.now() / 1000) + (config.expiryTtlSec ?? 120),
+    rawParamsHex:             input.params?.length ? Buffer.from(input.params).toString("hex") : "",
+    accountsCount:            input.accounts?.length ?? 0,
   })
 }
 

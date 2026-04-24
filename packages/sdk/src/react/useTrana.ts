@@ -28,17 +28,16 @@ export type { IntentInput }
  *   1. Simulate without signature — detect which policy fires
  *   2. Registry fetch / lazy registration
  *   3. Intent construction — policy string taken from simulation logs
- *   4. Passkey approval modal
- *   5. secp256r1 precompile instruction
- *   6. trana::record_proof instruction (data carrier)
- *   7. Fresh blockhash fetch — AFTER passkey approval, not before
- *   8. Proof instruction insertion before the protected instruction
- *   9. Single wallet signature + send
+ *   4. Confirmation modal — decoded preview before biometric
+ *   5. Passkey approval modal — Touch ID / Face ID / YubiKey
+ *   6. secp256r1 precompile instruction
+ *   7. trana::record_proof instruction (data carrier)
+ *   8. Fresh blockhash → build tx → wallet sign → send (retry on expiry)
  *
- * The blockhash is fetched after passkey approval so there is zero risk of
- * the blockhash expiring while the user is interacting with the passkey prompt.
  * The passkey signs the intent hash (bound to accounts + params + nonce),
- * not the transaction envelope, so the two are independent.
+ * not the transaction envelope. Blockhash and passkey are independent —
+ * if the wallet sign fails with an expired blockhash, a fresh one is fetched
+ * and the wallet re-prompts without re-running the passkey.
  */
 export type AuthorizeAndSendArgs = {
   /**
@@ -80,8 +79,8 @@ export type AuthorizeAndSendArgs = {
  * ```
  *
  * Flow:
- *   Simulate → Detect policy → Register (if needed) → Approve
- *   → Fresh blockhash → Build tx → Sign → Send
+ *   Simulate → Detect policy → Register (if needed) → Confirm preview
+ *   → Passkey approve → Build proof → [retry loop] Blockhash → Build tx → Sign → Send
  */
 export function useTrana() {
   const ctx = useTranaContext()
@@ -121,7 +120,12 @@ export function useTrana() {
     // ── 3. Ensure registry exists (lazy registration) ─────────────────────────
     let registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
     if (!registry || detection.reason === "no-registry") {
-      await ctx._triggerRegistration()
+      // Build intent preview so the registration modal can show what the user is trying to do
+      const previewInput = await args.buildIntent()
+      const amountSol = previewInput.params && previewInput.params.length >= 8
+        ? (Number(new DataView(previewInput.params.buffer, previewInput.params.byteOffset, 8).getBigUint64(0, true)) / 1e9).toFixed(4)
+        : undefined
+      await ctx._triggerRegistration({ label: previewInput.label, amountSol, policy: detection.policy })
       registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
       if (!registry) throw new Error("Trana: registry not found after registration")
     }
@@ -143,10 +147,14 @@ export function useTrana() {
       }
     )
 
+    // ── 4b. Confirmation preview — user reads what they're authorizing ─────────
+    // Shows decoded intent (label, policy, program) before biometric prompt.
+    // Makes the passkey tap the meaningful "commit" gesture, not a blind confirm.
+    await ctx._triggerConfirmation(intent, intentInput.label)
+
     // ── 5. Passkey approval over exact intent hash ─────────────────────────────
     // User interacts with Touch ID / Face ID / YubiKey here.
-    // This can take 0–30 seconds. The blockhash has NOT been fetched yet —
-    // there is no expiry pressure during the passkey prompt.
+    // Blockhash has NOT been fetched — no expiry pressure during biometric.
     const approval = await ctx._triggerApproval(intent)
 
     // ── 6. Build proof instructions ────────────────────────────────────────────
@@ -161,29 +169,35 @@ export function useTrana() {
       intent.policyId,
     )
 
-    // ── 7. Fetch FRESH blockhash — NOW, after passkey is done ─────────────────
-    // Milliseconds before signing. No timeout risk regardless of how long the
-    // passkey prompt took.
-    const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
+    // ── 7–9. Fresh blockhash → build tx → wallet sign → send ──────────────────
+    // Retry on blockhash expiry: the passkey proof binds to the intent hash, not
+    // the transaction, so it remains valid across blockhash refreshes. Only the
+    // wallet needs to re-sign — no second biometric prompt.
+    const MAX_BLOCKHASH_RETRIES = 2
+    for (let attempt = 0; attempt < MAX_BLOCKHASH_RETRIES; attempt++) {
+      const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
+      const tx = await args.buildTransaction({ recentBlockhash })
 
-    // ── 8. Developer builds their transaction with the fresh blockhash ─────────
-    const tx = await args.buildTransaction({ recentBlockhash })
-
-    // ── 9. Prepend proof instructions — final layout: ──────────────────────────
-    //   ix[N-2]: secp256r1 precompile
-    //   ix[N-1]: trana::record_proof
-    //   ix[N]:   developer's protected instruction(s)
-    if (tx instanceof Transaction) {
-      tx.instructions.unshift(recordProofIx)
-      tx.instructions.unshift(secp256r1Ix)
-
-      if (signTransaction) {
-        const signed = await signTransaction(tx)
-        return conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
+      if (tx instanceof Transaction) {
+        tx.instructions.unshift(recordProofIx)
+        tx.instructions.unshift(secp256r1Ix)
+        try {
+          if (signTransaction) {
+            const signed = await signTransaction(tx)
+            return await conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
+          }
+          return await walletSend(tx, conn)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          const expired = msg.includes("Blockhash not found") || msg.includes("block height exceeded")
+          if (expired && attempt < MAX_BLOCKHASH_RETRIES - 1) continue
+          throw e
+        }
       }
-    }
 
-    return walletSend(tx, conn)
+      return walletSend(tx, conn)
+    }
+    throw new Error("Transaction expired — please try again")
   }, [publicKey, walletSend, signTransaction, walletConn, ctx])
 
   return { authorizeAndSend }
