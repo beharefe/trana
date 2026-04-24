@@ -24,13 +24,8 @@ export type RecoveryState = {
 }
 
 export type UseTranaPasskeysResult = {
-  /**
-   * Registered passkeys for this wallet.
-   * null = not yet loaded. [] = wallet connected but no registry.
-   * Phase 1: always a single entry derived from the v1 registry.
-   * Phase 2: up to 3 entries from TwoFactorRegistryV2.
-   */
-  passkeys:          PasskeyEntry[] | null
+  /** Registered passkeys. Empty array if wallet has no registry. */
+  passkeys:          PasskeyEntry[]
   /** True when >= 2 passkeys are registered (i.e. a backup exists). */
   hasBackup:         boolean
   /**
@@ -77,33 +72,21 @@ const NOT_YET = "Multi-device support coming in v1.1"
 export function useTranaPasskeys(): UseTranaPasskeysResult {
   const { registry } = useTranaContext()
 
-  // Derive passkey list from v1 registry. Phase 2 will read from V2 account.
-  let passkeys: PasskeyEntry[] | null = null
-  if (registry !== undefined) {
-    passkeys = registry === null
-      ? []
-      : [{
-          label:        "Primary Device",
-          credentialId: registry.credentialId,
-          pubkey:       registry.pubkey,
-          addedAt:      0,
-          isPrimary:    true,
-        }]
-  }
+  const passkeys: PasskeyEntry[] = registry === null
+    ? []
+    : [{
+        label:        "Primary Device",
+        credentialId: registry.credentialId,
+        pubkey:       registry.pubkey,
+        addedAt:      0,
+        isPrimary:    true,
+      }]
 
-  const hasBackup = (passkeys?.length ?? 0) > 1
+  const hasBackup = passkeys.length > 1
 
-  const addPasskey = async (_label: string): Promise<void> => {
-    throw new Error(NOT_YET)
-  }
-
-  const removePasskey = async (_credentialId: Uint8Array): Promise<void> => {
-    throw new Error(NOT_YET)
-  }
-
-  const initiateRecovery = async (): Promise<void> => {
-    throw new Error(NOT_YET)
-  }
+  const addPasskey        = async (_label: string)             => { throw new Error(NOT_YET) }
+  const removePasskey     = async (_credentialId: Uint8Array)  => { throw new Error(NOT_YET) }
+  const initiateRecovery  = async ()                           => { throw new Error(NOT_YET) }
 
   return {
     passkeys,

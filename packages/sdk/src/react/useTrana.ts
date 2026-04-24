@@ -8,6 +8,7 @@ import {
 } from "@solana/web3.js"
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "../secp256r1"
+import { decodeParamsU64 } from "../utils"
 import { fetchRegistry } from "./registry"
 import { buildIntent, IntentInput } from "./intent"
 import { detectEnforcement } from "./detector"
@@ -122,9 +123,8 @@ export function useTrana() {
     if (!registry || detection.reason === "no-registry") {
       // Build intent preview so the registration modal can show what the user is trying to do
       const previewInput = await args.buildIntent()
-      const amountSol = previewInput.params && previewInput.params.length >= 8
-        ? (Number(new DataView(previewInput.params.buffer, previewInput.params.byteOffset, 8).getBigUint64(0, true)) / 1e9).toFixed(4)
-        : undefined
+      const raw = previewInput.params ? decodeParamsU64(previewInput.params) : null
+      const amountSol = raw !== null ? (Number(raw) / 1e9).toFixed(4) : undefined
       await ctx._triggerRegistration({ label: previewInput.label, amountSol, policy: detection.policy })
       registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
       if (!registry) throw new Error("Trana: registry not found after registration")

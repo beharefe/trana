@@ -11,6 +11,7 @@ import { useWallet } from "@solana/wallet-adapter-react"
 import { useTranaContext } from "./provider"
 import { doRegistration, doApproval } from "./webauthn"
 import { hashIntent } from "./intent"
+import { decodeParamsU64 } from "../utils"
 
 // ── Inline styles (no Tailwind dependency from SDK) ───────────────────────────
 
@@ -147,20 +148,22 @@ function StepIndicator({ current, labels }: { current: 1 | 2; labels: [string, s
   )
 }
 
-// ── Decoded params helper ─────────────────────────────────────────────────────
-
-function decodeU64LE(hex: string): bigint | null {
-  if (hex.length < 16) return null
-  try {
-    const bytes = Buffer.from(hex.slice(0, 16), "hex")
-    return new DataView(bytes.buffer).getBigUint64(0, true)
-  } catch {
-    return null
-  }
-}
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function formatSol(lamports: bigint): string {
   return (Number(lamports) / 1e9).toFixed(4) + " SOL"
+}
+
+function shortAddr(addr: string): string {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}
+
+function useEscapeKey(onEscape: () => void) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onEscape() }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [onEscape])
 }
 
 const REGISTER_DISCRIMINATOR = Buffer.from([
@@ -220,11 +223,7 @@ function RegistrationModal() {
     ? `${preview.label ?? "This action"} (${preview.amountSol})`
     : preview?.label ?? "This action"
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") _rejectPending("Cancelled") }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [_rejectPending])
+  useEscapeKey(() => _rejectPending("Cancelled"))
 
   const handleSetup = useCallback(async () => {
     if (!publicKey || !signTransaction) return
@@ -281,18 +280,12 @@ function ConfirmationModal() {
   if (state.phase !== "needs-confirmation" && state.phase !== "confirming") return null
   const { intent, label } = state
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") _rejectPending("Cancelled") }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [_rejectPending])
+  useEscapeKey(() => _rejectPending("Cancelled"))
 
-  const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`
-  const busy      = state.phase === "confirming"
-
-  // Decode actual amount from params bytes — this is what is cryptographically bound
-  const decodedLamports = decodeU64LE(intent.rawParamsHex)
-  const decodedSol      = decodedLamports !== null ? formatSol(decodedLamports) : null
+  const busy          = state.phase === "confirming"
+  const rawBytes      = intent.rawParamsHex.length >= 16 ? Buffer.from(intent.rawParamsHex.slice(0, 16), "hex") : null
+  const decodedLamports = rawBytes ? decodeParamsU64(rawBytes) : null
+  const decodedSol    = decodedLamports !== null ? formatSol(decodedLamports) : null
 
   return (
     <div style={OVERLAY} onClick={() => _rejectPending("Cancelled")}>
@@ -366,11 +359,7 @@ function ApprovalModal() {
     return () => clearInterval(id)
   }, [intent.expiryUnix])
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") _rejectPending("Cancelled") }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [_rejectPending])
+  useEscapeKey(() => _rejectPending("Cancelled"))
 
   const handleApprove = useCallback(async () => {
     if (!registry) { setError("Device not set up"); return }
@@ -385,8 +374,6 @@ function ApprovalModal() {
       setStatus("error")
     }
   }, [intent, config, registry, _resolveApproval])
-
-  const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`
 
   return (
     <div style={OVERLAY} onClick={() => _rejectPending("Cancelled")}>
@@ -438,12 +425,7 @@ function ErrorModal() {
   if (state.phase !== "error") return null
 
   const { text, recoverable } = humanizeError(state.message)
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") _rejectPending("Cancelled") }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [_rejectPending])
+  useEscapeKey(() => _rejectPending("Cancelled"))
 
   return (
     <div style={OVERLAY} onClick={() => _rejectPending("Cancelled")}>

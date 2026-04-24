@@ -53,29 +53,24 @@ export function useBackupNudge(options?: {
     const prev    = prevPhaseRef.current
     const current = state.phase
 
-    if (prev === current) return
-    prevPhaseRef.current = current
+    if (prev !== current) {
+      prevPhaseRef.current = current
 
-    // Successful approval: approving → idle
-    if (prev === "approving" && current === "idle") {
-      if (typeof window !== "undefined" && !localStorage.getItem(NUDGE_KEY)) {
-        timerRef.current = setTimeout(() => setShow(true), NUDGE_DELAY_MS)
+      if (prev === "approving" && current === "idle") {
+        if (typeof window !== "undefined" && !localStorage.getItem(NUDGE_KEY)) {
+          timerRef.current = setTimeout(() => setShow(true), NUDGE_DELAY_MS)
+        }
+      } else if (current !== "idle" && timerRef.current !== null) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
       }
     }
 
-    // New flow started — cancel pending nudge timer so it doesn't fire mid-flow
-    if (current !== "idle" && timerRef.current !== null) {
-      clearTimeout(timerRef.current)
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
       timerRef.current = null
     }
   }, [state.phase])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) clearTimeout(timerRef.current)
-    }
-  }, [])
 
   const dismiss = () => {
     setShow(false)

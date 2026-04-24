@@ -34,7 +34,7 @@ export {
 export { attachProof } from "./proof"
 
 // Utilities
-export { sha256, sha256Bytes, generateNonce } from "./utils"
+export { sha256, sha256Bytes, generateNonce, decodeParamsU64 } from "./utils"
 
 // secp256r1 precompile (browser + Node)
 export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "./secp256r1"

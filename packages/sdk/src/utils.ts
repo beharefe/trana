@@ -112,6 +112,12 @@ function rotr(x: number, n: number): number {
   return (x >>> n) | (x << (32 - n))
 }
 
+/** Read the first 8 bytes of a params buffer as a little-endian u64. Returns null if too short. */
+export function decodeParamsU64(params: Uint8Array): bigint | null {
+  if (params.length < 8) return null
+  return new DataView(params.buffer, params.byteOffset, 8).getBigUint64(0, true)
+}
+
 /** Generate a random 32-byte nonce, hex-encoded. */
 export function generateNonce(): string {
   const bytes = new Uint8Array(32)
