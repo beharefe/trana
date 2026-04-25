@@ -16,7 +16,7 @@ pub struct ProofData {
 
 // ── Onchain state ─────────────────────────────────────────────────────────────
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, InitSpace)]
 pub enum KeyKind {
     Secp256r1Passkey,
     Ed25519,
@@ -25,19 +25,21 @@ pub enum KeyKind {
 /// Per-user onchain 2FA registry.
 /// Seeds: `[b"2fa", owner]`
 #[account]
+#[derive(InitSpace)]
 pub struct TwoFactorRegistry {
-    pub owner:         Pubkey,  // 32
-    pub key_kind:      KeyKind, //  1
-    pub pubkey_bytes:  Vec<u8>, //  4 + up to 33
-    pub credential_id: Vec<u8>, //  4 + up to 128
-    pub enabled:       bool,    //  1
-    pub nonce:         u64,     //  8
+    pub owner:    Pubkey,
+    pub key_kind: KeyKind,
+    #[max_len(33)]
+    pub pubkey_bytes:  Vec<u8>,
+    #[max_len(128)]
+    pub credential_id: Vec<u8>,
+    pub enabled: bool,
+    pub nonce:   u64,
 }
 
 impl TwoFactorRegistry {
     pub const MAX_PUBKEY_LEN:  usize = 33;
     pub const MAX_CRED_ID_LEN: usize = 128;
-    pub const SPACE: usize = 8 + 32 + 1 + (4 + 33) + (4 + 128) + 1 + 8; // 219
 }
 
 // ── Fee config ────────────────────────────────────────────────────────────────
@@ -50,18 +52,14 @@ impl TwoFactorRegistry {
 /// without reading source code. Changes require a signed transaction
 /// from the authority, so the full history is on-chain.
 #[account]
+#[derive(InitSpace)]
 pub struct TranaConfig {
     /// Who can call update_config / withdraw_fees.
-    pub authority:    Pubkey, // 32
+    pub authority:    Pubkey,
     /// Where enforcement fees are sent.
-    pub treasury:     Pubkey, // 32
+    pub treasury:     Pubkey,
     /// Lamports charged per successful proof verification.
-    pub fee_lamports: u64,    //  8
-}
-
-impl TranaConfig {
-    /// discriminator(8) + authority(32) + treasury(32) + fee_lamports(8)
-    pub const SPACE: usize = 8 + 32 + 32 + 8; // 80
+    pub fee_lamports: u64,
 }
 
 // ── Account contexts ──────────────────────────────────────────────────────────
@@ -71,7 +69,7 @@ pub struct RegisterTwoFa<'info> {
     #[account(
         init_if_needed,
         payer = owner,
-        space = TwoFactorRegistry::SPACE,
+        space = TwoFactorRegistry::DISCRIMINATOR.len() + TwoFactorRegistry::INIT_SPACE,
         seeds = [b"2fa", owner.key().as_ref()],
         bump,
     )]
@@ -132,7 +130,7 @@ pub struct InitConfig<'info> {
     #[account(
         init,
         payer     = authority,
-        space     = TranaConfig::SPACE,
+        space     = TranaConfig::DISCRIMINATOR.len() + TranaConfig::INIT_SPACE,
         seeds     = [b"config"],
         bump,
     )]
@@ -180,4 +178,81 @@ pub struct WithdrawFees<'info> {
     /// CHECK: any destination the authority chooses
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
+}
+
+// ── Guard-tracked PDA structs ─────────────────────────────────────────────────
+
+/// Rate-limit counter per (protected_program, instruction, owner) triple.
+/// Seeds: [b"burst", protected_program_id(32), discriminator(8), owner(32)]
+/// The guard owns this account — the calling program cannot reset or influence it.
+#[account]
+#[derive(InitSpace)]
+pub struct BurstCounter {
+    pub window_start_slot: u64,
+    pub call_count:        u16,
+    pub bump:              u8,
+}
+
+/// Cooldown tracker per (protected_program, instruction, owner) triple.
+/// Seeds: [b"cooldown", protected_program_id(32), discriminator(8), owner(32)]
+/// The guard owns this account — the calling program cannot reset or influence it.
+#[account]
+#[derive(InitSpace)]
+pub struct CooldownTracker {
+    pub last_called_slot: u64,
+    pub bump:             u8,
+}
+
+// ── Guard-tracked PDA init contexts ──────────────────────────────────────────
+
+/// Initialize a BurstCounter PDA for a given (program, discriminator, owner) triple.
+/// `discriminator`: the 8-byte Anchor discriminator of the instruction to guard.
+/// Anyone can pay to create this — guard owns the account unconditionally.
+#[derive(Accounts)]
+#[instruction(discriminator: [u8; 8])]
+pub struct InitBurstCounter<'info> {
+    #[account(
+        init,
+        payer  = payer,
+        space  = BurstCounter::DISCRIMINATOR.len() + BurstCounter::INIT_SPACE,
+        seeds  = [b"burst", protected_program.key().as_ref(), &discriminator, owner.key().as_ref()],
+        bump,
+    )]
+    pub burst_counter: Account<'info, BurstCounter>,
+
+    /// CHECK: the program whose instruction this counter tracks — key only
+    pub protected_program: UncheckedAccount<'info>,
+
+    /// CHECK: the wallet whose burst counter this is — key only
+    pub owner: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+/// Initialize a CooldownTracker PDA for a given (program, discriminator, owner) triple.
+#[derive(Accounts)]
+#[instruction(discriminator: [u8; 8])]
+pub struct InitCooldownTracker<'info> {
+    #[account(
+        init,
+        payer  = payer,
+        space  = CooldownTracker::DISCRIMINATOR.len() + CooldownTracker::INIT_SPACE,
+        seeds  = [b"cooldown", protected_program.key().as_ref(), &discriminator, owner.key().as_ref()],
+        bump,
+    )]
+    pub cooldown_tracker: Account<'info, CooldownTracker>,
+
+    /// CHECK: the program whose instruction this tracker guards — key only
+    pub protected_program: UncheckedAccount<'info>,
+
+    /// CHECK: the wallet whose cooldown tracker this is — key only
+    pub owner: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }

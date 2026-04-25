@@ -116,7 +116,7 @@ export function useTrana() {
       ctx.config.policy,
     )
 
-    // If no enforcement needed (e.g. small withdrawal below threshold), send directly.
+    // If no enforcement needed (e.g. small withdrawal below the configured limit), send directly.
     if (!detection.needed) {
       const { blockhash } = await conn.getLatestBlockhash("confirmed")
       const tx = await args.buildTransaction({ recentBlockhash: blockhash })

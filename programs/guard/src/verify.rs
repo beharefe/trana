@@ -22,7 +22,27 @@ pub struct FeeAccounts<'a, 'info> {
 const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
 const INTENT_DOMAIN:        &str = "trana:v1";
 
+/// Build a pubkey-scoped policy string, e.g. "trana.recipient_novelty:3xK…abc".
+/// Embedding the pubkey in the policy string binds the proof to that specific address —
+/// a valid proof for one recipient cannot be replayed for a different recipient.
+pub fn scoped_policy(prefix: &str, pubkey: &Pubkey) -> String {
+    format!("{}:{}", prefix, pubkey)
+}
+
 // ── Public helpers ────────────────────────────────────────────────────────────
+
+/// Return the (program_id, discriminator) of the protected instruction.
+/// Used by guard-tracked policies to derive their PDA seeds from the calling context.
+pub fn get_protected_ix_metadata(ix_sysvar: &AccountInfo) -> Result<(Pubkey, [u8; 8])> {
+    let current_idx = load_current_index_checked(ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+    let protected_ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
+        .map_err(|_| error!(GuardError::InvalidProof))?;
+    require!(protected_ix.data.len() >= 8, GuardError::InvalidProof);
+    let mut discriminator = [0u8; 8];
+    discriminator.copy_from_slice(&protected_ix.data[..8]);
+    Ok((protected_ix.program_id, discriminator))
+}
 
 /// Read the protected instruction at the current index and extract a u64
 /// from its parameter data at `byte_offset` bytes after the 8-byte discriminator.

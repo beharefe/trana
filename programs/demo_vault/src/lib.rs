@@ -13,7 +13,7 @@ declare_id!("2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP");
 //  the guard program and is audited once for every protocol that imports it.
 //
 //  Integration pattern:
-//    trana::cpi::enforce(ctx, Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 })?
+//    trana::cpi::enforce(ctx, Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?
 //
 //  The condition evaluation happens inside guard, not here. Users can verify
 //  the policy by reading Trana's source — they don't need to audit this vault.
@@ -21,17 +21,17 @@ declare_id!("2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP");
 //  Policies used:
 //    Policy::Always      — emergency_freeze and set_opt_in mode
 //    Policy::Admin       — emergency freeze / unfreeze
-//    Policy::Threshold   — withdrawals >= LARGE_THRESHOLD (guard reads amount)
-//    Policy::Velocity    — cumulative withdrawals exceed VELOCITY_THRESHOLD
+//    Policy::Limit       — withdrawals >= LARGE_LIMIT (guard reads amount)
+//    Policy::Velocity    — cumulative withdrawals exceed VELOCITY_LIMIT
 //    Policy::RapidDrain  — withdrawal shortly after a large deposit
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const LARGE_THRESHOLD:        u64 = 1_000_000_000; // 1 SOL
+pub const LARGE_LIMIT:            u64 = 1_000_000_000; // 1 SOL
 pub const RAPID_WINDOW:           i64 = 300;            // 5 minutes
 pub const RAPID_DEPOSIT_THRESHOLD: u64 = 5_000_000_000; // 5 SOL
 pub const VELOCITY_WINDOW:        i64 = 60;             // 1 minute
-pub const VELOCITY_THRESHOLD:     u64 = 2_000_000_000;  // 2 SOL
+pub const VELOCITY_LIMIT:     u64 = 2_000_000_000;  // 2 SOL
 
 // withdraw() serializes: amount: u64 — first param after discriminator
 const WITHDRAW_AMOUNT_OFFSET: u8 = 0;
@@ -80,11 +80,11 @@ pub mod demo_vault {
         // Large deposits require passkey — guard reads amount from instruction directly
         trana::cpi::enforce(
             ctx.accounts.trana_cpi_ctx(),
-            Policy::Threshold { param_offset: 0, threshold: LARGE_THRESHOLD },
+            Policy::Limit { param_offset: 0, limit: LARGE_LIMIT },
         )?;
 
         // Track deposit time for rapid_drain policy on future withdrawals
-        if amount >= LARGE_THRESHOLD {
+        if amount >= LARGE_LIMIT {
             let vault                       = &mut ctx.accounts.vault;
             vault.last_large_deposit_at     = Clock::get()?.unix_timestamp;
             vault.last_large_deposit_amount = amount;
@@ -116,7 +116,7 @@ pub mod demo_vault {
     // All condition evaluation and passkey enforcement happens in the guard
     // program — audited once, trusted everywhere.
     //
-    // Priority: opt_in > rapid_drain > velocity > threshold
+    // Priority: opt_in > rapid_drain > velocity > limit
     // (The enforce() CPIs are ordered; first one that fires ends the chain.)
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
@@ -126,11 +126,19 @@ pub mod demo_vault {
 
         let now = Clock::get()?.unix_timestamp;
 
+        // Pre-evaluate all conditions; call enforce() at most once.
+        // Zero CPI overhead for withdrawals that don't trigger any policy.
+        // The guard re-validates the same condition inside enforce() so the
+        // vault cannot skip enforcement by lying about the state here.
+        let rapid_drain_fires =
+            ctx.accounts.vault.last_large_deposit_amount >= RAPID_DEPOSIT_THRESHOLD
+            && now.saturating_sub(ctx.accounts.vault.last_large_deposit_at) < RAPID_WINDOW;
+        let velocity_fires =
+            ctx.accounts.vault.velocity_withdrawn.saturating_add(amount) > VELOCITY_LIMIT;
+
         if ctx.accounts.vault.opt_in {
-            // User opted into always-require passkey
             trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Always)?;
-        } else {
-            // Rapid drain: guard evaluates deposit time + amount inside guard
+        } else if rapid_drain_fires {
             trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
                 Policy::RapidDrain {
@@ -140,23 +148,21 @@ pub mod demo_vault {
                     window_secs:         RAPID_WINDOW,
                 },
             )?;
-
-            // Velocity: guard evaluates already_withdrawn + current > threshold
+        } else if velocity_fires {
             trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
                 Policy::Velocity {
                     param_offset:      WITHDRAW_AMOUNT_OFFSET,
                     already_withdrawn: ctx.accounts.vault.velocity_withdrawn,
-                    threshold:         VELOCITY_THRESHOLD,
+                    limit:             VELOCITY_LIMIT,
                 },
             )?;
-
-            // Threshold: guard reads amount from instruction, checks >= LARGE_THRESHOLD
+        } else if amount >= LARGE_LIMIT {
             trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
-                Policy::Threshold {
+                Policy::Limit {
                     param_offset: WITHDRAW_AMOUNT_OFFSET,
-                    threshold:    LARGE_THRESHOLD,
+                    limit:        LARGE_LIMIT,
                 },
             )?;
         }

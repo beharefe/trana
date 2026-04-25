@@ -40,7 +40,8 @@ export function hasSecp256r1Ix(
 
 /**
  * Extract the policy string from a "TRANA require | policy=X | ..." log line.
- * Returns the policy string (e.g. "trana.threshold") or null if not found.
+ * Returns the policy string (e.g. "trana.limit") or null if not found.
+ * Handles pubkey-scoped strings (e.g. "trana.recipient_novelty:<pubkey>") verbatim.
  */
 export function parsePolicyFromLogs(logs: string[]): string | null {
   for (const line of logs) {
