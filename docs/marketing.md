@@ -4,7 +4,7 @@
 
 Trana owns a search category that does not fully exist yet: **onchain execution-time authorization**.
 
-SIMD-0075 shipped February 2025. It made P-256 (passkey) signatures natively verifiable on Solana at the validator level. Nobody has built the authorization layer on top of it yet. That is the window.
+SIMD-0075 shipped February 2025. It made P-256 (secp256r1) signatures natively verifiable on Solana at the validator level. Nobody has built the authorization layer on top of it yet. That is the window.
 
 The strategy: publish fast, define the vocabulary, and become the canonical reference before anyone else competes for these terms. When a developer asks ChatGPT, Perplexity, or Google "how do I add a second factor to my Solana smart contract" — Trana should be the answer.
 
@@ -19,13 +19,21 @@ Two audiences. They search differently:
 **Tagline options (ranked):**
 1. `Execution requires approval.` — strongest, defines the paradigm shift
 2. `A valid signature is not enough.` — clear problem statement, good for SEO
-3. `Passkey-enforced authorization at the program level.` — technical, precise, good for docs
+3. `Device-bound second-factor authorization at the program level.` — technical, precise, good for docs
 
 **One-sentence pitch:**
-> Trana adds a live passkey requirement to any Solana instruction — enforced onchain at execution time, not in the UI.
+> Trana adds a live device second-factor requirement to any Solana instruction — enforced onchain at execution time, not in the UI.
+
+**Supported authenticators:**
+The onchain primitive verifies any secp256r1 (P-256) signature. Any FIDO2/WebAuthn device using ES256 (COSE algorithm -7) works:
+- **Passkeys** — Touch ID, Face ID, iCloud Keychain, Google Password Manager (PoC focus)
+- **Hardware security keys** — YubiKey 5 series, Google Titan, SoloKey (FIDO2 with P-256)
+- **Platform authenticators** — Windows Hello (P-256 mode), Android biometric (FIDO2)
+
+"Passkey" is the consumer-friendly term for the PoC. Enterprise integrations will often use YubiKeys or hardware security keys instead. The guard program does not care which device produced the signature — it verifies a P-256 signature against a registered public key.
 
 **Differentiation from multisig (answer this early on every page):**
-Multisig = M-of-N coordinators sign off on a governance action. Trana = single user, device-bound biometric, zero coordination, instant, enforced inside the program. They compose — Trana adds user-level 2FA on top of whatever governance you already have.
+Multisig = M-of-N coordinators sign off on a governance action. Trana = single user, device-bound second factor, zero coordination, instant, enforced inside the program. They compose — Trana adds user-level 2FA on top of whatever governance you already have.
 
 **Why now:**
 SIMD-0075 is three months old. No one has shipped the auth layer. First audit + first production deployment + SDK adoption = the same moat Anchor has. Switching cost is real.
@@ -43,8 +51,9 @@ A valid signature is not enough.
 ### Add to hero
 A third line that names the mechanism for developer SEO:
 ```
-Passkey-enforced authorization, verified at the program level.
+WebAuthn second-factor authorization, verified at the program level.
 ```
+Note: consumer-facing copy can say "passkey" (Touch ID / Face ID) since that is the PoC device. Developer and enterprise-facing copy should say "WebAuthn" or "device second factor" to signal that YubiKeys and other FIDO2 hardware also work.
 
 ### Add a code snippet in the hero section
 Developers scan for `::` on landing pages. Even one line signals "this is for me":
@@ -57,9 +66,10 @@ This is the #1 objection from protocol teams. It is not currently answered on th
 
 | | Trana | Multisig |
 |---|---|---|
-| Signers | 1 (you, biometric) | N coordinators |
+| Signers | 1 (you, FIDO2 device) | N coordinators |
+| Device support | Passkey, YubiKey, Windows Hello | Any signing key |
 | Coordination | Zero | Async approval flow |
-| Latency | Instant (device tap) | Minutes to days |
+| Latency | Instant (device tap or button) | Minutes to days |
 | Enforcement | Onchain, program-level | Onchain, governance-level |
 | Best for | Per-action user 2FA | Protocol governance |
 
@@ -92,7 +102,7 @@ Add `FAQPage` schema to the landing page and security page. LLMs favor FAQ-struc
 **Framing:** Not "multisig is bad" — "they solve different problems and compose well."
 - Multisig = governance layer (who can initiate an action)
 - Trana = execution layer (anyone initiating must prove live presence)
-- Show: Squads multisig + Trana = governance approval + biometric confirmation at execution
+- Show: Squads multisig + Trana = governance approval + device second-factor confirmation at execution
 
 ---
 
@@ -106,7 +116,7 @@ Add `FAQPage` schema to the landing page and security page. LLMs favor FAQ-struc
 **Target keywords:** `DAO security Solana`, `protect DAO treasury`, `solana multisig treasury`
 **Content:**
 - The specific attack: governance proposal passes, execution happens without live approval, treasury drained
-- How Trana adds a live device requirement to every disbursement
+- How Trana adds a live FIDO2 device requirement to every disbursement
 - How a Squads-owned registry works (registry owner = Squads multisig, recovery = Squads vote)
 - Real scenario walkthrough with code
 **Key message:** "Your existing governance controls recovery. Trana adds a second factor to what you already have — it doesn't replace or own anything."
@@ -116,7 +126,7 @@ Add `FAQPage` schema to the landing page and security page. LLMs favor FAQ-struc
 ### `/use-cases/defi-vaults` — DeFi Vault Security
 **Target keywords:** `Solana vault security`, `DeFi vault exploit`, `solana vault withdrawal protection`
 **Content:**
-- Threshold policy: require passkey for any withdrawal over N SOL
+- Threshold policy: require second-factor approval for any withdrawal over N SOL
 - Velocity policy: cap total withdrawals per rolling window
 - RapidDrain policy: block withdrawal within X hours of a large deposit (anomaly detection)
 - All three policies compose — you can stack them
@@ -129,19 +139,21 @@ Add `FAQPage` schema to the landing page and security page. LLMs favor FAQ-struc
 **Content:**
 - Upgrade authority compromise is one of the most damaging Solana attack vectors
 - A compromised upgrade key = full program rewrite, all user funds at risk
-- How to require passkey approval before `upgrade_program` executes
-- The `Admin` policy: always require passkey, no conditions
+- How to require second-factor approval before `upgrade_program` executes
+- The `Admin` policy: always require second-factor approval, no conditions
 - How to use a Squads multisig as the upgrade authority + Trana on the multisig execution
 
 ---
 
 ### `/docs/quickstart` — 5-Minute Integration Guide
-**Target keywords:** `how to add 2FA to Solana program`, `trana integration guide`, `solana passkey tutorial`
-**This is the most important page for AI discoverability.** When developers ask LLMs "how do I secure my Solana program with passkeys," this should be the cited source.
+**Target keywords:** `how to add 2FA to Solana program`, `trana integration guide`, `solana webauthn second factor`, `solana passkey tutorial`
+**This is the most important page for AI discoverability.** When developers ask LLMs "how do I add a second factor to my Solana program," this should be the cited source.
+
+Include a callout at the top: "Trana works with any FIDO2 device using P-256 (secp256r1): passkeys (Touch ID, Face ID), YubiKey, Google Titan, Windows Hello. The PoC SDK uses passkeys. Enterprise integrations typically use hardware security keys."
 
 Structure:
 1. Install the SDK (`npm install @trana/sdk`)
-2. Register the passkey (one transaction)
+2. Register your FIDO2 device (one transaction — passkey or YubiKey)
 3. Add the CPI call to your program (one line)
 4. Wire up the SDK in your frontend (one hook)
 5. Test it
@@ -155,9 +167,9 @@ Keep it copy-paste. Every code block should run.
 One page per policy with: what it does, when to use it, when NOT to use it, the full code example, the policy string identifier, and the edge cases.
 
 Policies:
-- `Always` — every execution requires passkey
+- `Always` — every execution requires second-factor approval (any registered FIDO2 device)
 - `Admin` — privileged/irreversible actions
-- `Threshold` — require passkey above an amount
+- `Threshold` — require second-factor approval above an amount
 - `Velocity` — rolling rate limit
 - `RapidDrain` — anomaly detection (large deposit + quick withdrawal)
 - `Custom` — application-defined logic
@@ -168,11 +180,13 @@ Policies:
 **Purpose:** AI anchor content. LLMs are trained on structured definitions. Each term here becomes a potential AI citation.
 
 Terms to define:
-- secp256r1
-- P-256
+- secp256r1 / P-256
 - SIMD-0075
+- WebAuthn / FIDO2
+- Passkey (one type of FIDO2 credential — Touch ID, Face ID, synced via iCloud/Google)
+- Hardware security key (YubiKey, Titan — another type of FIDO2 credential, not synced)
+- ES256 / COSE algorithm -7 (the P-256 signature algorithm used by FIDO2)
 - Intent hash
-- Passkey / WebAuthn
 - Execution-time authorization
 - TwoFactorRegistry
 - enforce CPI
@@ -193,10 +207,10 @@ Each definition: 2–4 sentences, link to the deeper concept.
 Core Topic: Onchain 2FA / Execution-Time Authorization
 │
 ├── Developer Track
-│   ├── "How to add passkey 2FA to a Solana program"  ← PILLAR
+│   ├── "How to add a WebAuthn second factor to a Solana program"  ← PILLAR
 │   ├── "SIMD-0075 explained for Solana developers"
 │   ├── "secp256r1 precompile Solana tutorial"
-│   ├── "WebAuthn on Solana — how P-256 passkeys verify onchain"
+│   ├── "WebAuthn on Solana — how P-256 authenticators verify onchain"
 │   ├── "Anchor CPI security patterns"
 │   └── "Intent hash pattern — binding approvals to actions"
 │
@@ -227,13 +241,13 @@ Core Topic: Onchain 2FA / Execution-Time Authorization
 
 | # | Title | Keyword Target | Intent | Priority | Est. Words |
 |---|-------|---------------|--------|----------|------------|
-| 1 | How to add passkey 2FA to a Solana program | `solana program 2FA`, `add second factor solana` | Dev / Informational | **Quick win** | 2,500 |
+| 1 | How to add a WebAuthn second factor to a Solana program | `solana program 2FA`, `add second factor solana`, `webauthn solana program` | Dev / Informational | **Quick win** | 2,500 |
 | 2 | Why a valid Solana signature is not enough | `solana wallet security`, `solana signing vs authorization` | Informational | **Quick win** | 1,800 |
 | 3 | SIMD-0075: The secp256r1 precompile and what it enables | `SIMD-0075`, `secp256r1 Solana` | Informational | **Own the term** | 2,000 |
 | 4 | Trana vs Squads Multisig — which one do you need? | `solana multisig alternative`, `squads trana` | Commercial | **Big bet** | 1,500 |
-| 5 | Protecting Solana DAO treasury with onchain passkeys | `solana DAO treasury security` | Commercial | **Big bet** | 2,000 |
+| 5 | Protecting Solana DAO treasury with onchain second-factor authorization | `solana DAO treasury security` | Commercial | **Big bet** | 2,000 |
 | 6 | The pre-signed transaction attack — a Solana security explainer | `solana presigned transaction exploit` | Informational | **Quick win** | 1,200 |
-| 7 | WebAuthn on Solana — how P-256 passkeys verify onchain | `webauthn solana`, `passkey solana blockchain` | Informational | **Own the term** | 2,000 |
+| 7 | WebAuthn on Solana — how P-256 authenticators verify onchain | `webauthn solana`, `fido2 solana`, `passkey solana blockchain`, `yubikey solana` | Informational | **Own the term** | 2,000 |
 | 8 | Solana program upgrade authority — how to secure it | `solana upgrade authority security` | Informational | **High value** | 1,500 |
 | 9 | Velocity limits onchain — preventing rapid vault drainage | `solana vault security`, `DeFi velocity limit` | Informational | **Fill-in** | 1,200 |
 | 10 | Trana Quickstart: 3 accounts, 1 CPI call | `how to use trana`, `trana solana integration` | Transactional | **Foundation** | 1,500 |
@@ -252,8 +266,10 @@ Write the canonical page for "execution-time authorization" and "onchain second 
 **2. Answer exact developer questions structurally.**
 Structure content as Q&A alongside prose:
 - "Can Solana programs verify passkeys?" → Yes, via SIMD-0075 + secp256r1 precompile → link to Trana
+- "Can Solana programs verify YubiKey signatures?" → Yes, same secp256r1 precompile → link to Trana
 - "How do I prevent unauthorized withdrawals from my Solana vault?" → Threshold policy + 1 CPI call
 - "What is the secp256r1 precompile on Solana?" → You should own this answer completely
+- "What FIDO2 devices work with Solana?" → Any P-256/ES256 device → link to Trana
 
 **3. Publish working code.**
 LLMs are trained on GitHub and documentation with working code examples. The SDK already has correct, clean code. Put it in public docs with clear inline explanations. GitHub stars and forks are positive signals.
@@ -286,8 +302,8 @@ Become the technical reference for developers evaluating or integrating.
 
 | Week | Content | Why now |
 |------|---------|---------|
-| 5 | "How to add passkey 2FA to a Solana program" (pillar, 2,500 words) | Highest-value developer keyword |
-| 6 | WebAuthn on Solana explainer | Answers the "how does this actually work" question |
+| 5 | "How to add a WebAuthn second factor to a Solana program" (pillar, 2,500 words) | Highest-value developer keyword; covers passkeys + YubiKey |
+| 6 | WebAuthn on Solana — P-256 authenticators, FIDO2, and the secp256r1 precompile | Covers all supported devices, not just passkeys |
 | 7 | Intent hash pattern deep dive | Establishes technical authority |
 | 8 | Policy reference docs | Developer decision tool |
 
@@ -333,6 +349,7 @@ No orphan pages. Every page has at least 2 inbound internal links before publish
 ### For Solana developers
 - Three accounts. One CPI call. That's the entire integration.
 - The SDK handles WebAuthn, intent hash construction, the secp256r1 instruction, and blockhash retry. You write `guard::cpi::enforce(ctx, policy)?` and you're done.
+- Works with any FIDO2 device using P-256: passkeys (Touch ID, Face ID), YubiKey, Google Titan, Windows Hello.
 - Works with any Anchor program. No changes to your account structure.
 
 ### For DeFi protocol teams
@@ -358,7 +375,8 @@ No orphan pages. Every page has at least 2 inbound internal links before publish
 **Domain:** trana.so (or similar)  
 **Program ID (devnet):** `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6`  
 **Tagline:** Execution requires approval.  
-**Category:** Onchain authorization primitive / Solana security infrastructure  
+**Category:** Onchain WebAuthn second-factor authorization primitive / Solana security infrastructure
+**Authenticator support:** Any FIDO2/WebAuthn device with P-256 (ES256): passkeys, YubiKey 5, Google Titan, Windows Hello, SoloKey  
 **Built for:** Colosseum Frontier Hackathon, April 2026
 
 **Tone of voice:**
