@@ -36,7 +36,7 @@ The onchain primitive verifies any secp256r1 (P-256) signature. Any FIDO2/WebAut
 Multisig = M-of-N coordinators sign off on a governance action. Trana = single user, device-bound second factor, zero coordination, instant, enforced inside the program. They compose — Trana adds user-level 2FA on top of whatever governance you already have.
 
 **Why now:**
-SIMD-0075 is three months old. No one has shipped the auth layer. First audit + first production deployment + SDK adoption = the same moat Anchor has. Switching cost is real.
+SIMD-0075 shipped February 2025 — over a year ago. No one has shipped the authorization layer. First audit + first production deployment + SDK adoption = the same moat Anchor has. Switching cost is real.
 
 ---
 
