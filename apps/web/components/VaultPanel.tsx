@@ -31,7 +31,7 @@ const DISC = {
   withdraw:  Buffer.from([183, 18,  70,  156, 148, 109, 161, 34 ]),
 }
 
-type VaultData = { balance: bigint; optIn: boolean }
+type VaultData = { balance: bigint; optIn: boolean; velocityWithdrawn: bigint }
 
 function findVaultPda(owner: PublicKey): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
@@ -41,13 +41,17 @@ function findVaultPda(owner: PublicKey): PublicKey {
   return pda
 }
 
+// VaultState Borsh layout (no padding):
+//   disc(8) + owner(32) + balance(8) + opt_in(1) + frozen(1)
+//   + last_large_deposit_at(8) + last_large_deposit_amount(8)
+//   + velocity_window_start(8) + velocity_withdrawn(8)
 function parseVaultAccount(raw: Buffer | Uint8Array): VaultData {
   const data = raw instanceof Buffer ? raw : Buffer.from(raw)
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  let o = 8 + 32
-  const balance = view.getBigUint64(o, true); o += 8
-  const optIn   = data[o] === 1
-  return { balance, optIn }
+  const balance           = view.getBigUint64(8 + 32,      true)
+  const optIn             = data[8 + 32 + 8] === 1
+  const velocityWithdrawn = view.getBigUint64(8 + 32 + 8 + 1 + 1 + 8 + 8 + 8, true)
+  return { balance, optIn, velocityWithdrawn }
 }
 
 // TranaConfig layout: disc(8) + authority(32) + treasury(32) + fee_lamports(8)
@@ -231,40 +235,33 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
     const solAmt  = parseFloat(withdrawAmt)
     if (!solAmt || solAmt <= 0) return
     const lamports    = BigInt(Math.round(solAmt * 1e9))
-    const needsPasskey = lamports >= LARGE_THRESHOLD_LAMPORTS
     setBusy("withdraw"); setError(null)
     try {
       const vaultPda    = findVaultPda(publicKey)
       const registryPda = findRegistryPda(publicKey, GUARD_PROGRAM_ID)
       const destination = publicKey
-      let sig: string
 
-      if (needsPasskey) {
-        sig = await authorizeAndSend({
-          buildIntent: () => ({
-            targetProgramId:          VAULT_PROGRAM_ID,
-            instructionDiscriminator: DISC.withdraw,
-            accounts: [
-              vaultPda, publicKey, destination,
-              GUARD_PROGRAM_ID, registryPda, SYSVAR_INSTRUCTIONS_PUBKEY,
-              CONFIG_PDA, treasury, SystemProgram.programId,
-            ],
-            params: u64LE(lamports),
-            policy: "trana.threshold",
-            label:  `Withdraw ${solAmt} SOL`,
-          }),
-          buildTransaction: async ({ recentBlockhash }) => {
-            const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
-            tx.add(buildWithdrawIx(publicKey, vaultPda, registryPda, destination, treasury, lamports))
-            return tx
-          },
-        })
-      } else {
-        const { blockhash } = await connection.getLatestBlockhash()
-        const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
-        tx.add(buildWithdrawIx(publicKey, vaultPda, registryPda, destination, treasury, lamports))
-        sig = await sendTransaction(tx, connection)
-      }
+      // Always route through authorizeAndSend — it simulates first and sends
+      // directly when no enforcement fires. Client-side threshold checks miss
+      // velocity, rapid_drain, and opt-in policies.
+      const sig = await authorizeAndSend({
+        buildIntent: () => ({
+          targetProgramId:          VAULT_PROGRAM_ID,
+          instructionDiscriminator: DISC.withdraw,
+          accounts: [
+            vaultPda, publicKey, destination,
+            GUARD_PROGRAM_ID, registryPda, SYSVAR_INSTRUCTIONS_PUBKEY,
+            CONFIG_PDA, treasury, SystemProgram.programId,
+          ],
+          params: u64LE(lamports),
+          label:  `Withdraw ${solAmt} SOL`,
+        }),
+        buildTransaction: async ({ recentBlockhash }) => {
+          const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
+          tx.add(buildWithdrawIx(publicKey, vaultPda, registryPda, destination, treasury, lamports))
+          return tx
+        },
+      })
 
       await connection.confirmTransaction(sig, "confirmed")
       setWithdrawAmt("")
@@ -287,8 +284,14 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
     )
   }
 
-  const depositSol  = parseFloat(depositAmt  || "0")
-  const withdrawSol = parseFloat(withdrawAmt || "0")
+  const depositSol    = parseFloat(depositAmt  || "0")
+  const withdrawSol   = parseFloat(withdrawAmt || "0")
+  const withdrawLamps = BigInt(Math.round(withdrawSol * 1e9))
+  const withdrawNeedsPasskey = vault && vault !== "loading" && (
+    withdrawLamps >= LARGE_THRESHOLD_LAMPORTS ||
+    (vault.velocityWithdrawn + withdrawLamps) > BigInt(2_000_000_000) ||
+    vault.optIn
+  )
 
   return (
     <section className="border border-gray-800 rounded-lg p-5 bg-gray-900/20 space-y-4">
@@ -354,7 +357,7 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs text-gray-500">Withdraw</label>
-              {withdrawSol >= 1 && (
+              {withdrawNeedsPasskey && (
                 <span className="text-xs text-yellow-500/80">passkey required</span>
               )}
             </div>
@@ -371,7 +374,7 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
                 disabled={!withdrawAmt || !!busy || vault.balance === 0n || !treasury}
                 className="text-xs px-3 py-1.5 rounded border border-gray-700 bg-gray-800/40 text-gray-300 hover:bg-gray-700/40 disabled:opacity-40 transition-colors whitespace-nowrap"
               >
-                {busy === "withdraw" ? "…" : withdrawSol >= 1 ? "Withdraw 🔐" : "Withdraw"}
+                {busy === "withdraw" ? "…" : withdrawNeedsPasskey ? "Withdraw 🔐" : "Withdraw"}
               </button>
             </div>
           </div>

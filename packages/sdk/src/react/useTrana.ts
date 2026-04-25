@@ -6,6 +6,11 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js"
+
+// instanceof checks fail across pnpm workspace boundaries — duck-type instead.
+function isLegacyTransaction(tx: Transaction | VersionedTransaction): tx is Transaction {
+  return "instructions" in tx && Array.isArray((tx as Transaction).instructions)
+}
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "../secp256r1"
 import { decodeParamsU64 } from "../utils"
@@ -178,7 +183,7 @@ export function useTrana() {
       const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
       const tx = await args.buildTransaction({ recentBlockhash })
 
-      if (tx instanceof Transaction) {
+      if (isLegacyTransaction(tx)) {
         tx.instructions.unshift(recordProofIx)
         tx.instructions.unshift(secp256r1Ix)
         try {

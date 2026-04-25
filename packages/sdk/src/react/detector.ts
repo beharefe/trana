@@ -4,6 +4,12 @@ import { findRegistryPda } from "./registry"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// instanceof checks fail across pnpm workspace boundaries when the same package
+// is installed in multiple node_modules. Duck-type instead.
+function isLegacyTransaction(tx: Transaction | VersionedTransaction): tx is Transaction {
+  return "instructions" in tx && Array.isArray((tx as Transaction).instructions)
+}
+
 export type DetectionResult =
   | { needed: false }
   | { needed: true; reason: "no-registry";   policy: string }
@@ -22,7 +28,7 @@ const TRANA_MISSING_PROOF_MARKER = "TRANA_MISSING_PROOF"
 export function hasSecp256r1Ix(
   tx: Transaction | VersionedTransaction
 ): boolean {
-  if (tx instanceof Transaction) {
+  if (isLegacyTransaction(tx)) {
     return tx.instructions.some(ix => ix.programId.equals(SECP256R1_PROGRAM_ID))
   }
   const { staticAccountKeys } = (tx as VersionedTransaction).message
@@ -78,7 +84,7 @@ export async function detectEnforcement(
   //          sigVerify: false so wallet doesn't need to sign for detection.
   let logs: string[] = []
   try {
-    const vtx = tx instanceof Transaction
+    const vtx = isLegacyTransaction(tx)
       ? VersionedTransaction.deserialize(
           tx.serialize({ requireAllSignatures: false, verifySignatures: false })
         )
@@ -88,7 +94,8 @@ export async function detectEnforcement(
       sigVerify:              false,
     })
     logs = result.value.logs ?? []
-  } catch {
+  } catch (err) {
+    console.warn("[Trana] detectEnforcement simulation failed:", err)
     return { needed: false }
   }
 

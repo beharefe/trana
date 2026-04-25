@@ -86,7 +86,7 @@ pub enum Policy {
 //
 //    ix[N-2]: secp256r1 precompile      — native P-256 sig verify (SIMD-0075)
 //    ix[N-1]: guard::record_proof       — carries WebAuthn binding data
-//    ix[N]:   your protected instruction — calls guard::cpi::enforce_*()
+//    ix[N]:   your protected instruction — calls guard::cpi::enforce()
 //
 //  ── Module layout ─────────────────────────────────────────────────────────
 //
@@ -270,65 +270,5 @@ pub mod trana {
                 verify::verify_from_proof(ix, registry, &owner_key, pid, &fee)
             }
         }
-        Ok(())
-    }
-
-    /// Require passkey when cumulative withdrawn + current amount in the
-    /// protected instruction exceeds threshold (rolling rate-limit guard).
-    ///
-    /// The protocol tracks `already_withdrawn` in its own state and passes it
-    /// here. The guard reads the current amount from the instruction directly.
-    /// The condition math (`already_withdrawn + current > threshold`) is
-    /// evaluated inside this audited program.
-    ///
-    /// Policy string: "trana.velocity"
-    pub fn enforce_velocity(
-        ctx: Context<Enforce>,
-        param_offset: u8,
-        already_withdrawn: u64,
-        threshold: u64,
-    ) -> Result<()> {
-        let amount = verify::read_u64_from_protected_ix(&ctx.accounts.instructions, param_offset)?;
-        if already_withdrawn.saturating_add(amount) > threshold {
-            let owner_key = ctx.accounts.owner.key();
-            verify::verify_with_policy(
-                &ctx.accounts.instructions,
-                &mut ctx.accounts.registry,
-                &owner_key,
-                ctx.program_id,
-                "trana.velocity",
-            )?;
-        }
-        Ok(())
-    }
-
-    /// Require passkey when a recent large deposit makes a rapid drain likely.
-    ///
-    /// The protocol passes its deposit tracking state. The guard evaluates
-    /// the condition: deposit >= deposit_threshold AND now - deposit_at < window_secs.
-    ///
-    /// Policy string: "trana.rapid_drain"
-    pub fn enforce_rapid_drain(
-        ctx: Context<Enforce>,
-        last_deposit_at:     i64,
-        last_deposit_amount: u64,
-        deposit_threshold:   u64,
-        window_secs:         i64,
-    ) -> Result<()> {
-        if last_deposit_amount >= deposit_threshold {
-            let now           = Clock::get()?.unix_timestamp;
-            let seconds_since = now.saturating_sub(last_deposit_at);
-            if seconds_since < window_secs {
-                let owner_key = ctx.accounts.owner.key();
-                verify::verify_with_policy(
-                    &ctx.accounts.instructions,
-                    &mut ctx.accounts.registry,
-                    &owner_key,
-                    ctx.program_id,
-                    "trana.rapid_drain",
-                )?;
-            }
-        }
-        Ok(())
     }
 }
