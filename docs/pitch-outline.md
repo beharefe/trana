@@ -56,7 +56,7 @@ Why this matters:
 
 **This is the unlock. Nobody has built the authorization layer on top of it yet.**
 
-*Key line:* "SIMD-0075 is 3 months old. We're the first to build a production-grade authorization primitive on it."
+*Key line:* "SIMD-0075 shipped over a year ago. We're the first to build a production-grade authorization primitive on it."
 
 ---
 
@@ -233,7 +233,7 @@ Revenue follows usage:
 ## Key lines to memorize
 
 1. *"Every Solana exploit: attacker gets the key, sends raw transactions, UI checks are irrelevant."*
-2. *"SIMD-0075 is 3 months old. Passkeys are now natively verifiable on Solana. We built the authorization layer."*
+2. *"SIMD-0075 shipped over a year ago. P-256 is now natively verifiable on Solana. Nobody built the authorization layer — until now."*
 3. *"Three accounts. One CPI call. That's the entire integration."*
 4. *"Send a raw transaction without proof — MissingProof. You can't bypass this in a frontend. You can't bypass this in the RPC. It fails in the program."*
 5. *"We don't hold custody. We don't hold keys. We own the safety layer."*

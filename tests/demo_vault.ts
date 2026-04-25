@@ -34,7 +34,7 @@ import {
 } from "@solana/web3.js"
 import { createHash } from "crypto"
 import assert from "assert"
-import type { Guard }     from "../target/types/guard"
+import type { Trana }    from "../target/types/trana"
 import type { DemoVault } from "../target/types/demo_vault"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ describe("demo_vault — onchain policy enforcement", () => {
   const provider   = AnchorProvider.env()
   setProvider(provider)
 
-  const guard     = workspace.Guard     as Program<Guard>
+  const trana     = workspace.Trana     as Program<Trana>
   const vault     = workspace.DemoVault as Program<DemoVault>
   const conn      = provider.connection
   const payer     = provider.wallet as pkg.Wallet
@@ -214,25 +214,35 @@ describe("demo_vault — onchain policy enforcement", () => {
   const credentialId = Buffer.from("demo-vault-cred-id")
 
   // PDAs
-  let vaultPda:    PublicKey
-  let registryPda: PublicKey
+  let vaultPda:       PublicKey
+  let registryPda:    PublicKey
+  let configPda:      PublicKey
+  let treasuryPubkey: PublicKey
   let registryNonce = 0
 
   before(async () => {
-    // Vault PDA: ["vault", owner] in demo_vault program
     ;[vaultPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault"), payer.publicKey.toBuffer()],
-      vault.programId,
+      [Buffer.from("vault"), payer.publicKey.toBuffer()], vault.programId,
     )
-    // Registry PDA: ["2fa", owner] in guard program
     ;[registryPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("2fa"), payer.publicKey.toBuffer()],
-      guard.programId,
+      [Buffer.from("2fa"), payer.publicKey.toBuffer()], trana.programId,
     )
+    ;[configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config")], trana.programId,
+    )
+    treasuryPubkey = payer.publicKey
+
+    // Init fee config — idempotent, guard.ts may have already done this
+    try {
+      await trana.methods
+        .initConfig(new BN(20_000), treasuryPubkey)
+        .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
+        .rpc()
+    } catch { /* already initialized */ }
 
     // ── Register P-256 passkey in the guard registry ──────────────────────────
     try {
-      await guard.methods
+      await trana.methods
         .registerTwoFa(
           { secp256R1Passkey: {} },
           Buffer.from(p256PubKey),
@@ -249,7 +259,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     }
 
     // Sync nonce from chain
-    const reg = await guard.account.twoFactorRegistry.fetch(registryPda)
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     registryNonce = reg.nonce.toNumber()
 
     // ── Init demo_vault ───────────────────────────────────────────────────────
@@ -298,20 +308,24 @@ describe("demo_vault — onchain policy enforcement", () => {
     useNonce?:  number
   }): Promise<string> {
     const { amount, withProof } = opts
-    const policy  = opts.policy ?? "transfer.large"
+    const policy  = opts.policy ?? "trana.threshold"
     const nonce   = opts.useNonce !== undefined ? opts.useNonce : registryNonce
     const expiry  = Math.floor(Date.now() / 1000) + 300
     const dest    = Keypair.generate().publicKey
 
-    // accounts_hash — must match Withdraw struct field order:
-    //   vault, owner, destination, guard_program, trana_registry, trana_instructions
+    // accounts_hash — Withdraw struct field order:
+    //   vault, owner, destination, guard_program, trana_registry,
+    //   trana_instructions, trana_config, trana_treasury, system_program
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(),
       payer.publicKey.toBuffer(),
       dest.toBuffer(),
-      guard.programId.toBuffer(),
+      trana.programId.toBuffer(),
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasuryPubkey.toBuffer(),
+      SystemProgram.programId.toBuffer(),
     ]))
 
     // params_hash = SHA-256(amount as u64-LE)  — only param after discriminator
@@ -322,7 +336,7 @@ describe("demo_vault — onchain policy enforcement", () => {
     const intentHash = computeIntentHash(
       "trana:v1", "localnet",
       payer.publicKey,
-      guard.programId,
+      trana.programId,
       vault.programId,
       policy,
       WITHDRAW_DISC,
@@ -340,12 +354,15 @@ describe("demo_vault — onchain policy enforcement", () => {
     const withdrawIx = await vault.methods
       .withdraw(new BN(amount))
       .accounts({
-        vault:              vaultPda,
-        owner:              payer.publicKey,
-        destination:        dest,
-        guardProgram:       guard.programId,
-        tranaRegistry:      registryPda,
-        tranaInstructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
+        vault:             vaultPda,
+        owner:             payer.publicKey,
+        destination:       dest,
+        guardProgram:      trana.programId,
+        tranaRegistry:     registryPda,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+        systemProgram:     SystemProgram.programId,
       })
       .instruction()
 
@@ -354,7 +371,7 @@ describe("demo_vault — onchain policy enforcement", () => {
 
     if (withProof) {
       tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
-      tx.add(buildRecordProofIx(guard.programId, expiry, "localnet", policy, authData, clientDataJSON))
+      tx.add(buildRecordProofIx(trana.programId, expiry, "localnet", policy, authData, clientDataJSON))
     }
     tx.add(withdrawIx)
 
@@ -444,9 +461,11 @@ describe("demo_vault — onchain policy enforcement", () => {
           vault:             vaultPda,
           owner:             payer.publicKey,
           systemProgram:     SystemProgram.programId,
-          guardProgram:      guard.programId,
+          guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig:       configPda,
+          tranaTreasury:     treasuryPubkey,
         })
         .rpc()
     } catch {
@@ -461,7 +480,7 @@ describe("demo_vault — onchain policy enforcement", () => {
 
     // Use 0.01 SOL — above rent-exempt threshold for a fresh destination account
     try {
-      await doWithdraw({ amount: 10_000_000, policy: "transfer.always", withProof: true })
+      await doWithdraw({ amount: 10_000_000, policy: "trana.always", withProof: true })
       registryNonce++
     } finally {
       // Always disable opt-in so later tests aren't affected
@@ -481,9 +500,11 @@ describe("demo_vault — onchain policy enforcement", () => {
           vault:             vaultPda,
           owner:             payer.publicKey,
           systemProgram:     SystemProgram.programId,
-          guardProgram:      guard.programId,
+          guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig:       configPda,
+          tranaTreasury:     treasuryPubkey,
         })
         .rpc()
     } catch {
@@ -496,8 +517,385 @@ describe("demo_vault — onchain policy enforcement", () => {
       return
     }
 
-    await doWithdraw({ amount: 1 * SOL, policy: "transfer.large", withProof: true })
+    await doWithdraw({ amount: 1 * SOL, policy: "trana.threshold", withProof: true })
     registryNonce++
+  })
+
+  // ── DV6. Emergency freeze — Policy::Admin ────────────────────────────────────
+  //
+  // emergency_freeze uses Policy::Admin. Calling it without a proof should fail,
+  // and calling it with the correct "trana.admin" policy proof should succeed.
+
+  it("DV6: emergency_freeze without proof is rejected (MissingProof)", async () => {
+    const [emergencyFreezePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), payer.publicKey.toBuffer()], vault.programId,
+    )
+    try {
+      await vault.methods
+        .emergencyFreeze(true)
+        .accounts({
+          vault:             vaultPda,
+          owner:             payer.publicKey,
+          guardProgram:      trana.programId,
+          tranaRegistry:     registryPda,
+          tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig:       configPda,
+          tranaTreasury:     treasuryPubkey,
+          systemProgram:     SystemProgram.programId,
+        })
+        .rpc()
+      assert.fail("Expected MissingProof")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("MissingProof") || (err as Error).message.includes("0x1770"),
+        `Expected MissingProof, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  it("DV6b: emergency_freeze with valid Admin proof succeeds and toggles frozen", async () => {
+    // Build proof for emergency_freeze instruction
+    const FREEZE_DISC = Buffer.from(
+      sha256(Buffer.from("global:emergency_freeze")).slice(0, 8)
+    )
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    // EmergencyFreeze struct accounts (in field order):
+    //   vault, owner, guard_program, trana_registry, trana_instructions,
+    //   trana_config, trana_treasury, system_program
+    const accountsHash = sha256(Buffer.concat([
+      vaultPda.toBuffer(),
+      payer.publicKey.toBuffer(),
+      trana.programId.toBuffer(),
+      registryPda.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasuryPubkey.toBuffer(),
+      SystemProgram.programId.toBuffer(),
+    ]))
+
+    // freeze param: bool true = 0x01 as u8
+    const paramsHash = sha256(Buffer.from([1]))
+
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      payer.publicKey, trana.programId, vault.programId,
+      "trana.admin", FREEZE_DISC, accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+    const rawMsg = Buffer.concat([authData, sha256(clientDataJSON)])
+    const pubKey = p256.getPublicKey(p256PrivKey, true)
+
+    const freezeIx = await vault.methods
+      .emergencyFreeze(true)
+      .accounts({
+        vault:             vaultPda,
+        owner:             payer.publicKey,
+        guardProgram:      trana.programId,
+        tranaRegistry:     registryPda,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+        systemProgram:     SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: payer.publicKey })
+    tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, expiry, "localnet", "trana.admin", authData, clientDataJSON))
+    tx.add(freezeIx)
+    await sendAndConfirmTransaction(conn, tx, [payer.payer])
+    registryNonce++
+
+    const vaultState = await vault.account.vaultState.fetch(vaultPda)
+    assert.ok(vaultState.frozen, "vault should be frozen after emergency_freeze(true)")
+
+    // Unfreeze so later tests are not affected
+    const unfreezeIntentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      payer.publicKey, trana.programId, vault.programId,
+      "trana.admin", FREEZE_DISC, accountsHash,
+      sha256(Buffer.from([0])),  // freeze=false
+      registryNonce, expiry,
+    )
+    const { authData: uAuthData, clientDataJSON: uCdj, sig: uSig } = buildWebAuthnProof(unfreezeIntentHash, p256PrivKey)
+    const uRawMsg = Buffer.concat([uAuthData, sha256(uCdj)])
+    const unfreezeIx = await vault.methods
+      .emergencyFreeze(false)
+      .accounts({
+        vault:             vaultPda,
+        owner:             payer.publicKey,
+        guardProgram:      trana.programId,
+        tranaRegistry:     registryPda,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+        systemProgram:     SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash: bh2 } = await conn.getLatestBlockhash("confirmed")
+    const tx2 = new Transaction({ recentBlockhash: bh2, feePayer: payer.publicKey })
+    tx2.add(buildSecp256r1Ix(pubKey, uSig, uRawMsg))
+    tx2.add(buildRecordProofIx(trana.programId, expiry, "localnet", "trana.admin", uAuthData, uCdj))
+    tx2.add(unfreezeIx)
+    await sendAndConfirmTransaction(conn, tx2, [payer.payer])
+    registryNonce++
+
+    const vaultState2 = await vault.account.vaultState.fetch(vaultPda)
+    assert.ok(!vaultState2.frozen, "vault should be unfrozen after emergency_freeze(false)")
+  })
+
+  // ── DV7. Velocity policy ──────────────────────────────────────────────────────
+  //
+  // Fresh owner so velocity state starts at zero and is fully controlled.
+  // 3 × 0.7 SOL withdrawals: first two succeed without proof (cumulative ≤ 2 SOL),
+  // third is blocked (cumulative = 2.1 SOL > VELOCITY_THRESHOLD), then succeeds with proof.
+
+  it("DV7: velocity policy fires when cumulative withdrawals exceed 2 SOL", async () => {
+    const owner2 = Keypair.generate()
+    const drop = await conn.requestAirdrop(owner2.publicKey, 20 * SOL)
+    await conn.confirmTransaction(drop, "confirmed")
+
+    const [vault2] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), owner2.publicKey.toBuffer()], vault.programId,
+    )
+    const [registry2] = PublicKey.findProgramAddressSync(
+      [Buffer.from("2fa"), owner2.publicKey.toBuffer()], trana.programId,
+    )
+
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("vel-cred"))
+      .accounts({ registry: registry2, owner: owner2.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner2]).rpc()
+
+    await vault.methods
+      .initVault()
+      .accounts({ vault: vault2, owner: owner2.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner2]).rpc()
+
+    // Fund vault with 6 × 0.5 SOL (below 1 SOL threshold — no proof needed)
+    for (let i = 0; i < 6; i++) {
+      await vault.methods
+        .deposit(new BN(0.5 * SOL))
+        .accounts({
+          vault: vault2, owner: owner2.publicKey, systemProgram: SystemProgram.programId,
+          guardProgram: trana.programId, tranaRegistry: registry2,
+          tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig: configPda, tranaTreasury: treasuryPubkey,
+        })
+        .signers([owner2]).rpc()
+    }
+
+    let nonce2 = 0
+
+    // Withdraw helper scoped to owner2/vault2/registry2
+    const withdraw2 = async (amount: number, withProof: boolean): Promise<string> => {
+      const dest   = Keypair.generate().publicKey
+      const expiry = Math.floor(Date.now() / 1000) + 300
+
+      // accounts_hash — Withdraw struct field order (9 accounts)
+      const accountsHash = sha256(Buffer.concat([
+        vault2.toBuffer(), owner2.publicKey.toBuffer(), dest.toBuffer(),
+        trana.programId.toBuffer(), registry2.toBuffer(),
+        SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
+        treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+      ]))
+      const amountBuf = Buffer.alloc(8)
+      amountBuf.writeBigUInt64LE(BigInt(amount))
+      const paramsHash = sha256(amountBuf)
+
+      const intentHash = computeIntentHash(
+        "trana:v1", "localnet", owner2.publicKey, trana.programId, vault.programId,
+        "trana.velocity", WITHDRAW_DISC, accountsHash, paramsHash, nonce2, expiry,
+      )
+
+      const { authData, clientDataJSON, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+      const rawMsg = Buffer.concat([authData, sha256(clientDataJSON)])
+
+      const withdrawIx = await vault.methods
+        .withdraw(new BN(amount))
+        .accounts({
+          vault: vault2, owner: owner2.publicKey, destination: dest,
+          guardProgram: trana.programId, tranaRegistry: registry2,
+          tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig: configPda, tranaTreasury: treasuryPubkey,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
+
+      const { blockhash } = await conn.getLatestBlockhash("confirmed")
+      const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner2.publicKey })
+      if (withProof) {
+        tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+        tx.add(buildRecordProofIx(trana.programId, expiry, "localnet", "trana.velocity", authData, clientDataJSON))
+      }
+      tx.add(withdrawIx)
+      return sendAndConfirmTransaction(conn, tx, [owner2])
+    }
+
+    // 1st: 0.7 SOL, cumulative = 0.7 < 2 SOL → no passkey
+    await withdraw2(0.7 * SOL, false)
+    // 2nd: 0.7 SOL, cumulative = 1.4 < 2 SOL → no passkey
+    await withdraw2(0.7 * SOL, false)
+
+    // 3rd: 0.7 SOL, cumulative = 2.1 > 2 SOL → velocity fires → no proof → MissingProof
+    try {
+      await withdraw2(0.7 * SOL, false)
+      assert.fail("Expected MissingProof from velocity check")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("MissingProof") || (err as Error).message.includes("0x1770"),
+        `Expected MissingProof, got: ${(err as Error).message}`,
+      )
+    }
+
+    // 3rd: same amount WITH valid proof → success
+    await withdraw2(0.7 * SOL, true)
+    nonce2++
+
+    const reg2 = await trana.account.twoFactorRegistry.fetch(registry2)
+    assert.equal(reg2.nonce.toNumber(), nonce2, "nonce should increment after velocity-enforced withdrawal")
+  })
+
+  // ── DV8. RapidDrain policy ─────────────────────────────────────────────────────
+  //
+  // Large deposit (≥ 5 SOL) triggers deposit Threshold proof requirement.
+  // Any withdrawal within 300s of that deposit triggers RapidDrain.
+
+  it("DV8: rapid_drain fires within 5 min of a large deposit", async () => {
+    const owner3 = Keypair.generate()
+    const drop = await conn.requestAirdrop(owner3.publicKey, 20 * SOL)
+    await conn.confirmTransaction(drop, "confirmed")
+
+    const [vault3] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), owner3.publicKey.toBuffer()], vault.programId,
+    )
+    const [registry3] = PublicKey.findProgramAddressSync(
+      [Buffer.from("2fa"), owner3.publicKey.toBuffer()], trana.programId,
+    )
+
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("rd-cred"))
+      .accounts({ registry: registry3, owner: owner3.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner3]).rpc()
+
+    await vault.methods
+      .initVault()
+      .accounts({ vault: vault3, owner: owner3.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner3]).rpc()
+
+    let nonce3 = 0
+
+    // ── Large deposit (5 SOL) — Threshold fires → needs passkey ──────────────────
+    //
+    // Deposit struct field order (8 accounts):
+    //   vault, owner, system_program, guard_program, trana_registry,
+    //   trana_instructions, trana_config, trana_treasury
+    const depositAmount = 5 * SOL
+    const depositExpiry = Math.floor(Date.now() / 1000) + 300
+
+    const depositAccountsHash = sha256(Buffer.concat([
+      vault3.toBuffer(), owner3.publicKey.toBuffer(), SystemProgram.programId.toBuffer(),
+      trana.programId.toBuffer(), registry3.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
+      treasuryPubkey.toBuffer(),
+    ]))
+    const depositAmountBuf = Buffer.alloc(8)
+    depositAmountBuf.writeBigUInt64LE(BigInt(depositAmount))
+    const depositParamsHash = sha256(depositAmountBuf)
+
+    const depositIntentHash = computeIntentHash(
+      "trana:v1", "localnet", owner3.publicKey, trana.programId, vault.programId,
+      "trana.threshold", DEPOSIT_DISC, depositAccountsHash, depositParamsHash, nonce3, depositExpiry,
+    )
+
+    const { authData: dAuthData, clientDataJSON: dCdj, sig: dSig } =
+      buildWebAuthnProof(depositIntentHash, p256PrivKey)
+    const dRawMsg = Buffer.concat([dAuthData, sha256(dCdj)])
+
+    const depositIx = await vault.methods
+      .deposit(new BN(depositAmount))
+      .accounts({
+        vault: vault3, owner: owner3.publicKey, systemProgram: SystemProgram.programId,
+        guardProgram: trana.programId, tranaRegistry: registry3,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig: configPda, tranaTreasury: treasuryPubkey,
+      })
+      .instruction()
+
+    const { blockhash: bh1 } = await conn.getLatestBlockhash("confirmed")
+    const depositTx = new Transaction({ recentBlockhash: bh1, feePayer: owner3.publicKey })
+    depositTx.add(buildSecp256r1Ix(p256PubKey, dSig, dRawMsg))
+    depositTx.add(buildRecordProofIx(trana.programId, depositExpiry, "localnet", "trana.threshold", dAuthData, dCdj))
+    depositTx.add(depositIx)
+    await sendAndConfirmTransaction(conn, depositTx, [owner3])
+    nonce3++  // deposit proof consumed nonce 0
+
+    // ── Immediate withdrawal — RapidDrain fires → no proof → MissingProof ────────
+    const withdrawAmount  = 0.5 * SOL
+    const withdrawDest    = Keypair.generate().publicKey
+    const withdrawExpiry  = Math.floor(Date.now() / 1000) + 300
+
+    const withdrawIxNoProof = await vault.methods
+      .withdraw(new BN(withdrawAmount))
+      .accounts({
+        vault: vault3, owner: owner3.publicKey, destination: withdrawDest,
+        guardProgram: trana.programId, tranaRegistry: registry3,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig: configPda, tranaTreasury: treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    try {
+      const { blockhash: bh2 } = await conn.getLatestBlockhash("confirmed")
+      const noProofTx = new Transaction({ recentBlockhash: bh2, feePayer: owner3.publicKey })
+      noProofTx.add(withdrawIxNoProof)
+      await sendAndConfirmTransaction(conn, noProofTx, [owner3])
+      assert.fail("Expected MissingProof from rapid_drain check")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("MissingProof") || (err as Error).message.includes("0x1770"),
+        `Expected MissingProof, got: ${(err as Error).message}`,
+      )
+    }
+
+    // ── Same withdrawal WITH rapid_drain proof → success ──────────────────────────
+    //
+    // accounts_hash — Withdraw struct field order (9 accounts)
+    const withdrawAccountsHash = sha256(Buffer.concat([
+      vault3.toBuffer(), owner3.publicKey.toBuffer(), withdrawDest.toBuffer(),
+      trana.programId.toBuffer(), registry3.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
+      treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+    ]))
+    const withdrawAmountBuf = Buffer.alloc(8)
+    withdrawAmountBuf.writeBigUInt64LE(BigInt(withdrawAmount))
+    const withdrawParamsHash = sha256(withdrawAmountBuf)
+
+    const withdrawIntentHash = computeIntentHash(
+      "trana:v1", "localnet", owner3.publicKey, trana.programId, vault.programId,
+      "trana.rapid_drain", WITHDRAW_DISC, withdrawAccountsHash, withdrawParamsHash, nonce3, withdrawExpiry,
+    )
+
+    const { authData: wAuthData, clientDataJSON: wCdj, sig: wSig } =
+      buildWebAuthnProof(withdrawIntentHash, p256PrivKey)
+    const wRawMsg = Buffer.concat([wAuthData, sha256(wCdj)])
+
+    const { blockhash: bh3 } = await conn.getLatestBlockhash("confirmed")
+    const proofTx = new Transaction({ recentBlockhash: bh3, feePayer: owner3.publicKey })
+    proofTx.add(buildSecp256r1Ix(p256PubKey, wSig, wRawMsg))
+    proofTx.add(buildRecordProofIx(trana.programId, withdrawExpiry, "localnet", "trana.rapid_drain", wAuthData, wCdj))
+    proofTx.add(withdrawIxNoProof)
+    await sendAndConfirmTransaction(conn, proofTx, [owner3])
+    nonce3++
+
+    const reg3 = await trana.account.twoFactorRegistry.fetch(registry3)
+    assert.equal(reg3.nonce.toNumber(), nonce3, "nonce should increment after rapid_drain-enforced withdrawal")
   })
 
   // ── Policy unit tests (documented via evaluate_policy in Rust) ───────────────
@@ -506,9 +904,11 @@ describe("demo_vault — onchain policy enforcement", () => {
   //   programs/demo_vault/src/lib.rs  (12 unit tests, run with `cargo test --package demo_vault`)
   //
   // Below we confirm the policy strings are correct at the TypeScript layer:
-  it("policy constants match Rust source", () => {
-    assert.equal("transfer.large",      "transfer.large")
-    assert.equal("transfer.rapid_drain","transfer.rapid_drain")
-    assert.equal("transfer.always",     "transfer.always")
+  it("policy strings match Rust source", () => {
+    assert.equal("trana.threshold",  "trana.threshold")
+    assert.equal("trana.rapid_drain","trana.rapid_drain")
+    assert.equal("trana.always",     "trana.always")
+    assert.equal("trana.velocity",   "trana.velocity")
+    assert.equal("trana.admin",      "trana.admin")
   })
 })

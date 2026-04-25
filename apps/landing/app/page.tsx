@@ -1,6 +1,8 @@
+import Link from "next/link"
 import { Hero } from "@/components/Hero"
 import { DemoPanel } from "@/components/DemoPanel"
 import { CodeBlock } from "@/components/CodeBlock"
+import { SiteNav } from "@/components/SiteNav"
 
 // ── Structured data ───────────────────────────────────────────────────────────
 
@@ -12,8 +14,19 @@ const jsonLd = {
   operatingSystem: "Solana",
   description:
     "Trana enforces second-factor authorization at execution time. High-risk actions do not execute without explicit approval.",
-  url: "https://trana.dev",
-  creator: { "@type": "Organization", name: "Trana" },
+  url: "https://trana.so",
+  creator: {
+    "@type": "Organization",
+    name: "Trana, Inc.",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "1111B S Governors Ave STE 39117",
+      addressLocality: "Dover",
+      addressRegion: "DE",
+      postalCode: "19904",
+      addressCountry: "US",
+    },
+  },
 }
 
 // ── Layout primitives ─────────────────────────────────────────────────────────
@@ -39,27 +52,7 @@ export default function Home() {
 
       <main className="bg-bg text-ink">
 
-        {/* ── Nav ────────────────────────────────────────────────────────────── */}
-        <nav
-          aria-label="Main navigation"
-          className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg/90 backdrop-blur-md"
-        >
-          <div className="max-w-5xl mx-auto px-8 h-20 flex items-center justify-between">
-            <span className="font-serif text-lg text-ink">Trana</span>
-            <div className="flex items-center gap-6 text-sm text-muted">
-              <a href="#how-it-works" className="hover:text-ink transition-colors hidden sm:block">How it works</a>
-              <a href="#developer" className="hover:text-ink transition-colors hidden sm:block">Developers</a>
-              <a
-                href="https://github.com/beharefe/trana-guard"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-5 py-2 rounded-full border border-border text-ink text-xs font-medium hover:bg-card transition-colors"
-              >
-                GitHub
-              </a>
-            </div>
-          </div>
-        </nav>
+        <SiteNav variant="home" />
 
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
         <Hero />
@@ -177,7 +170,7 @@ export default function Home() {
                 "User signs transaction with their wallet.",
                 "Trana checks if the instruction requires authorization based on the configured policy.",
                 "If required, a second-factor approval must be present, bound to this exact transaction.",
-                "Without a valid approval, execution fails. The transaction is rejected atomically.",
+                "Without a valid approval, execution fails. The entire transaction is rejected — nothing partial goes through.",
               ].map((label, i) => (
                 <li key={i} className="flex gap-5 text-left list-none">
                   <div className="flex flex-col items-center shrink-0">
@@ -265,11 +258,17 @@ export default function Home() {
                 Add one guard to your instruction. Execution will fail unless a
                 valid second-factor approval is included in the transaction.
               </p>
-              <p className="text-muted text-base leading-relaxed">
+              <p className="text-muted text-base leading-relaxed mb-6">
                 No custody change. No vault. No new infrastructure. Your program
-                keeps full control. Trana enforces that a valid proof existed at
-                the moment the transaction executed.
+                keeps full control. Trana's only job: confirm a valid proof
+                existed when the transaction ran.
               </p>
+              <Link
+                href="/docs/quickstart"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-accent transition-colors"
+              >
+                Read the 5-minute quickstart →
+              </Link>
             </div>
 
             <div className="space-y-4">
@@ -314,11 +313,17 @@ export default function Home() {
                 <br />
                 <span className="italic">allows execution.</span>
               </h2>
-              <p className="text-muted text-base leading-relaxed">
+              <p className="text-muted text-base leading-relaxed mb-6">
                 The second-factor key is registered onchain. Approvals are
                 verified onchain. There is no trusted backend and no offchain
                 enforcement component that can be compromised or bypassed.
               </p>
+              <Link
+                href="/security"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-accent transition-colors"
+              >
+                Full attack matrix and trust model →
+              </Link>
             </div>
             <div className="space-y-3">
               {[
@@ -348,6 +353,170 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── Deep Dive ────────────────────────────────────────────────────── */}
+        <Rule />
+        <section id="deep-dive" className="max-w-5xl mx-auto px-6 py-32">
+          <Label>Go deeper</Label>
+          <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-3">
+            Everything you need
+            <br />
+            <span className="italic">to build with Trana.</span>
+          </h2>
+          <p className="text-muted text-lg mb-12 max-w-lg">
+            Integration guide, security model, and comparison pages — all written for protocol developers.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              {
+                href: "/protocol",
+                label: "Protocol",
+                title: "The full stack",
+                body: "Two signers, one execution gate. FIDO2 + Trana Guard paired, wallet signing in context, Solana as the ledger.",
+                tag: "Protocol",
+              },
+              {
+                href: "/docs/quickstart",
+                label: "Quickstart",
+                title: "5-minute integration",
+                body: "Three accounts. One CPI call. Works with any Anchor program and any FIDO2 device.",
+                tag: "Docs",
+              },
+              {
+                href: "/security",
+                label: "Security Model",
+                title: "Attack matrix",
+                body: "Eight attack scenarios, proof pipeline, and trust model. What Trana guarantees — and what it does not.",
+                tag: "Security",
+              },
+              {
+                href: "/compare/multisig",
+                label: "Trana vs Multisig",
+                title: "Governance vs execution",
+                body: "Multisig is M-of-N coordination. Trana is execution-time enforcement. They compose.",
+                tag: "Compare",
+              },
+              {
+                href: "/compare/para",
+                label: "Para vs Trana",
+                title: "Authentication vs authorization",
+                body: "Para answers 'who is this user.' Trana answers 'should this instruction run.' Both questions matter.",
+                tag: "Compare",
+              },
+              {
+                href: "/docs/glossary",
+                label: "Glossary",
+                title: "Every term defined",
+                body: "secp256r1, SIMD-0075, FIDO2, intent hash, enforcement nonce, and 15 more.",
+                tag: "Docs",
+              },
+            ].map(({ href, label, title, body, tag }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group p-6 rounded-2xl border border-border bg-card hover:border-ink/30 hover:bg-card/80 transition-all"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-[10px] font-medium tracking-widest uppercase text-faint">{tag}</span>
+                  <span className="text-faint group-hover:text-ink transition-colors text-sm">↗</span>
+                </div>
+                <p className="font-medium text-ink text-sm mb-1.5">{title}</p>
+                <p className="text-muted text-sm leading-relaxed">{body}</p>
+                <p className="mt-4 text-xs font-medium text-ink/60 group-hover:text-accent transition-colors">{label} →</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Protocol stack ───────────────────────────────────────────────── */}
+        <Rule />
+        <section id="protocol" className="max-w-5xl mx-auto px-6 py-32 scroll-mt-20">
+          <Label>Protocol</Label>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+            <div>
+              <h2 className="font-serif text-4xl sm:text-5xl leading-tight tracking-tight mb-4">
+                Where Trana
+                <br />
+                <span className="italic">sits in the stack.</span>
+              </h2>
+              <p className="text-muted text-base leading-relaxed">
+                Trana is a guard layer that lives inside your Solana program. It has no custody, no admin key, and no offchain component. The secp256r1 precompile is the root of trust.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-border overflow-hidden bg-card">
+              {/* Connector line top */}
+              <div className="flex justify-center py-1.5 border-b border-border/50">
+                <div className="w-px h-5 bg-border" />
+              </div>
+
+              {/* Row: FIDO2 Device */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-bg">
+                <div className="flex items-center gap-3">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden className="text-ink shrink-0">
+                    <rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+                    <circle cx="5" cy="9" r="1.5" fill="currentColor"/>
+                    <path d="M8.5 7h5M8.5 9h4M8.5 11h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                  <span className="text-sm font-medium text-ink tracking-tight">PASSKEY / YUBIKEY</span>
+                </div>
+                <span className="text-xs font-medium text-faint tracking-widest uppercase">FIDO2 Device</span>
+              </div>
+
+              {/* Connector */}
+              <div className="flex justify-center py-1.5 border-b border-border/50">
+                <div className="w-px h-5 bg-border" />
+              </div>
+
+              {/* Row: Trana Guard — highlighted */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-accent/5 border-l-2 border-l-accent">
+                <div className="flex items-center gap-3">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden className="text-accent shrink-0">
+                    <path d="M9 1.5L2.5 4.5V9c0 3.5 2.8 6.5 6.5 7.5 3.7-1 6.5-4 6.5-7.5V4.5L9 1.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                    <path d="M6 9l2 2 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="text-sm font-medium text-ink tracking-tight">TRANA GUARD</span>
+                </div>
+                <span className="text-xs font-medium text-accent tracking-widest uppercase">Authorization Layer</span>
+              </div>
+
+              {/* Connector */}
+              <div className="flex justify-center py-1.5 border-b border-border/50">
+                <div className="w-px h-5 bg-border" />
+              </div>
+
+              {/* Row: Anchor Program */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-bg">
+                <div className="flex items-center gap-3">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden className="text-ink shrink-0">
+                    <rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+                    <path d="M5.5 6.5h7M5.5 9h5M5.5 11.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                  <span className="text-sm font-medium text-ink tracking-tight">ANCHOR PROGRAM</span>
+                </div>
+                <span className="text-xs font-medium text-faint tracking-widest uppercase">Your Code</span>
+              </div>
+
+              {/* Connector */}
+              <div className="flex justify-center py-1.5 border-b border-border/50">
+                <div className="w-px h-5 bg-border" />
+              </div>
+
+              {/* Row: Solana */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden className="text-ink shrink-0">
+                    <path d="M3 5.5h10.5l1.5-2H4.5L3 5.5Z" fill="currentColor"/>
+                    <path d="M3 9.5h10.5l1.5-2H4.5L3 9.5Z" fill="currentColor" opacity=".6"/>
+                    <path d="M3 13.5h10.5l1.5-2H4.5L3 13.5Z" fill="currentColor" opacity=".35"/>
+                  </svg>
+                  <span className="text-sm font-medium text-ink tracking-tight">SOLANA</span>
+                </div>
+                <span className="text-xs font-medium text-faint tracking-widest uppercase">Ledger + secp256r1</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ── Principle / Closing ───────────────────────────────────────────── */}
         <Rule />
         <section className="max-w-5xl mx-auto px-6 py-44 text-center">
@@ -359,42 +528,99 @@ export default function Home() {
             </p>
           </blockquote>
           <div className="flex flex-wrap justify-center gap-4 mt-12">
+            <Link
+              href="/docs/quickstart"
+              className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
+            >
+              Start building
+            </Link>
             <a
               href="https://github.com/beharefe/trana-guard"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-7 py-3 rounded-full bg-ink text-bg text-sm font-medium hover:bg-ink/90 transition-colors"
-            >
-              View on GitHub
-            </a>
-            <a
-              href="#demo"
               className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
             >
-              Try the demo
+              View on GitHub
             </a>
           </div>
         </section>
 
         {/* ── Footer ───────────────────────────────────────────────────────── */}
-        <footer className="border-t border-border py-10">
-          <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-6">
-              <span className="font-serif text-ink">Trana</span>
-              <span className="text-faint text-xs">© 2026</span>
+        <footer className="border-t border-border pt-16 pb-10">
+          <div className="max-w-5xl mx-auto px-6">
+            {/* Top grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-10 sm:gap-8 mb-14">
+
+              {/* Brand — takes 2 cols */}
+              <div className="sm:col-span-2">
+                <span className="font-serif text-ink text-2xl">Trana</span>
+                <p className="text-muted text-sm mt-3 leading-relaxed max-w-xs">
+                  Execution-time second-factor authorization for Solana. A stolen key alone cannot execute protected actions.
+                </p>
+              </div>
+
+              {/* Resources */}
+              <div>
+                <p className="text-xs font-semibold tracking-widest uppercase text-ink mb-4">Docs</p>
+                <div className="flex flex-col gap-3 text-sm text-muted">
+                  <Link href="/protocol"         className="hover:text-ink transition-colors">Protocol</Link>
+                  <Link href="/docs/quickstart" className="hover:text-ink transition-colors">Quickstart</Link>
+                  <Link href="/docs/glossary"   className="hover:text-ink transition-colors">Glossary</Link>
+                  <Link href="/security"        className="hover:text-ink transition-colors">Security Model</Link>
+                  <a href="https://github.com/beharefe/trana-guard" target="_blank" rel="noopener noreferrer" className="hover:text-ink transition-colors">GitHub</a>
+                </div>
+              </div>
+
+              {/* Compare */}
+              <div>
+                <p className="text-xs font-semibold tracking-widest uppercase text-ink mb-4">Compare</p>
+                <div className="flex flex-col gap-3 text-sm text-muted">
+                  <Link href="/compare/multisig" className="hover:text-ink transition-colors">vs Multisig</Link>
+                  <Link href="/compare/para"     className="hover:text-ink transition-colors">vs Para</Link>
+                </div>
+              </div>
+
+              {/* Community */}
+              <div>
+                <p className="text-xs font-semibold tracking-widest uppercase text-ink mb-4">Community</p>
+                <div className="flex flex-col gap-3 text-sm text-muted">
+                  <a
+                    href="https://x.com/beharefe"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-ink transition-colors flex items-center gap-1.5"
+                  >
+                    {/* X icon */}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                    @beharefe
+                  </a>
+                  <a
+                    href="https://t.me/beharefe"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-ink transition-colors flex items-center gap-1.5"
+                  >
+                    {/* Telegram icon */}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                    </svg>
+                    @beharefe
+                  </a>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-6 text-sm text-muted">
-              <a
-                href="https://github.com/beharefe/trana-guard"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-ink transition-colors"
-              >
-                GitHub
-              </a>
-              <span className="text-faint text-xs">
-                Pitch Contest Kraków · April 2026
-              </span>
+
+            {/* Bottom bar */}
+            <div className="border-t border-border pt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div>
+                <p className="text-faint text-xs">© 2026 Trana, Inc. All rights reserved.</p>
+                <p className="text-faint text-xs mt-0.5">1111B S Governors Ave STE 39117, Dover, DE 19904</p>
+              </div>
+              <p className="text-faint text-xs text-left sm:text-right max-w-xs">
+                Trana, Inc. is a software company, not a financial institution or custodian.
+              </p>
             </div>
           </div>
         </footer>

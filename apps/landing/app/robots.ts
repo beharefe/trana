@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://trana.dev"
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://trana.so"
 
 export default function robots(): MetadataRoute.Robots {
   return {

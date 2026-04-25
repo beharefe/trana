@@ -1,22 +1,24 @@
 /**
  * Trana Guard — core authorization test suite.
  *
- * Tests the secp256r1 / WebAuthn proof path end-to-end.
- * The protected instruction is demo_vault::withdraw — the exact same
- * integration pattern an external protocol would use.
- *
- * Transaction shape:
- *   ix[0]: secp256r1 precompile   — native P-256 sig verify (SIMD-0075)
- *   ix[1]: guard::record_proof    — carries WebAuthn proof data
- *   ix[2]: demo_vault::withdraw   — calls guard::cpi::enforce() internally
- *
  * Scenarios:
- *   R1. Register secp256r1 passkey in onchain PDA      → Success
- *   R2. Withdraw with valid P-256 proof                → Success, nonce → 1
- *   R3. Replay: reuse old proof (nonce=0 consumed)     → PayloadMismatch
- *   R4. Wrong secp256r1 key in proof                   → WrongSigner
- *   R5. Tampered amount after proof issued             → PayloadMismatch
- *   R6. Missing secp256r1 precompile instruction       → MissingProof
+ *   R1.  Passkey registered in onchain PDA                       → Success
+ *   R2.  Withdraw with valid P-256 proof                         → Success, nonce → 1
+ *   R3.  Replay: reuse old proof (nonce=0 consumed)              → PayloadMismatch
+ *   R4.  Wrong secp256r1 key in proof                            → WrongSigner
+ *   R5.  Tampered amount after proof issued                      → PayloadMismatch
+ *   R6.  Missing secp256r1 precompile instruction                → MissingProof
+ *   R7.  Simulate-first flow: detect policy from logs, then prove → Success
+ *   R8.  2 s passkey delay — fresh blockhash                     → Success
+ *   R9.  5 s passkey delay — fresh blockhash                     → Success
+ *   R10. Expired proof (expiry < now)                            → ProofExpired
+ *   R11. Wrong cluster in record_proof                           → PayloadMismatch
+ *   R12. Wrong policy string in record_proof                     → PolicyMismatch
+ *   R13. Fee deducted from owner and reaches treasury            → +20k in treasury
+ *   R14. update_config by non-authority                          → Unauthorized
+ *   R15. withdraw_fees by authority                              → Success
+ *   R16. withdraw_fees by non-authority                          → Unauthorized
+ *   R17. Wrong treasury pubkey in Enforce accounts               → constraint error
  */
 
 import { p256 } from "@noble/curves/nist.js"
@@ -29,32 +31,35 @@ import {
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  VersionedTransaction,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   sendAndConfirmTransaction,
 } from "@solana/web3.js"
 import { createHash } from "crypto"
 import assert from "assert"
-import type { Guard }     from "../target/types/guard"
+import type { Trana }    from "../target/types/trana"
 import type { DemoVault } from "../target/types/demo_vault"
+import { parsePolicyFromLogs } from "../packages/sdk/src/react/detector"
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const SOL = 1_000_000_000
+const SOL          = 1_000_000_000
+const FEE_LAMPORTS = 20_000
+
+// demo_vault::withdraw discriminator
+const WITHDRAW_DISC = Buffer.from([0xb7, 0x12, 0x46, 0x9c, 0x94, 0x6d, 0xa1, 0x22])
+
+// ── Crypto helpers ────────────────────────────────────────────────────────────
 
 function sha256(data: Buffer | Uint8Array): Buffer {
   return createHash("sha256").update(data).digest()
 }
 
-// demo_vault::withdraw discriminator from target/idl/demo_vault.json
-const WITHDRAW_DISC = Buffer.from([0xb7, 0x12, 0x46, 0x9c, 0x94, 0x6d, 0xa1, 0x22])
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
-// ── secp256r1 instruction builder (SIMD-0075 layout) ─────────────────────────
-//   [0]       num_signatures (u8 = 1)
-//   [1]       padding (u8 = 0)
-//   [2..16]   SignatureOffsets (7 × u16-LE = 14 bytes)
-//   [16..49]  pubkey (33-byte compressed P-256)
-//   [49..113] signature (64-byte compact r‖s)
-//   [113..145] message (32-byte e-value)
+// ── secp256r1 instruction builder (SIMD-0075) ─────────────────────────────────
 
 function buildSecp256r1Ix(
   pubkey:  Uint8Array,
@@ -66,12 +71,12 @@ function buildSecp256r1Ix(
   const msgOffset = 113
   const data = Buffer.alloc(msgOffset + message.length)
   data[0] = 1; data[1] = 0
-  data.writeUInt16LE(sigOffset,        2)
-  data.writeUInt16LE(0xffff,           4)
-  data.writeUInt16LE(pkOffset,         6)
-  data.writeUInt16LE(0xffff,           8)
-  data.writeUInt16LE(msgOffset,        10)
-  data.writeUInt16LE(message.length,   12)
+  data.writeUInt16LE(sigOffset,      2)
+  data.writeUInt16LE(0xffff,         4)
+  data.writeUInt16LE(pkOffset,       6)
+  data.writeUInt16LE(0xffff,         8)
+  data.writeUInt16LE(msgOffset,      10)
+  data.writeUInt16LE(message.length, 12)
   data.writeUInt16LE(0xffff,         14)
   Buffer.from(pubkey).copy(data, pkOffset)
   Buffer.from(sig).copy(data,   sigOffset)
@@ -84,7 +89,7 @@ function buildSecp256r1Ix(
 // ── record_proof instruction builder ─────────────────────────────────────────
 
 function buildRecordProofIx(
-  guardProgramId: PublicKey,
+  tranaProgramId: PublicKey,
   version:        number,
   expiry:         number,
   cluster:        string,
@@ -92,10 +97,10 @@ function buildRecordProofIx(
   authData:       Buffer,
   clientDataJSON: Buffer,
 ): TransactionInstruction {
-  const disc     = sha256(Buffer.from("global:record_proof")).slice(0, 8)
-  const u32le    = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
-  const bStr     = (s: string) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32le(b.length), b]) }
-  const bBytes   = (b: Buffer) => Buffer.concat([u32le(b.length), b])
+  const disc   = sha256(Buffer.from("global:record_proof")).slice(0, 8)
+  const u32le  = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
+  const bStr   = (s: string) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32le(b.length), b]) }
+  const bBytes = (b: Buffer)  => Buffer.concat([u32le(b.length), b])
   const expiryBuf = Buffer.alloc(8)
   expiryBuf.writeBigInt64LE(BigInt(expiry))
   const data = Buffer.concat([
@@ -104,14 +109,11 @@ function buildRecordProofIx(
   ])
   return new TransactionInstruction({
     keys: [{ pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }],
-    programId: guardProgramId, data,
+    programId: tranaProgramId, data,
   })
 }
 
-// ── Intent hash (mirrors hashIntent() in packages/sdk/src/react/intent.ts) ───
-//
-// Binary encoding — must match compute_intent_hash() in programs/guard/src/lib.rs.
-// u16-LE length prefixes for strings; all integers little-endian.
+// ── Intent hash ───────────────────────────────────────────────────────────────
 
 function computeIntentHash(
   domain:          string,
@@ -142,48 +144,45 @@ function computeIntentHash(
 }
 
 // ── WebAuthn proof builder ────────────────────────────────────────────────────
-//
-// Minimal structurally-valid WebAuthn assertion:
-//   authenticatorData: rpIdHash(32) + flags(1) + counter(4) = 37 bytes
-//   clientDataJSON:    {"type":"webauthn.get","challenge":"<base64url(intentHash)>",...}
-//   e-value:           SHA-256(authData ‖ SHA-256(clientDataJSON))
 
 function buildWebAuthnProof(
   intentHash: Buffer,
   privKey:    Uint8Array,
   rpId = "localhost",
-): { authData: Buffer; clientDataJSON: Buffer; eValue: Buffer; sig: Uint8Array } {
+): { authData: Buffer; clientDataJSON: Buffer; rawMsg: Buffer; sig: Uint8Array } {
   const authData = Buffer.alloc(37)
   sha256(Buffer.from(rpId)).copy(authData, 0)
-  authData[32] = 0x05  // UP + UV flags
+  authData[32] = 0x05
   const clientDataJSON = Buffer.from(JSON.stringify({
-    type: "webauthn.get", challenge: intentHash.toString("base64url"),
-    origin: `http://${rpId}`, crossOrigin: false,
+    type:        "webauthn.get",
+    challenge:   intentHash.toString("base64url"),
+    origin:      `http://${rpId}`,
+    crossOrigin: false,
   }))
   const rawMsg = Buffer.concat([authData, sha256(clientDataJSON)])
   const sig    = Uint8Array.from(p256.sign(rawMsg, privKey))
-  const eValue = sha256(rawMsg)
-  return { authData, clientDataJSON, eValue, sig }
+  return { authData, clientDataJSON, rawMsg, sig }
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", () => {
-  const provider   = AnchorProvider.env()
+describe("guard — secp256r1 passkey enforcement", () => {
+  const provider = AnchorProvider.env()
   setProvider(provider)
 
-  const guard = workspace.Guard     as Program<Guard>
+  const trana = workspace.Trana    as Program<Trana>
   const vault = workspace.DemoVault as Program<DemoVault>
   const conn  = provider.connection
   const payer = provider.wallet as pkg.Wallet
 
-  // P-256 keypair for tests — deterministic
   const p256PrivKey = p256.utils.randomSecretKey()
   const p256PubKey  = p256.getPublicKey(p256PrivKey, true)
 
-  let owner:        Keypair
-  let vaultPda:     PublicKey
-  let registryPda:  PublicKey
+  let owner:          Keypair
+  let vaultPda:       PublicKey
+  let registryPda:    PublicKey
+  let configPda:      PublicKey
+  let treasuryPubkey: PublicKey   // payer.publicKey — receives enforcement fees
   let registryNonce = 0
 
   before(async () => {
@@ -191,94 +190,112 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
 
     const sig = await conn.requestAirdrop(owner.publicKey, 20 * SOL)
     await conn.confirmTransaction(sig, "confirmed")
-    await new Promise(r => setTimeout(r, 500))
+    await sleep(500)
 
     ;[vaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), owner.publicKey.toBuffer()], vault.programId,
     )
     ;[registryPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("2fa"), owner.publicKey.toBuffer()], guard.programId,
+      [Buffer.from("2fa"), owner.publicKey.toBuffer()], trana.programId,
     )
+    ;[configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config")], trana.programId,
+    )
+    treasuryPubkey = payer.publicKey
 
-    // ── 1. Register passkey first — deposit requires registry to exist ─────────
-    await guard.methods
-      .registerTwoFa(
-        { secp256R1Passkey: {} },
-        Buffer.from(p256PubKey),
-        Buffer.from("test-credential-id"),
-      )
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("test-cred"))
       .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
       .signers([owner]).rpc()
 
-    // ── 2. Init vault ─────────────────────────────────────────────────────────
     await vault.methods
       .initVault()
       .accounts({ vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
       .signers([owner]).rpc()
 
-    // ── 3. Fund vault.balance via small deposits (below LARGE_THRESHOLD = 1 SOL) ─
-    //      0.9 SOL × 5 = 4.5 SOL — enough for multiple 1 SOL + 2 SOL withdrawals.
+    // Init global fee config — idempotent across test runs
+    try {
+      await trana.methods
+        .initConfig(new BN(FEE_LAMPORTS), treasuryPubkey)
+        .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
+        .rpc()
+    } catch { /* already initialized */ }
+
+    // Fund vault: 5 × 0.9 SOL deposits (below 1 SOL threshold — no proof needed)
     for (let i = 0; i < 5; i++) {
       await vault.methods
         .deposit(new BN(0.9 * SOL))
         .accounts({
-          vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId,
-          guardProgram: guard.programId, tranaRegistry: registryPda,
+          vault:             vaultPda,
+          owner:             owner.publicKey,
+          systemProgram:     SystemProgram.programId,
+          guardProgram:      trana.programId,
+          tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tranaConfig:       configPda,
+          tranaTreasury:     treasuryPubkey,
         })
         .signers([owner]).rpc()
     }
   })
 
-  // ── Helper: build + send a demo_vault::withdraw transaction ──────────────────
+  // ── Core withdraw helper ───────────────────────────────────────────────────
   //
-  // When withProof=true:  [secp256r1, record_proof, demo_vault::withdraw]
-  // When withProof=false: [demo_vault::withdraw]  ← expect MissingProof
+  // accounts_hash field order mirrors the Withdraw struct definition:
+  //   vault, owner, destination, guard_program, trana_registry,
+  //   trana_instructions, trana_config, trana_treasury, system_program
 
   async function withdrawTx(opts: {
-    amount:         number
-    policy:         string
-    privKey:        Uint8Array
-    withProof:      boolean
-    tamperedAmount?: number   // submit this amount but sign for `amount`
-    useNonce?:       number   // override nonce (for replay tests)
+    amount:           number
+    policy:           string
+    privKey:          Uint8Array
+    withProof:        boolean
+    tamperedAmount?:  number
+    useNonce?:        number
+    delayAfterProofMs?: number
+    overrideExpiry?:  number      // for R10: sign with a past expiry
+    clusterInProof?:  string      // for R11: cluster written to record_proof (signing uses "localnet")
+    policyInProof?:   string      // for R12: policy written to record_proof (signing uses `policy`)
+    overrideTreasury?: PublicKey  // for R17: wrong treasury in accounts
   }): Promise<string> {
     const { amount, policy, privKey, withProof } = opts
     const actualAmount = opts.tamperedAmount ?? amount
-    const nonce        = opts.useNonce !== undefined ? opts.useNonce : registryNonce
-    const expiry       = Math.floor(Date.now() / 1000) + 300
+    const nonce        = opts.useNonce ?? registryNonce
+    const expiry       = opts.overrideExpiry ?? Math.floor(Date.now() / 1000) + 300
     const dest         = Keypair.generate().publicKey
+    const treasury     = opts.overrideTreasury ?? treasuryPubkey
 
-    // accounts_hash = SHA-256 of all accounts in Withdraw struct (in field order):
-    //   vault, owner, destination, guard_program, trana_registry, trana_instructions
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(),
       owner.publicKey.toBuffer(),
       dest.toBuffer(),
-      guard.programId.toBuffer(),
+      trana.programId.toBuffer(),
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasury.toBuffer(),
+      SystemProgram.programId.toBuffer(),
     ]))
 
-    // params_hash = SHA-256(amount as u64-LE) — sign for `amount`, not tamperedAmount
     const amountBuf = Buffer.alloc(8)
     amountBuf.writeBigUInt64LE(BigInt(amount))
     const paramsHash = sha256(amountBuf)
 
     const intentHash = computeIntentHash(
       "trana:v1", "localnet",
-      owner.publicKey,
-      guard.programId,
-      vault.programId,       // target = demo_vault (not guard)
-      policy,
-      WITHDRAW_DISC,
-      accountsHash, paramsHash,
-      nonce, expiry,
+      owner.publicKey, trana.programId, vault.programId,
+      policy, WITHDRAW_DISC, accountsHash, paramsHash, nonce, expiry,
     )
 
-    const { authData, clientDataJSON, sig } = buildWebAuthnProof(intentHash, privKey)
-    const pubKey  = p256.getPublicKey(privKey, true)
-    const rawMsg  = Buffer.concat([authData, sha256(clientDataJSON)])
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, privKey)
+    const pubKey = p256.getPublicKey(privKey, true)
+
+    if (opts.delayAfterProofMs) await sleep(opts.delayAfterProofMs)
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+
+    const clusterForProof = opts.clusterInProof ?? "localnet"
+    const policyForProof  = opts.policyInProof  ?? policy
 
     const withdrawIx = await vault.methods
       .withdraw(new BN(actualAmount))
@@ -286,45 +303,44 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
         vault:             vaultPda,
         owner:             owner.publicKey,
         destination:       dest,
-        guardProgram:      guard.programId,
+        guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasury,
+        systemProgram:     SystemProgram.programId,
       })
       .instruction()
 
-    const { blockhash } = await conn.getLatestBlockhash()
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
     if (withProof) {
       tx.add(buildSecp256r1Ix(pubKey, sig, rawMsg))
-      tx.add(buildRecordProofIx(guard.programId, 1, expiry, "localnet", policy, authData, clientDataJSON))
+      tx.add(buildRecordProofIx(trana.programId, 1, expiry, clusterForProof, policyForProof, authData, clientDataJSON))
     }
     tx.add(withdrawIx)
     return sendAndConfirmTransaction(conn, tx, [owner])
   }
 
-  // ── R1. Verify passkey is registered ────────────────────────────────────────
+  // ── R1 ─────────────────────────────────────────────────────────────────────
   it("R1: passkey registered in onchain PDA — owner, pubkey, nonce=0", async () => {
-    const reg = await guard.account.twoFactorRegistry.fetch(registryPda)
-    assert.ok(reg.enabled, "registry should be enabled")
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.ok(reg.enabled,               "registry should be enabled")
     assert.equal(reg.nonce.toNumber(), 0, "initial nonce should be 0")
     assert.deepEqual(Buffer.from(reg.pubkeyBytes), Buffer.from(p256PubKey), "pubkey mismatch")
   })
 
-  // ── R2. Valid proof → success, nonce increments ─────────────────────────────
+  // ── R2 ─────────────────────────────────────────────────────────────────────
   it("R2: withdraw with valid P-256 proof succeeds — nonce consumed", async () => {
-    await withdrawTx({ amount: 1 * SOL, policy: "transfer.large", privKey: p256PrivKey, withProof: true })
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true })
     registryNonce++
-    const reg = await guard.account.twoFactorRegistry.fetch(registryPda)
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented")
   })
 
-  // ── R3. Replay — nonce=0 consumed, registry.nonce=1 ────────────────────────
+  // ── R3 ─────────────────────────────────────────────────────────────────────
   it("R3: replay with old nonce fails (PayloadMismatch)", async () => {
     try {
-      await withdrawTx({
-        amount: 2 * SOL, policy: "transfer.large", privKey: p256PrivKey,
-        withProof: true, useNonce: 0,  // old nonce
-      })
+      await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, useNonce: 0 })
       assert.fail("Expected PayloadMismatch")
     } catch (err: unknown) {
       assert.ok(
@@ -334,11 +350,11 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R4. Wrong signing key → WrongSigner ─────────────────────────────────────
+  // ── R4 ─────────────────────────────────────────────────────────────────────
   it("R4: proof from unregistered P-256 key fails (WrongSigner)", async () => {
     const wrongKey = p256.utils.randomSecretKey()
     try {
-      await withdrawTx({ amount: 1 * SOL, policy: "transfer.large", privKey: wrongKey, withProof: true })
+      await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: wrongKey, withProof: true })
       assert.fail("Expected WrongSigner")
     } catch (err: unknown) {
       assert.ok(
@@ -348,12 +364,12 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R5. Tampered amount after proof issued → PayloadMismatch ────────────────
+  // ── R5 ─────────────────────────────────────────────────────────────────────
   it("R5: tampered amount fails (PayloadMismatch)", async () => {
     try {
       await withdrawTx({
-        amount: 2 * SOL, policy: "transfer.large", privKey: p256PrivKey,
-        withProof: true, tamperedAmount: 3 * SOL,  // sign for 2, submit 3
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, tamperedAmount: 2 * SOL,
       })
       assert.fail("Expected PayloadMismatch")
     } catch (err: unknown) {
@@ -364,15 +380,383 @@ describe("guard — secp256r1 passkey enforcement (via demo_vault::withdraw)", (
     }
   })
 
-  // ── R6. No secp256r1 precompile → MissingProof ──────────────────────────────
+  // ── R6 ─────────────────────────────────────────────────────────────────────
   it("R6: withdraw without secp256r1 proof fails (MissingProof)", async () => {
     try {
-      await withdrawTx({ amount: 1 * SOL, policy: "transfer.large", privKey: p256PrivKey, withProof: false })
+      await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: false })
       assert.fail("Expected MissingProof")
     } catch (err: unknown) {
       assert.ok(
         (err as Error).message.includes("MissingProof") || (err as Error).message.includes("0x1770"),
         `Expected MissingProof, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R7 ─────────────────────────────────────────────────────────────────────
+  it("R7: simulate-first detects policy from logs and succeeds", async () => {
+    const dest   = Keypair.generate().publicKey
+    const amount = 1 * SOL
+
+    const withdrawIx = await vault.methods
+      .withdraw(new BN(amount))
+      .accounts({
+        vault:             vaultPda,
+        owner:             owner.publicKey,
+        destination:       dest,
+        guardProgram:      trana.programId,
+        tranaRegistry:     registryPda,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+        systemProgram:     SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash: probeBlockhash } = await conn.getLatestBlockhash("processed")
+    const probeTx = new Transaction({ recentBlockhash: probeBlockhash, feePayer: owner.publicKey })
+    probeTx.add(withdrawIx)
+
+    const vtx = VersionedTransaction.deserialize(
+      probeTx.serialize({ requireAllSignatures: false, verifySignatures: false })
+    )
+    const simResult = await conn.simulateTransaction(vtx, { replaceRecentBlockhash: true, sigVerify: false })
+    const logs = simResult.value.logs ?? []
+
+    assert.ok(logs.some(l => l.includes("TRANA_MISSING_PROOF")), "simulation should show TRANA_MISSING_PROOF")
+
+    const detectedPolicy = parsePolicyFromLogs(logs)
+    assert.ok(detectedPolicy, `should detect a policy from logs`)
+    assert.ok(detectedPolicy!.startsWith("trana."), `expected trana. policy, got: ${detectedPolicy}`)
+
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    const accountsHash = sha256(Buffer.concat([
+      vaultPda.toBuffer(), owner.publicKey.toBuffer(), dest.toBuffer(),
+      trana.programId.toBuffer(), registryPda.toBuffer(), SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(), treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+    ]))
+    const amountBuf = Buffer.alloc(8)
+    amountBuf.writeBigUInt64LE(BigInt(amount))
+    const paramsHash = sha256(amountBuf)
+
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet", owner.publicKey, trana.programId, vault.programId,
+      detectedPolicy!, WITHDRAW_DISC, accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", detectedPolicy!, authData, clientDataJSON))
+    tx.add(withdrawIx)
+
+    await sendAndConfirmTransaction(conn, tx, [owner])
+    registryNonce++
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R7")
+  })
+
+  // ── R8 ─────────────────────────────────────────────────────────────────────
+  it("R8: 2 s simulated passkey delay — fresh blockhash, transaction succeeds", async () => {
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, delayAfterProofMs: 2_000 })
+    registryNonce++
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R8")
+  })
+
+  // ── R9 ─────────────────────────────────────────────────────────────────────
+  it("R9: 5 s simulated passkey delay — fresh blockhash, transaction succeeds", async () => {
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true, delayAfterProofMs: 5_000 })
+    registryNonce++
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should have incremented after R9")
+  })
+
+  // ── R10 ────────────────────────────────────────────────────────────────────
+  it("R10: expired proof fails (ProofExpired)", async () => {
+    const pastExpiry = Math.floor(Date.now() / 1000) - 10
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, overrideExpiry: pastExpiry,
+      })
+      assert.fail("Expected ProofExpired")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("ProofExpired") || (err as Error).message.includes("0x1771"),
+        `Expected ProofExpired, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R11 ────────────────────────────────────────────────────────────────────
+  //
+  // Sign intent hash with "localnet" (correct), but put "wrongnet" in record_proof.
+  // Guard computes intent using proof.cluster="wrongnet" → different hash → challenge mismatch.
+
+  it("R11: wrong cluster in record_proof fails (PayloadMismatch)", async () => {
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, clusterInProof: "wrongnet",
+      })
+      assert.fail("Expected PayloadMismatch")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
+        `Expected PayloadMismatch, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R12 ────────────────────────────────────────────────────────────────────
+  //
+  // proof.policy = "trana.always" but withdraw enforces "trana.threshold".
+  // verify_with_policy checks proof.policy == expected → PolicyMismatch before challenge verify.
+
+  it("R12: wrong policy string in record_proof fails (PolicyMismatch)", async () => {
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, policyInProof: "trana.always",
+      })
+      assert.fail("Expected PolicyMismatch")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("PolicyMismatch") || (err as Error).message.includes("0x1777"),
+        `Expected PolicyMismatch, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R13 ────────────────────────────────────────────────────────────────────
+  //
+  // Treasury = payer.publicKey. owner (fresh Keypair) pays the fee.
+  // After enforcement: treasury balance increases by exactly FEE_LAMPORTS.
+
+  it("R13: 20k lamport fee is deducted from owner and reaches treasury", async () => {
+    const before = await conn.getBalance(treasuryPubkey)
+    await withdrawTx({ amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey, withProof: true })
+    registryNonce++
+    const after = await conn.getBalance(treasuryPubkey)
+    assert.equal(after - before, FEE_LAMPORTS, `treasury should gain exactly ${FEE_LAMPORTS} lamports`)
+  })
+
+  // ── R14 ────────────────────────────────────────────────────────────────────
+  it("R14: update_config by non-authority is rejected (Unauthorized)", async () => {
+    const stranger = Keypair.generate()
+    const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
+    await conn.confirmTransaction(airdrop, "confirmed")
+
+    try {
+      await trana.methods
+        .updateConfig(new BN(99_000), stranger.publicKey)
+        .accounts({ config: configPda, authority: stranger.publicKey })
+        .signers([stranger]).rpc()
+      assert.fail("Expected Unauthorized")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("Unauthorized") || (err as Error).message.includes("0x1778"),
+        `Expected Unauthorized, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R15 ────────────────────────────────────────────────────────────────────
+  it("R15: authority can withdraw accumulated fees from treasury", async () => {
+    const treasuryBalance = await conn.getBalance(treasuryPubkey)
+    if (treasuryBalance < FEE_LAMPORTS) {
+      console.log("    → skipping R15: treasury has no accumulated fees")
+      return
+    }
+    const dest       = Keypair.generate().publicKey
+    const destBefore = await conn.getBalance(dest)
+    const withdrawAmt = FEE_LAMPORTS  // withdraw just one fee's worth
+
+    await trana.methods
+      .withdrawFees(new BN(withdrawAmt))
+      .accounts({
+        config:      configPda,
+        authority:   payer.publicKey,
+        treasury:    treasuryPubkey,
+        destination: dest,
+      })
+      .rpc()
+
+    const destAfter = await conn.getBalance(dest)
+    assert.equal(destAfter - destBefore, withdrawAmt, "destination should receive exact withdrawal amount")
+  })
+
+  // ── R16 ────────────────────────────────────────────────────────────────────
+  it("R16: withdraw_fees by non-authority is rejected (Unauthorized)", async () => {
+    const stranger = Keypair.generate()
+    const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
+    await conn.confirmTransaction(airdrop, "confirmed")
+
+    try {
+      await trana.methods
+        .withdrawFees(new BN(FEE_LAMPORTS))
+        .accounts({
+          config:      configPda,
+          authority:   stranger.publicKey,
+          treasury:    treasuryPubkey,
+          destination: stranger.publicKey,
+        })
+        .signers([stranger]).rpc()
+      assert.fail("Expected Unauthorized")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("Unauthorized") || (err as Error).message.includes("0x1778"),
+        `Expected Unauthorized, got: ${(err as Error).message}`,
+      )
+    }
+  })
+
+  // ── R17 ────────────────────────────────────────────────────────────────────
+  //
+  // Pass a treasury pubkey that doesn't match config.treasury.
+  // demo_vault's Withdraw constraint rejects it before the CPI.
+
+  it("R17: wrong treasury in Enforce accounts is rejected", async () => {
+    const fakeTreasury = Keypair.generate().publicKey
+    try {
+      await withdrawTx({
+        amount: 1 * SOL, policy: "trana.threshold", privKey: p256PrivKey,
+        withProof: true, overrideTreasury: fakeTreasury,
+      })
+      assert.fail("Expected constraint error for wrong treasury")
+    } catch (err: unknown) {
+      assert.ok(err instanceof Error, "should fail with an error")
+      assert.ok((err as Error).message.length > 0, "error should have a message")
+    }
+  })
+
+  // ── R18 ────────────────────────────────────────────────────────────────────
+  //
+  // Policy::Custom: the protected instruction IS trana::enforce itself.
+  // Guard reads the policy string from the proof (not hardcoded) and uses it
+  // in the intent hash. The passkey must have signed a challenge containing
+  // that exact string — it cannot be swapped without breaking the signature.
+  //
+  // Transaction shape:
+  //   ix[0]: secp256r1
+  //   ix[1]: trana::record_proof    (policy = "myapp.custom_action")
+  //   ix[2]: trana::enforce(Custom) ← the protected instruction
+
+  it("R18: Policy::Custom — any policy string accepted when passkey signed it", async () => {
+    const customPolicy = "myapp.custom_action"
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    // Discriminator for trana::enforce
+    const ENFORCE_DISC = sha256(Buffer.from("global:enforce")).slice(0, 8)
+
+    // Enforce struct field order (6 accounts):
+    //   registry, owner, instructions, config, treasury, system_program
+    const accountsHash = sha256(Buffer.concat([
+      registryPda.toBuffer(),
+      owner.publicKey.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
+      configPda.toBuffer(),
+      treasuryPubkey.toBuffer(),
+      SystemProgram.programId.toBuffer(),
+    ]))
+
+    // Policy::Custom borsh = variant index 5 (u8)
+    const paramsHash = sha256(Buffer.from([5]))
+
+    // targetProgramId = trana itself (enforce IS the protected instruction)
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      owner.publicKey, trana.programId, trana.programId,
+      customPolicy, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods
+      .enforce({ custom: {} })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", customPolicy, authData, clientDataJSON))
+    tx.add(enforceIx)
+
+    await sendAndConfirmTransaction(conn, tx, [owner])
+    registryNonce++
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after Custom enforcement")
+  })
+
+  // ── R18b ───────────────────────────────────────────────────────────────────
+  //
+  // Custom negative: sign with "myapp.safe_action" but write "myapp.evil_swap"
+  // in record_proof. Guard computes intent with "myapp.evil_swap" but the
+  // challenge was built with "myapp.safe_action" → PayloadMismatch.
+
+  it("R18b: Policy::Custom — swapped policy string in record_proof fails (PayloadMismatch)", async () => {
+    const ENFORCE_DISC = sha256(Buffer.from("global:enforce")).slice(0, 8)
+    const nonce  = registryNonce
+    const expiry = Math.floor(Date.now() / 1000) + 300
+
+    const accountsHash = sha256(Buffer.concat([
+      registryPda.toBuffer(), owner.publicKey.toBuffer(),
+      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
+      treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+    ]))
+    const paramsHash = sha256(Buffer.from([5]))
+
+    // Sign with "myapp.safe_action"
+    const intentHash = computeIntentHash(
+      "trana:v1", "localnet",
+      owner.publicKey, trana.programId, trana.programId,
+      "myapp.safe_action", Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods
+      .enforce({ custom: {} })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    // Proof says "myapp.evil_swap" but passkey signed "myapp.safe_action" → mismatch
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", "myapp.evil_swap", authData, clientDataJSON))
+    tx.add(enforceIx)
+
+    try {
+      await sendAndConfirmTransaction(conn, tx, [owner])
+      assert.fail("Expected PayloadMismatch")
+    } catch (err: unknown) {
+      assert.ok(
+        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
+        `Expected PayloadMismatch, got: ${(err as Error).message}`,
       )
     }
   })

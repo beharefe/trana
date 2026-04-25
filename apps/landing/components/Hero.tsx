@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { motion } from "framer-motion"
 
 const ease = [0.16, 1, 0.3, 1]
@@ -58,12 +59,12 @@ export function Hero() {
           >
             Try demo
           </button>
-          <button
-            onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+          <Link
+            href="/docs/quickstart"
             className="px-7 py-3 rounded-full border border-border text-ink text-sm font-medium hover:bg-card transition-colors"
           >
-            View how it works
-          </button>
+            Read the docs
+          </Link>
         </motion.div>
 
       </div>

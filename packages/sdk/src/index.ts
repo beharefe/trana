@@ -34,7 +34,7 @@ export {
 export { attachProof } from "./proof"
 
 // Utilities
-export { sha256, sha256Bytes, generateNonce } from "./utils"
+export { sha256, sha256Bytes, generateNonce, decodeParamsU64 } from "./utils"
 
 // secp256r1 precompile (browser + Node)
 export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "./secp256r1"
@@ -78,3 +78,9 @@ export type { TranaErrorKind } from "./react/error"
 // Simulation-based pre-detection (optional — authorizeAndSend does not require it)
 export { detectEnforcement, hasSecp256r1Ix } from "./react/detector"
 export type { DetectionResult } from "./react/detector"
+// Passkey management hook (Phase 1: v1 registry stub; Phase 2: full multi-key impl)
+export { useTranaPasskeys } from "./react/useTranaPasskeys"
+export type { PasskeyEntry, RecoveryState, UseTranaPasskeysResult } from "./react/useTranaPasskeys"
+// Backup nudge hook — surfaces one-time prompt to add a second passkey after first approval
+export { useBackupNudge } from "./react/useBackupNudge"
+export type { BackupNudgeState } from "./react/useBackupNudge"

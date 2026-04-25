@@ -4,8 +4,6 @@ use crate::error::GuardError;
 
 // ── Wire type ─────────────────────────────────────────────────────────────────
 
-/// Borsh payload stored in the `record_proof` instruction data.
-/// Deserialized by verify_via_sysvar from the Instructions sysvar.
 #[derive(AnchorDeserialize, AnchorSerialize, Clone)]
 pub struct ProofData {
     pub version:            u8,
@@ -20,33 +18,50 @@ pub struct ProofData {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum KeyKind {
-    /// P-256 / secp256r1 — WebAuthn passkeys (Touch ID, Face ID, YubiKey).
     Secp256r1Passkey,
-    /// Ed25519 — hardware signing devices or dedicated keypairs.
     Ed25519,
 }
 
 /// Per-user onchain 2FA registry.
-///
 /// Seeds: `[b"2fa", owner]`
-///
-/// `nonce` is incremented on every successful passkey proof verification —
-/// old proofs cannot be replayed even if the signed intent was valid.
 #[account]
 pub struct TwoFactorRegistry {
     pub owner:         Pubkey,  // 32
     pub key_kind:      KeyKind, //  1
-    pub pubkey_bytes:  Vec<u8>, //  4 + up to 33  (P-256 compressed)
-    pub credential_id: Vec<u8>, //  4 + up to 128 (WebAuthn credential ID)
+    pub pubkey_bytes:  Vec<u8>, //  4 + up to 33
+    pub credential_id: Vec<u8>, //  4 + up to 128
     pub enabled:       bool,    //  1
-    pub nonce:         u64,     //  8  — replay prevention counter
+    pub nonce:         u64,     //  8
 }
 
 impl TwoFactorRegistry {
     pub const MAX_PUBKEY_LEN:  usize = 33;
     pub const MAX_CRED_ID_LEN: usize = 128;
-    /// discriminator(8) + owner(32) + key_kind(1) + pubkey(4+33) + cred_id(4+128) + enabled(1) + nonce(8)
-    pub const SPACE: usize = 8 + 32 + 1 + (4 + 33) + (4 + 128) + 1 + 8; // = 219
+    pub const SPACE: usize = 8 + 32 + 1 + (4 + 33) + (4 + 128) + 1 + 8; // 219
+}
+
+// ── Fee config ────────────────────────────────────────────────────────────────
+
+/// Global fee configuration.
+/// Seeds: `[b"config"]`
+///
+/// Stores the per-enforcement fee and the treasury destination.
+/// Both are publicly readable — any auditor can verify the exact fee
+/// without reading source code. Changes require a signed transaction
+/// from the authority, so the full history is on-chain.
+#[account]
+pub struct TranaConfig {
+    /// Who can call update_config / withdraw_fees.
+    pub authority:    Pubkey, // 32
+    /// Where enforcement fees are sent.
+    pub treasury:     Pubkey, // 32
+    /// Lamports charged per successful proof verification.
+    pub fee_lamports: u64,    //  8
+}
+
+impl TranaConfig {
+    /// discriminator(8) + authority(32) + treasury(32) + fee_lamports(8)
+    pub const SPACE: usize = 8 + 32 + 32 + 8; // 80
 }
 
 // ── Account contexts ──────────────────────────────────────────────────────────
@@ -68,20 +83,17 @@ pub struct RegisterTwoFa<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// No on-chain accounts — record_proof is a pure data carrier.
-/// Instructions sysvar included to satisfy Anchor's 'info lifetime.
 #[derive(Accounts)]
 pub struct RecordProof<'info> {
-    /// CHECK: Solana Instructions sysvar — read-only context
+    /// CHECK: Solana Instructions sysvar
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
 }
 
 /// Accounts for the enforce() CPI primitive.
-/// External programs supply these when calling guard::cpi::enforce().
 #[derive(Accounts)]
 pub struct Enforce<'info> {
-    /// Registry PDA — nonce is incremented on every successful verification.
+    /// Registry PDA — nonce incremented on every successful verification.
     #[account(
         mut,
         seeds = [b"2fa", owner.key().as_ref()],
@@ -91,9 +103,81 @@ pub struct Enforce<'info> {
     pub registry: Account<'info, TwoFactorRegistry>,
 
     /// The wallet whose registered passkey must authorize this action.
+    /// Must be mut so the fee can be deducted from its lamport balance.
+    #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// CHECK: Solana Instructions sysvar — used to read proof + protected ix.
+    /// CHECK: Solana Instructions sysvar
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
+
+    /// Global fee config — determines fee amount and treasury destination.
+    #[account(seeds = [b"config"], bump)]
+    pub config: Account<'info, TranaConfig>,
+
+    /// Treasury PDA — receives the enforcement fee.
+    /// CHECK: address validated against config.treasury
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
+    )]
+    pub treasury: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+/// One-time initialization of the global fee config.
+#[derive(Accounts)]
+pub struct InitConfig<'info> {
+    #[account(
+        init,
+        payer     = authority,
+        space     = TranaConfig::SPACE,
+        seeds     = [b"config"],
+        bump,
+    )]
+    pub config: Account<'info, TranaConfig>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+/// Update fee amount or treasury address.
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump,
+        has_one = authority @ GuardError::Unauthorized,
+    )]
+    pub config: Account<'info, TranaConfig>,
+
+    pub authority: Signer<'info>,
+}
+
+/// Withdraw accumulated fees from the treasury PDA to any destination.
+#[derive(Accounts)]
+pub struct WithdrawFees<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump,
+        has_one = authority @ GuardError::Unauthorized,
+    )]
+    pub config: Account<'info, TranaConfig>,
+
+    pub authority: Signer<'info>,
+
+    /// CHECK: treasury PDA — validated against config
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
+    )]
+    pub treasury: UncheckedAccount<'info>,
+
+    /// CHECK: any destination the authority chooses
+    #[account(mut)]
+    pub destination: UncheckedAccount<'info>,
 }

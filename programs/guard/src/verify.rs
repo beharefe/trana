@@ -7,6 +7,18 @@ use crate::error::GuardError;
 use crate::events::ProofVerified;
 use crate::state::{ProofData, TwoFactorRegistry};
 
+// ── Fee context ───────────────────────────────────────────────────────────────
+
+/// Accounts needed to collect the enforcement fee.
+/// Passed from enforce() into run_verification so the fee transfer is
+/// atomic with the proof — if verification fails, the fee reverts too.
+pub struct FeeAccounts<'a, 'info> {
+    pub fee_lamports:  u64,
+    pub payer:         &'a AccountInfo<'info>,
+    pub treasury:      &'a AccountInfo<'info>,
+    pub system_program: &'a AccountInfo<'info>,
+}
+
 const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
 const INTENT_DOMAIN:        &str = "trana:v1";
 
@@ -44,39 +56,42 @@ pub fn read_u64_from_protected_ix(
 
 /// Called by `enforce()`. Reads the policy string from the proof.
 /// Use this for application-defined policies.
-pub fn verify_from_proof(
-    ix_sysvar:        &AccountInfo,
+pub fn verify_from_proof<'info>(
+    ix_sysvar:        &AccountInfo<'info>,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
+    fee:              &FeeAccounts<'_, 'info>,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
-    require!(current_idx >= 2, GuardError::MissingProof);
+    if current_idx < 2 {
+        msg!("TRANA_MISSING_PROOF");
+        return Err(error!(GuardError::MissingProof));
+    }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
     let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
+    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy, fee)
 }
 
-/// Called by standard policy instructions (`enforce_threshold`, `enforce_always`, etc.).
-/// The policy string is owned by the guard program — the proof must match it exactly.
-/// Use this for Trana standard policies.
-pub fn verify_with_policy(
-    ix_sysvar:        &AccountInfo,
+pub fn verify_with_policy<'info>(
+    ix_sysvar:        &AccountInfo<'info>,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
     expected_policy:  &str,
+    fee:              &FeeAccounts<'_, 'info>,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
-    require!(current_idx >= 2, GuardError::MissingProof);
+    if current_idx < 2 {
+        msg!("TRANA_MISSING_PROOF");
+        return Err(error!(GuardError::MissingProof));
+    }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
-    // Policy in the proof must match the standard policy — prevents a caller
-    // from sneaking a custom proof through a standard policy instruction.
     require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
+    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy, fee)
 }
 
 // ── Shared verification pipeline ─────────────────────────────────────────────
@@ -91,14 +106,15 @@ pub fn verify_with_policy(
 //   7. Consume nonce (increment — prevents replay)
 //   8. Emit ProofVerified event
 
-fn run_verification(
-    ix_sysvar:        &AccountInfo,
+fn run_verification<'info>(
+    ix_sysvar:        &AccountInfo<'info>,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
     current_idx:      u16,
     proof:            ProofData,
     policy:           &str,
+    fee:              &FeeAccounts<'_, 'info>,
 ) -> Result<()> {
     // ── 1. Protected instruction ──────────────────────────────────────────────
     let protected_ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
@@ -190,7 +206,23 @@ fn run_verification(
         .checked_add(1)
         .ok_or(GuardError::NonceOverflow)?;
 
-    // ── 8. Emit audit event ───────────────────────────────────────────────────
+    // ── 8. Collect enforcement fee ────────────────────────────────────────────
+    // Transferred atomically with the proof — reverts if anything above failed.
+    // Fee is 0 only during the bootstrap window before init_config is called.
+    if fee.fee_lamports > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                fee.system_program.clone(),
+                anchor_lang::system_program::Transfer {
+                    from: fee.payer.clone(),
+                    to:   fee.treasury.clone(),
+                },
+            ),
+            fee.fee_lamports,
+        )?;
+    }
+
+    // ── 9. Emit audit event ───────────────────────────────────────────────────
     msg!(
         "TRANA enforce | policy={} | target={} | nonce={}",
         policy,

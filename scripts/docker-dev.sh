@@ -42,7 +42,7 @@ pkill -f "solana-test-validator" 2>/dev/null || true
 sleep 1
 
 # ── Build programs ─────────────────────────────────────────────────────────────
-GUARD_SO="target/deploy/guard.so"
+GUARD_SO="target/deploy/trana.so"
 VAULT_SO="target/deploy/demo_vault.so"
 
 if [ "$FORCE_BUILD" -eq 1 ] || [ ! -f "$GUARD_SO" ] || [ ! -f "$VAULT_SO" ]; then
@@ -52,7 +52,7 @@ else
   log "Programs already built — skipping (use --build to force)"
 fi
 
-[ -f "$GUARD_SO" ] || die "guard.so not found after build"
+[ -f "$GUARD_SO" ] || die "trana.so not found after build"
 [ -f "$VAULT_SO" ] || die "demo_vault.so not found after build"
 
 # ── Start localnet validator ───────────────────────────────────────────────────
@@ -93,10 +93,20 @@ deploy_program() {
   echo "$(solana-keygen pubkey "target/deploy/${name}-keypair.json")"
 }
 
-GUARD_ID=$(deploy_program guard)
+GUARD_ID=$(deploy_program trana)
 VAULT_ID=$(deploy_program demo_vault)
 log "guard     → $GUARD_ID"
 log "demo_vault → $VAULT_ID"
+
+# ── Initialize guard fee config (required once per validator ledger) ───────────
+WALLET_KEYPAIR="$(solana config get keypair | awk '{print $3}')"
+TREASURY_ADDR=$(solana address --keypair "$WALLET_KEYPAIR")
+log "Initializing trana fee config (fee=0, treasury=$TREASURY_ADDR)..."
+ANCHOR_PROVIDER_URL=http://localhost:8899 \
+ANCHOR_WALLET="$WALLET_KEYPAIR" \
+  node scripts/init-config.mjs "$GUARD_ID" "$TREASURY_ADDR" \
+  && log "Fee config initialized" \
+  || log "WARN: fee config init failed — deposit/withdraw will fail until init_config is called"
 
 # ── Write .env.docker ──────────────────────────────────────────────────────────
 # NEXT_PUBLIC_ vars are used in the browser (hits host's localhost:8899 directly)
@@ -117,9 +127,17 @@ SOLANA_RPC=http://host.docker.internal:8899
 EOF
 log "env files written"
 
-# ── Start web container ────────────────────────────────────────────────────────
+# ── Start web app ─────────────────────────────────────────────────────────────
 log "Starting web app..."
 log "  validator  → http://localhost:8899"
 log "  web app    → http://localhost:3000"
 echo ""
-docker compose up --build
+
+if docker compose version &>/dev/null 2>&1; then
+  docker compose up --build
+elif command -v docker-compose &>/dev/null; then
+  docker-compose up --build
+else
+  warn "docker compose not available — starting Next.js directly (npm run dev)"
+  cd "$ROOT/apps/web" && npm run dev
+fi

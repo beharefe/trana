@@ -1,0 +1,108 @@
+import { ArticleJsonLd, BreadcrumbJsonLd, FaqJsonLd } from "@/components/JsonLd"
+
+export const metadata = {
+  title: "Para vs Trana",
+  description: "Para and Trana both use P-256 passkeys on Solana — but for completely different purposes. Para is wallet authentication. Trana is execution-time authorization. Here's the difference.",
+  alternates: { canonical: "https://trana.so/compare/para" },
+  openGraph: {
+    type: "article",
+    title: "Para vs Trana — Solana Passkey Authentication vs Execution-Time Authorization",
+    description: "Para answers 'who is this user.' Trana answers 'should this instruction run.' Both questions matter.",
+    images: [{ url: "https://trana.so/api/og?title=Para+vs+Trana&subtitle=Authentication+vs+authorization.+Para+answers+%E2%80%98who+is+this+user.%E2%80%99+Trana+answers+%E2%80%98should+this+run.%E2%80%99&section=Compare", width: 1200, height: 630 }],
+  },
+}
+
+<ArticleJsonLd title="Para vs Trana — Passkey Authentication vs Execution-Time Authorization" description="Para and Trana both use P-256 on Solana but solve different problems." path="/compare/para" />
+<BreadcrumbJsonLd items={[{ name: "Home", path: "/" }, { name: "Compare", path: "/compare/multisig" }, { name: "Para vs Trana", path: "/compare/para" }]} />
+<FaqJsonLd faqs={[
+  { q: "What is Para on Solana?", a: "Para is an embedded wallet infrastructure platform. It uses passkeys to authenticate users and unlock access to a Solana signing key managed through Para's Multi-Party Computation (MPC) servers. Users never see a seed phrase." },
+  { q: "What is Trana?", a: "Trana is an onchain authorization primitive. It requires a live FIDO2 device approval (passkey, YubiKey, etc.) at the moment a protected instruction executes — verified by the Solana secp256r1 precompile, not by any server." },
+  { q: "Do Para and Trana compete?", a: "No. They solve different problems. Para handles user onboarding and wallet access. Trana handles execution-time enforcement inside Solana programs. They compose: a Para-walletted user can interact with a Trana-protected DeFi protocol." },
+  { q: "If I use Para, do I still need Trana?", a: "Potentially yes. Para's MPC infrastructure holds the Ed25519 signing key. If Para's servers are compromised, an attacker could sign transactions. Trana's onchain enforcement would still block execution — because the attacker also needs a live device approval." },
+]} />
+
+<p className="text-xs uppercase tracking-widest text-faint mb-8">Compare</p>
+
+# Para vs Trana
+
+*Para answers "who is this user." Trana answers "should this instruction run." Both questions matter.*
+
+Both Para and Trana work with P-256 passkeys on Solana. Both shipped in 2025. They're not competitors — they solve different problems at different layers.
+
+## What Para Does
+
+Para is an embedded wallet platform. Its core job is to eliminate seed phrases from the user onboarding experience.
+
+When a user signs up with a Para-powered app, the flow works like this:
+
+1. The user registers a passkey on their device (Touch ID, Face ID, or a hardware key).
+2. The passkey signs an authorization challenge, establishing a scoped session.
+3. That session grants access to an Ed25519 signing key managed by Para's Multi-Party Computation (MPC) infrastructure.
+4. The MPC key signs Solana transactions on behalf of the user.
+
+The passkey's role in Para is **authentication** — it proves the user is present and authorizes the MPC service to act. The actual transaction signing is done by an Ed25519 key that Para manages.
+
+**Trust model:** Users trust Para's MPC servers to hold their signing key securely. Para is a trusted custodian.
+
+## What Trana Does
+
+Trana is an onchain execution-time authorization primitive. Its core job is to make it impossible to execute a protected instruction without a live device approval — regardless of who controls the wallet key.
+
+When a Trana-protected instruction is about to run:
+
+1. Before submitting the transaction, the user's device signs an intent hash with a P-256 key.
+2. The passkey signature, authenticator data, and client data are bundled into the transaction.
+3. At execution time, the Solana secp256r1 precompile verifies the P-256 signature onchain.
+4. The guard program recomputes the intent hash from the live transaction and verifies it matches what the passkey signed.
+5. If any of this fails — or if the proof is simply missing — execution is rejected inside the program.
+
+The passkey's role in Trana is **authorization** — it proves a live human approved this specific action, with these specific parameters, at this specific moment.
+
+**Trust model:** Users trust the Solana secp256r1 precompile (part of the validator) and their own FIDO2 device. Trana holds nothing.
+
+## Side-by-Side Comparison
+
+<table>
+<thead><tr><th></th><th>Para</th><th>Trana</th></tr></thead>
+<tbody>
+<tr><td><strong>Primary purpose</strong></td><td>Wallet authentication / UX</td><td>Execution-time authorization</td></tr>
+<tr><td><strong>Question answered</strong></td><td>Who is this user?</td><td>Should this instruction execute?</td></tr>
+<tr><td><strong>Passkey role</strong></td><td>Unlocks access to managed Ed25519 key</td><td>Signs intent hash verified onchain by secp256r1 precompile</td></tr>
+<tr><td><strong>Verification point</strong></td><td>Before transaction submission (client-side)</td><td>Inside the program at execution (onchain)</td></tr>
+<tr><td><strong>Trust model</strong></td><td>Trust Para's MPC infrastructure</td><td>Trust Solana secp256r1 precompile (trustless)</td></tr>
+<tr><td><strong>Custodial?</strong></td><td>Yes — Para holds the Ed25519 signing key via MPC</td><td>No — user holds both keys</td></tr>
+<tr><td><strong>Can be bypassed?</strong></td><td>Not without compromising Para's MPC</td><td>Not without a valid live device approval</td></tr>
+<tr><td><strong>Protects against</strong></td><td>Seed phrase exposure, friction at onboarding</td><td>Stolen wallet key executing protected actions</td></tr>
+<tr><td><strong>Target users</strong></td><td>App developers wanting no-seed-phrase onboarding</td><td>Protocol developers protecting high-value instructions</td></tr>
+</tbody>
+</table>
+
+## How They Compose
+
+Para and Trana work at different layers and can be used together.
+
+Imagine a DeFi protocol with a lending vault:
+
+- **Para** handles how users connect to the app. No seed phrase. Biometric login. The user's Ed25519 wallet key lives in Para's MPC.
+- **Trana** handles what happens when the user tries to withdraw above a threshold. The withdrawal instruction requires a live passkey approval at execution time — verified onchain.
+
+Now consider what happens if Para's MPC infrastructure is compromised:
+
+- Without Trana: an attacker who controls the MPC key can sign withdrawal transactions and drain vaults.
+- With Trana: an attacker who controls the MPC key can construct and sign transactions, but they cannot produce a valid Trana proof without physical access to the user's registered FIDO2 device. Execution is blocked onchain.
+
+Para strengthens onboarding UX. Trana strengthens execution security. Neither replaces the other.
+
+## Why Both Exist
+
+The Solana ecosystem has a fundamental cryptography mismatch: WebAuthn generates P-256 (secp256r1) signatures, but Solana's native transaction signing uses Ed25519. Before SIMD-0075 (February 2025), P-256 signatures were not natively verifiable onchain.
+
+Para's solution to this mismatch: bridge P-256 authentication to an Ed25519 signing key on the server side.
+
+Trana's solution: SIMD-0075 is now live. Verify the P-256 signature directly onchain, inside the program, with no server in the loop.
+
+They represent two different answers to the same underlying challenge — and both answers are useful in their respective domains.
+
+---
+
+*Building an app? Para + Trana is a natural pairing: Para for frictionless onboarding, Trana for execution-level security on your protocol's high-value instructions.*

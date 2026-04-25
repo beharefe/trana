@@ -12,7 +12,7 @@ import React, {
 import { Connection, PublicKey } from "@solana/web3.js"
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { fetchRegistry, findRegistryPda, subscribeRegistry, RegistryState } from "./registry"
-import { tranaReducer, TranaConfig, TranaState } from "./state"
+import { tranaReducer, TranaConfig, TranaState, IntentPreview } from "./state"
 import { TranaIntent } from "./intent"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -24,8 +24,9 @@ type ApprovalResult = {
 }
 
 type PendingDeferred =
-  | { kind: "registration"; resolve: () => void;                  reject: (e: Error) => void }
-  | { kind: "approval";     resolve: (r: ApprovalResult) => void; reject: (e: Error) => void }
+  | { kind: "registration";  resolve: () => void;                  reject: (e: Error) => void }
+  | { kind: "confirmation";  resolve: () => void;                  reject: (e: Error) => void }
+  | { kind: "approval";      resolve: (r: ApprovalResult) => void; reject: (e: Error) => void }
 
 export type TranaContextValue = {
   state:      TranaState
@@ -33,11 +34,15 @@ export type TranaContextValue = {
   connection: Connection
   registry:   RegistryState | null
   /** useTrana: pause send flow until registration modal resolves */
-  _triggerRegistration: () => Promise<void>
+  _triggerRegistration: (intentPreview?: IntentPreview) => Promise<void>
+  /** useTrana: show decoded preview modal, pause until user proceeds */
+  _triggerConfirmation: (intent: TranaIntent, label?: string) => Promise<void>
   /** useTrana: pause send flow until approval modal resolves */
   _triggerApproval: (intent: TranaIntent) => Promise<ApprovalResult>
   /** Modal: call when registration ceremony completes onchain */
   _resolveRegistration: () => void
+  /** Modal: call when user proceeds from confirmation preview to passkey */
+  _resolveConfirmation: () => void
   /** Modal: call with the WebAuthn result when approval completes */
   _resolveApproval: (result: ApprovalResult) => void
   /** Modal: call on cancel or error to unblock the send flow */
@@ -94,10 +99,17 @@ export function TranaProvider({ children, config }: TranaProviderProps) {
 
   // ── Trigger helpers (called by useTrana) ──────────────────────────────────
 
-  const _triggerRegistration = useCallback((): Promise<void> => {
-    dispatch({ type: "TRIGGER_REGISTRATION" })
+  const _triggerRegistration = useCallback((intentPreview?: IntentPreview): Promise<void> => {
+    dispatch({ type: "TRIGGER_REGISTRATION", intentPreview })
     return new Promise<void>((resolve, reject) => {
       pendingRef.current = { kind: "registration", resolve, reject }
+    })
+  }, [])
+
+  const _triggerConfirmation = useCallback((intent: TranaIntent, label?: string): Promise<void> => {
+    dispatch({ type: "TRIGGER_CONFIRMATION", intent, label })
+    return new Promise<void>((resolve, reject) => {
+      pendingRef.current = { kind: "confirmation", resolve, reject }
     })
   }, [])
 
@@ -112,6 +124,14 @@ export function TranaProvider({ children, config }: TranaProviderProps) {
 
   const _resolveRegistration = useCallback(() => {
     if (pendingRef.current?.kind === "registration") {
+      pendingRef.current.resolve()
+      pendingRef.current = null
+      dispatch({ type: "RESOLVE" })
+    }
+  }, [])
+
+  const _resolveConfirmation = useCallback(() => {
+    if (pendingRef.current?.kind === "confirmation") {
       pendingRef.current.resolve()
       pendingRef.current = null
       dispatch({ type: "RESOLVE" })
@@ -141,8 +161,10 @@ export function TranaProvider({ children, config }: TranaProviderProps) {
       connection,
       registry,
       _triggerRegistration,
+      _triggerConfirmation,
       _triggerApproval,
       _resolveRegistration,
+      _resolveConfirmation,
       _resolveApproval,
       _rejectPending,
     }}>

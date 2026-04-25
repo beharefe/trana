@@ -2,14 +2,14 @@ import type { Config } from "tailwindcss"
 
 const config: Config = {
   content: [
-    "./app/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx,mdx}",
     "./components/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {
       fontFamily: {
-        sans:  ["Inter", "system-ui", "sans-serif"],
-        serif: ["DM Serif Display", "Georgia", "serif"],
+        sans:  ["var(--font-inter)", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
       },
       colors: {
         bg:     "#F7F6F3",
