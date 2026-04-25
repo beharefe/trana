@@ -1,0 +1,106 @@
+import { ArticleJsonLd, BreadcrumbJsonLd, FaqJsonLd } from "@/components/JsonLd"
+
+export const metadata = {
+  title: "Trana vs Multisig",
+  description: "Trana and Squads multisig solve different problems. Multisig is M-of-N governance. Trana is single-user, device-bound, instant second-factor authorization at execution time. They compose.",
+  alternates: { canonical: "https://trana.so/compare/multisig" },
+  openGraph: {
+    type: "article",
+    title: "Trana vs Squads Multisig — Which One Do You Need?",
+    description: "Multisig coordinates governance. Trana enforces execution. Here's how to think about which problem you're solving.",
+    images: [{ url: "https://trana.so/api/og?title=Trana+vs+Multisig&subtitle=Governance+vs+execution-time+enforcement.+They+solve+different+problems+%E2%80%94+and+compose.&section=Compare", width: 1200, height: 630 }],
+  },
+}
+
+<ArticleJsonLd title="Trana vs Multisig — Which One Do You Need?" description="Trana and Squads multisig solve different problems and compose well together." path="/compare/multisig" />
+<BreadcrumbJsonLd items={[{ name: "Home", path: "/" }, { name: "Compare", path: "/compare/multisig" }, { name: "Trana vs Multisig", path: "/compare/multisig" }]} />
+<FaqJsonLd faqs={[
+  { q: "What is multisig on Solana?", a: "Multisig (like Squads) requires M-of-N designated signers to approve an action before it executes. It is used for protocol governance, shared treasury management, and upgrade authority control." },
+  { q: "Is Trana a multisig replacement?", a: "No. Trana and multisig operate at different layers. Multisig controls who can initiate an action through governance. Trana enforces that the person initiating must prove live device presence at execution time. They are complementary." },
+  { q: "Can I use Trana and Squads together?", a: "Yes, and this is a recommended pattern for high-security protocols. Squads controls which wallets can call a protected instruction. Trana ensures each of those wallets must provide a live FIDO2 device approval when they do." },
+  { q: "Which one should I use for DAO treasury protection?", a: "Use both. Squads for the governance layer (M-of-N approval to initiate a disbursement). Trana on each signer's wallet so that even a compromised Squads member key cannot execute without a live device." },
+]} />
+
+<p className="text-xs uppercase tracking-widest text-faint mb-8">Compare</p>
+
+# Trana vs Multisig
+
+The most common question when developers first see Trana: *"Isn't this just multisig?"*
+
+It is not. Multisig and Trana solve different problems, operate at different layers, and are better used together than treated as alternatives.
+
+## What Multisig Does
+
+Multisig (Squads, on Solana) answers the question: **who is allowed to initiate this action?**
+
+A multisig vault requires M signatures from a set of N designated wallets before a transaction can be submitted. This is a coordination mechanism for shared ownership:
+
+- A DAO requires 3-of-5 council members to approve a treasury disbursement
+- A protocol requires 2-of-3 team wallets to push an upgrade
+- A fund requires all partners to sign off on a withdrawal
+
+Multisig enforces *governance* — an agreed-upon set of actors must authorize an action through a coordination flow before it can proceed.
+
+**The limitation of multisig alone:** each of the N signers is a single wallet key. If any one of those keys is stolen, the attacker can participate in the M-of-N quorum as a legitimate signer. If M is 2 and one of the 5 keys is compromised, the attacker needs only one more compromised key to reach quorum.
+
+## What Trana Does
+
+Trana answers the question: **is the person signing currently present at their device?**
+
+Trana enforces that the wallet performing an action must also provide a live second-factor approval from a registered FIDO2 device (passkey, YubiKey, etc.) at the moment the instruction executes. This happens onchain, inside the program, verified by the Solana secp256r1 precompile.
+
+There is no coordination with other parties. There is no async approval flow. The user taps their Touch ID or presses their YubiKey, and the proof is bundled into the transaction.
+
+**The limitation of Trana alone:** Trana does not address shared ownership or governance. A single wallet with Trana protection can still act unilaterally on any instruction it is authorized to call.
+
+## Side-by-Side Comparison
+
+<table>
+<thead><tr><th></th><th>Trana</th><th>Squads Multisig</th></tr></thead>
+<tbody>
+<tr><td><strong>Core question</strong></td><td>Is this person present at their device?</td><td>Did the required signers approve this?</td></tr>
+<tr><td><strong>Layer</strong></td><td>Execution-time (inside the program)</td><td>Governance (before tx submission)</td></tr>
+<tr><td><strong>Signers</strong></td><td>1 — the acting wallet + their FIDO2 device</td><td>M-of-N designated wallets</td></tr>
+<tr><td><strong>FIDO2 device support</strong></td><td>Passkey, YubiKey, Windows Hello</td><td>Any Ed25519 wallet key</td></tr>
+<tr><td><strong>Coordination required</strong></td><td>Zero</td><td>Async — all required signers must act</td></tr>
+<tr><td><strong>Latency</strong></td><td>Instant (one device tap)</td><td>Minutes to days</td></tr>
+<tr><td><strong>Protects against</strong></td><td>Stolen wallet key acting alone</td><td>Unilateral action by one party</td></tr>
+<tr><td><strong>Best for</strong></td><td>Per-action user 2FA</td><td>Shared treasury, team governance</td></tr>
+</tbody>
+</table>
+
+## How They Compose
+
+The pattern for high-security protocol operations:
+
+**Layer 1 — Squads multisig:** Controls which wallets are authorized to call a protected instruction. Requires M-of-N approval before a transaction is constructed. This is the governance layer.
+
+**Layer 2 — Trana:** Each wallet that participates in the Squads quorum has Trana enabled. When their wallet signs the Squads execution transaction, Trana requires a live device approval from that wallet's registered FIDO2 device.
+
+An attacker needs to compromise M wallet keys AND have physical access to M FIDO2 devices at the same time. That's the realistic attack model for high-value operations.
+
+For example, a Jito-style admin action:
+1. Squads vault: 3-of-5 council members must approve
+2. Each council member's wallet has Trana enabled
+3. A stolen council key can participate in the vote but cannot execute without a live device tap from that council member
+
+The same model enterprise security has used for years — YubiKey + SSO — now applied to onchain execution.
+
+## Choosing Between Them
+
+**Use multisig when:**
+- Multiple parties share ownership or decision-making authority
+- You need a governance trail with designated signers
+- The action involves shared treasury or shared upgrade authority
+- You want to distribute the risk across multiple independent actors
+
+**Use Trana when:**
+- A single wallet needs to prove live presence at execution time
+- You want to protect against stolen/compromised keys acting without the owner's knowledge
+- You need per-action enforcement without coordination overhead
+- You want a second factor that is instant and device-bound
+
+**Use both when:**
+- High-value protocol operations (treasury, upgrades, admin actions)
+- Enterprise security requirements
+- You want governance + execution-time enforcement as independent defense layers

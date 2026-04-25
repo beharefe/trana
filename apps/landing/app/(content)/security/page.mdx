@@ -1,0 +1,151 @@
+import { ArticleJsonLd, BreadcrumbJsonLd, FaqJsonLd } from "@/components/JsonLd"
+
+export const metadata = {
+  title: "Security Model",
+  description: "How Trana's zero-trust onchain second-factor authorization works. Full attack matrix, what Trana protects against, and what it does not.",
+  alternates: { canonical: "https://trana.so/security" },
+  openGraph: {
+    type: "article",
+    title: "Trana Security Model — Zero-Trust Onchain Authorization",
+    description: "Full attack matrix. What the secp256r1 precompile guarantees. What Trana does and does not protect against.",
+    images: [{ url: "https://trana.so/api/og?title=Security+Model&subtitle=Eight+attack+scenarios%2C+proof+pipeline%2C+and+trust+model.&section=Security", width: 1200, height: 630 }],
+  },
+}
+
+<ArticleJsonLd title="Trana Security Model" description="How Trana's zero-trust onchain second-factor authorization works." path="/security" />
+<BreadcrumbJsonLd items={[{ name: "Home", path: "/" }, { name: "Security Model", path: "/security" }]} />
+<FaqJsonLd faqs={[
+  { q: "Can Trana be bypassed by sending a raw transaction?", a: "No. The guard program calls the secp256r1 precompile directly. A raw transaction without a valid proof fails inside the program — not at the UI or RPC layer." },
+  { q: "What happens if my wallet private key is stolen?", a: "An attacker with your wallet key alone cannot execute any Trana-protected instruction. They would also need a live FIDO2 device approval (Touch ID, YubiKey, etc.) that produces a valid secp256r1 signature over the intent hash." },
+  { q: "Does Trana hold any keys or have admin access?", a: "No. After the guard program is deployed and the upgrade authority is burned, Trana cannot modify enforcement logic. The secp256r1 precompile is the cryptographic root of trust — not Trana's infrastructure." },
+  { q: "What is the secp256r1 precompile?", a: "SIMD-0075 added a native secp256r1 (P-256) signature verification instruction to the Solana validator in February 2025. It allows programs to verify P-256 signatures onchain at the same cost as Ed25519 verification." },
+]} />
+
+<p className="text-xs uppercase tracking-widest text-faint mb-8">Security</p>
+
+# Security Model
+
+*A valid signature is not enough.*
+
+Trana enforces a live device second-factor approval at execution time — inside the program, at the moment the instruction runs. This page documents exactly what that guarantee covers, how each attack vector is neutralized, and what Trana does not protect against.
+
+## What Trana Trusts
+
+Trana is designed to trust nothing except two things the user directly controls:
+
+**The Solana secp256r1 precompile (SIMD-0075).** Added to the Solana validator in February 2025, this is a native instruction that verifies P-256 (secp256r1) signatures. It is part of the validator software itself — not a Trana smart contract. Its correctness is guaranteed by Solana Labs and the validator client teams.
+
+**The user's TwoFactorRegistry PDA.** This account stores the user's registered P-256 public key. It is owned by the guard program and can only be modified by the wallet owner. It contains a nonce that increments on every successful enforcement.
+
+Everything else — the SDK, the dApp frontend, the RPC node, Trana as an organization — is explicitly untrusted. Enforcement doesn't depend on any of them behaving correctly.
+
+## Attack Matrix
+
+Every attack below was considered during design. Each one fails.
+
+### Raw transaction without proof
+
+An attacker who compromises a wallet key sends a raw transaction calling the protected instruction directly, without the secp256r1 and record_proof instructions.
+
+**Result:** `MissingProof` error. The guard program calls `verify()`, which reads the Instructions sysvar to find the secp256r1 instruction at `ix[N-2]`. If it is absent, enforcement fails immediately inside the program. This check happens onchain — it cannot be bypassed at the frontend or RPC layer.
+
+### Replay of an old proof
+
+An attacker captures a valid passkey signature from a previous transaction and re-submits it.
+
+**Result:** `PayloadMismatch` error. The intent hash includes the registry nonce, a u64 that the guard program increments after every successful enforcement. A replayed proof carries the old nonce value, which no longer matches the current registry state.
+
+### Parameter tampering after approval
+
+A user approves "withdraw 0.1 SOL" but an attacker modifies the amount to 100 SOL before the transaction lands.
+
+**Result:** `PayloadMismatch` error. The intent hash includes `params_hash = SHA-256(raw_instruction_params)`. The guard recomputes this hash from the live transaction data — not from the stored proof. Any change to the instruction parameters produces a different hash, which fails the comparison.
+
+### Account substitution
+
+An attacker substitutes a different recipient account after the passkey has signed.
+
+**Result:** `PayloadMismatch` error. The intent hash includes `accounts_hash = SHA-256(concat of all account pubkeys)`. The guard reads accounts from the live transaction at execution time. Swapping any account changes the hash.
+
+### Cross-program abuse
+
+A malicious program tries to call `guard::cpi::enforce()` and pass a proof that was originally approved for a different program.
+
+**Result:** `PayloadMismatch` error. The intent hash includes `targetProgramId`. The guard verifies that the protected instruction at the index identified by the Instructions sysvar belongs to the expected program. A proof approved for Program A cannot authorize Program B.
+
+### Cross-cluster replay
+
+An attacker captures a devnet proof and replays it on mainnet.
+
+**Result:** `PayloadMismatch` error. The intent hash includes the cluster string (`"devnet"` or `"mainnet-beta"`). Devnet and mainnet produce different hashes from identical inputs.
+
+### Expired proof
+
+An attacker captures a proof and waits until network congestion passes to replay it at a favorable moment.
+
+**Result:** `ProofExpired` error. The intent hash includes `expiry_unix`, a Unix timestamp set at proof creation time (default: 120 seconds ahead). The guard reads `Clock::get()` and rejects any proof where `now >= expiry_unix`.
+
+### Wrong signing device
+
+An attacker registers their own P-256 key into the user's registry by compromising the wallet key.
+
+**Result:** This is the primary residual risk and is covered in the limitations section below. During normal operation, `WrongSigner` error if a different device's key attempts to sign.
+
+## The Proof Pipeline
+
+When `enforce()` is called:
+
+1. **Load Instructions sysvar.** Read the current instruction index (`current_idx`).
+2. **Find secp256r1 instruction.** Expect it at `ix[current_idx - 2]`. If absent: `MissingProof`.
+3. **Find record_proof instruction.** Expect it at `ix[current_idx - 1]`. Parse the WebAuthn payload.
+4. **Recompute accounts_hash.** SHA-256 of all account pubkeys in the live instruction at `current_idx`.
+5. **Recompute params_hash.** SHA-256 of instruction data bytes `[8..]` (skipping the 8-byte Anchor discriminator).
+6. **Reconstruct intent hash.** Build the canonical binary payload from all intent fields and hash it.
+7. **Compare with WebAuthn clientDataHash.** The passkey signs `SHA-256(authenticatorData || clientDataJSON)`, where `clientDataJSON` contains the challenge (= intent hash). Verify they match.
+8. **Verify secp256r1 signature.** Read the public key and signature offsets from the precompile instruction. Confirm the pubkey matches the registry. Confirm the signature is valid over the WebAuthn message.
+9. **Check expiry.** Reject if `Clock::get().unix_timestamp >= proof.expiry_unix`.
+10. **Evaluate policy.** Check policy conditions (Threshold, Velocity, RapidDrain, Always, Admin). If condition not met: noop. If met and proof valid: enforce.
+11. **Increment nonce.** Write `registry.nonce += 1` to prevent replay.
+12. **Emit ProofVerified event.** Policy, target program, nonce — permanent onchain audit trail.
+
+## Audit Trail
+
+Every successful enforcement emits a `ProofVerified` event onchain:
+
+```
+ProofVerified {
+  owner:          Pubkey,    // wallet that owns the registry
+  policy:         String,    // e.g. "trana.threshold"
+  target_program: Pubkey,    // program being protected
+  nonce:          u64,       // registry nonce after this enforcement
+}
+```
+
+This event is indexed by the Solana event log and is permanently visible on any block explorer. Protocols can subscribe to these events for alerting and compliance logging.
+
+## Limitations
+
+Trana is honest about what it doesn't protect against.
+
+**Phishing / deceptive UX.** If an attacker builds a convincing fake frontend that shows "deposit 0.1 SOL" while actually passing "withdraw 100 SOL" as the intent, the user may approve the wrong thing. The confirmation modal in the Trana SDK addresses this by decoding the actual parameter bytes — but the SDK is untrusted. A custom integration could show anything. Users should verify the decoded amount shown in the approval prompt.
+
+**Complete wallet + device compromise.** If an attacker has both the wallet private key and access to the registered FIDO2 device (e.g., an unlocked laptop), they can authorize any action. This is the worst-case scenario and is equivalent to a physical breach.
+
+**Registry hijacking via wallet compromise.** A wallet key alone can call `register_two_fa` and replace the registered passkey. The 72-hour time-locked recovery mechanism (v1.1) adds a delay window for this scenario — existing passkeys can cancel a recovery initiated by a compromised wallet key.
+
+**Consensus-level attacks.** A validator majority could theoretically reorder or censor transactions. This is not a Trana-specific risk — it applies to all Solana programs.
+
+## Trust Model Summary
+
+<table>
+<thead><tr><th>Component</th><th>Trusted?</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>Solana secp256r1 precompile</td><td>Yes</td><td>Part of validator software</td></tr>
+<tr><td>TwoFactorRegistry PDA</td><td>Yes</td><td>Onchain state, user-controlled</td></tr>
+<tr><td>Trana SDK</td><td>No</td><td>Client-side, can be forked or modified</td></tr>
+<tr><td>dApp frontend</td><td>No</td><td>Can be compromised (XSS, supply chain)</td></tr>
+<tr><td>RPC node</td><td>No</td><td>Can censor, delay, return wrong state</td></tr>
+<tr><td>Trana organization</td><td>No</td><td>No admin key after upgrade authority burned</td></tr>
+<tr><td>User's FIDO2 device</td><td>Yes</td><td>WebAuthn: private key never leaves hardware</td></tr>
+</tbody>
+</table>

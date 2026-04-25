@@ -110,13 +110,14 @@ function buildWithdrawIx(
     programId: VAULT_PROGRAM_ID,
     keys: [
       { pubkey: vault,                      isSigner: false, isWritable: true  },
-      { pubkey: owner,                      isSigner: true,  isWritable: false },
+      { pubkey: owner,                      isSigner: true,  isWritable: true  },
       { pubkey: destination,                isSigner: false, isWritable: true  },
       { pubkey: GUARD_PROGRAM_ID,           isSigner: false, isWritable: false },
       { pubkey: registry,                   isSigner: false, isWritable: true  },
       { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
       { pubkey: CONFIG_PDA,                 isSigner: false, isWritable: false },
       { pubkey: treasury,                   isSigner: false, isWritable: true  },
+      { pubkey: SystemProgram.programId,    isSigner: false, isWritable: false },
     ],
     data: Buffer.concat([DISC.withdraw, u64LE(lamports)]),
   })
@@ -246,7 +247,7 @@ export function VaultPanel({ onTxSuccess, onTxError }: Props) {
             accounts: [
               vaultPda, publicKey, destination,
               GUARD_PROGRAM_ID, registryPda, SYSVAR_INSTRUCTIONS_PUBKEY,
-              CONFIG_PDA, treasury,
+              CONFIG_PDA, treasury, SystemProgram.programId,
             ],
             params: u64LE(lamports),
             policy: "trana.threshold",
