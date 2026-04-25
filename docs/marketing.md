@@ -82,6 +82,45 @@ Add `FAQPage` schema to the landing page and security page. LLMs favor FAQ-struc
 
 ---
 
+## Competitive Landscape
+
+### Para (Helius article: helius.dev/blog/solana-passkeys)
+
+Para is a passkey-based **embedded wallet** platform. It is the most visible existing content around "Solana passkeys" and already ranks well via the Helius blog.
+
+**How Para works:**
+1. User registers a passkey (Touch ID / Face ID)
+2. Passkey signs an authorization challenge → establishes a session
+3. Session grants access to an Ed25519 signing key managed by Para's MPC servers
+4. That Ed25519 key signs Solana transactions normally
+
+**The fundamental difference:**
+
+| | Para | Trana |
+|---|---|---|
+| Layer | Wallet authentication | Execution-time authorization |
+| Question answered | "Who is this user?" | "Should this instruction execute?" |
+| Passkey role | Unlocks access to a managed Ed25519 key | Signs an intent hash verified onchain |
+| Trust model | Trust Para's MPC infrastructure | Trust the Solana secp256r1 precompile (trustless) |
+| Enforcement point | Before transaction submission (client-side) | Inside the program at execution (onchain) |
+| What happens if bypassed | Attacker with Para session can sign anything | Impossible to bypass — program rejects the tx |
+| Custodial? | Yes (Para holds the Ed25519 key via MPC) | No (user holds both keys) |
+| Protects against | No seed phrase exposure, friction-free UX | Stolen/compromised wallet key executing protected actions |
+
+**They compose, not compete.** A user can have a Para-managed wallet AND interact with a Trana-protected protocol. If Para's MPC is compromised, Trana's onchain enforcement still blocks unauthorized execution because the attacker also needs a live FIDO2 device approval. Para adds frictionless onboarding; Trana adds execution-time assurance on top of whatever wallet the user has.
+
+**The search opportunity.** The Helius article ranks for "Solana passkeys." Everyone reading it is asking the right adjacent question: "OK, passkeys can authorize on Solana — but can they enforce security *inside* a program?" That is exactly Trana's answer. A `/compare/para` page and the SIMD-0075 explainer will capture that traffic with a clear "authentication vs authorization" framing.
+
+### New marketing page: `/compare/para`
+**Target keywords:** `para solana passkeys`, `solana passkey wallet vs 2fa`, `para vs trana`
+**Framing:** Not "Para is wrong" — "Para and Trana solve different problems and work better together."
+- Para: your users never see a seed phrase → better UX, lower drop-off at onboarding
+- Trana: your program never executes without a live device approval → better security, lower blast radius when keys are compromised
+- Together: embedded wallet UX (Para) + execution-time enforcement (Trana) = the complete picture
+- Key line: "Para answers 'who is this user.' Trana answers 'should this instruction run.' Both questions matter."
+
+---
+
 ## New Marketing Pages
 
 ### `/security` — Security Model
@@ -253,6 +292,7 @@ Core Topic: Onchain 2FA / Execution-Time Authorization
 | 10 | Trana Quickstart: 3 accounts, 1 CPI call | `how to use trana`, `trana solana integration` | Transactional | **Foundation** | 1,500 |
 | 11 | Intent hash pattern — cryptographically binding approvals to actions | `solana authorization pattern` | Informational | **Authority** | 1,500 |
 | 12 | DeFi vault security on Solana — complete guide | `solana defi security`, `solana vault exploit` | Informational | **Big bet** | 3,000 |
+| 13 | Para vs Trana — Solana passkey authentication vs execution-time authorization | `para solana`, `solana passkey wallet`, `para vs trana` | Commercial | **Quick win** | 1,200 |
 
 ---
 
@@ -336,6 +376,7 @@ No orphan pages. Every page has at least 2 inbound internal links before publish
 |--------|---------------|----------------|
 | Rank for `SIMD-0075` | Top 3 | #1 |
 | Rank for `solana passkey` / `solana 2FA` | Top 10 | Top 3 |
+| Capture readers of Helius "Solana passkeys" article | `/compare/para` in top 5 for `para solana` | Top 3 |
 | Rank for `secp256r1 Solana` | Top 5 | Top 3 |
 | AI citation rate (test: ask Perplexity/Claude) | Referenced | Primary source cited |
 | GitHub stars from organic referrals | Baseline tracked | Growing MoM |
