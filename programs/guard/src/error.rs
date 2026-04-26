@@ -32,15 +32,4 @@ pub enum GuardError {
     #[msg("Treasury account does not match config.treasury")]
     InvalidTreasury,
 
-    #[msg("Instruction submitted before the allowed slot — too early")]
-    NotBeforeViolation,
-
-    #[msg("Instruction submitted after the expiry slot — too late")]
-    NotAfterViolation,
-
-    #[msg("BurstFrequency or Cooldown tracker account missing from remaining_accounts")]
-    MissingTrackerAccount,
-
-    #[msg("Tracker account key or owner does not match expected PDA")]
-    InvalidTrackerAccount,
 }

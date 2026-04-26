@@ -43,14 +43,19 @@ pub enum Policy {
     /// Policy string: "trana.emergency_toggle"
     EmergencyToggle,
 
-    /// Block execution until `slot` is reached. Pure time gate — no passkey required.
-    /// Returns NotBeforeViolation if Clock.slot < slot.
+    /// Passkey required UNTIL `slot` is reached (current_slot < slot → proof required).
+    /// Once the slot passes, calls proceed freely.
+    /// Use case: new feature requiring manual approval during its rollout window.
     /// Guard reads Clock sysvar directly; the program cannot influence the result.
+    /// Policy string: "trana.not_before"
     NotBefore { slot: u64 },
 
-    /// Block execution after `slot` has passed. Pure time gate — no passkey required.
-    /// Returns NotAfterViolation if Clock.slot > slot.
+    /// Passkey required AFTER `slot` passes (current_slot > slot → proof required).
+    /// Before the slot, calls proceed freely.
+    /// Use case: emergency freeze that auto-activates at a specific slot without
+    /// requiring an explicit pause instruction.
     /// Guard reads Clock sysvar directly; the program cannot influence the result.
+    /// Policy string: "trana.not_after"
     NotAfter { slot: u64 },
 
     /// Require passkey when the calling program attests this recipient has never
@@ -85,18 +90,6 @@ pub enum Policy {
         deposit_threshold:   u64,
         window_secs:         i64,
     },
-
-    /// Require passkey when the number of calls within `window_slots` exceeds `max_calls`.
-    /// Requires a BurstCounter PDA (created via init_burst_counter) as remaining_accounts[0].
-    /// The guard owns the counter — the calling program cannot reset it.
-    /// Policy string: "trana.burst_frequency"
-    BurstFrequency { max_calls: u16, window_slots: u64 },
-
-    /// Require passkey when a call arrives within `min_slots` of the previous call.
-    /// Requires a CooldownTracker PDA (created via init_cooldown_tracker) as remaining_accounts[0].
-    /// The guard owns the tracker — the calling program cannot reset it.
-    /// Policy string: "trana.cooldown"
-    Cooldown { min_slots: u64 },
 
     /// Application-defined policy. The calling program provides the policy string
     /// and optional context bytes for SDK display (e.g. "trana.concentration" with
@@ -134,9 +127,7 @@ pub enum Policy {
 //    trana.authority_change / trana.config_mutation / trana.emergency_toggle — always, semantic label only
 //    trana.not_before      — rejects execution before slot N (no passkey, pure gate)
 //    trana.not_after       — rejects execution after slot N (no passkey, pure gate)
-//    trana.burst_frequency — call count in window exceeds max
-//    trana.cooldown        — call within min_slots of last call
-//
+////
 //  ── Transaction shape (required by the SDK) ───────────────────────────────
 //
 //    ix[N-2]: secp256r1 precompile      — native P-256 sig verify (SIMD-0075)
@@ -245,44 +236,6 @@ pub mod trana {
         Ok(())
     }
 
-    // ── Guard-tracked PDA init instructions ──────────────────────────────────
-
-    /// Initialize a BurstCounter PDA for a (program, discriminator, owner) triple.
-    /// Must be called once before using Policy::BurstFrequency for that combination.
-    /// `discriminator`: 8-byte Anchor discriminator of the instruction to guard.
-    pub fn init_burst_counter(
-        ctx:           Context<InitBurstCounter>,
-        _discriminator: [u8; 8],
-    ) -> Result<()> {
-        let counter               = &mut ctx.accounts.burst_counter;
-        counter.window_start_slot = 0;
-        counter.call_count        = 0;
-        counter.bump              = ctx.bumps.burst_counter;
-        msg!(
-            "TRANA burst_counter init | program={} | owner={}",
-            ctx.accounts.protected_program.key(),
-            ctx.accounts.owner.key(),
-        );
-        Ok(())
-    }
-
-    /// Initialize a CooldownTracker PDA for a (program, discriminator, owner) triple.
-    /// Must be called once before using Policy::Cooldown for that combination.
-    pub fn init_cooldown_tracker(
-        ctx:           Context<InitCooldownTracker>,
-        _discriminator: [u8; 8],
-    ) -> Result<()> {
-        let tracker              = &mut ctx.accounts.cooldown_tracker;
-        tracker.last_called_slot = 0;
-        tracker.bump             = ctx.bumps.cooldown_tracker;
-        msg!(
-            "TRANA cooldown_tracker init | program={} | owner={}",
-            ctx.accounts.protected_program.key(),
-            ctx.accounts.owner.key(),
-        );
-        Ok(())
-    }
-
     // ── Single enforcement entry point ────────────────────────────────────────
     //
     // All policy evaluation happens inside this program — audited once,
@@ -336,11 +289,12 @@ pub mod trana {
             Policy::NotBefore { slot } => {
                 let current_slot = Clock::get()?.slot;
                 if current_slot < slot {
+                    // Passkey required until `slot` is reached. After that, free.
                     msg!(
-                        "TRANA reject | policy=trana.not_before | current={} | required={} | owner={}",
+                        "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    return Err(error!(GuardError::NotBeforeViolation));
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", &fee)?;
                 }
                 Ok(())
             }
@@ -348,11 +302,12 @@ pub mod trana {
             Policy::NotAfter { slot } => {
                 let current_slot = Clock::get()?.slot;
                 if current_slot > slot {
+                    // Passkey required after `slot` has passed. Before it, free.
                     msg!(
-                        "TRANA reject | policy=trana.not_after | current={} | expiry={} | owner={}",
+                        "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    return Err(error!(GuardError::NotAfterViolation));
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", &fee)?;
                 }
                 Ok(())
             }
@@ -411,86 +366,6 @@ pub mod trana {
                         );
                         verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.rapid_drain", &fee)?;
                     }
-                }
-                Ok(())
-            }
-
-            Policy::BurstFrequency { max_calls, window_slots } => {
-                let (protected_program_id, discriminator) =
-                    verify::get_protected_ix_metadata(ix)?;
-
-                require!(!ctx.remaining_accounts.is_empty(), GuardError::MissingTrackerAccount);
-                let tracker_info = &ctx.remaining_accounts[0];
-
-                // Validate PDA ownership + seeds — guard derives expected address,
-                // program cannot substitute a fake account it controls.
-                let (expected_pda, _) = Pubkey::find_program_address(
-                    &[b"burst", protected_program_id.as_ref(), &discriminator, owner_key.as_ref()],
-                    ctx.program_id,
-                );
-                require!(tracker_info.key()    == expected_pda, GuardError::InvalidTrackerAccount);
-                require!(tracker_info.owner    == ctx.program_id, GuardError::InvalidTrackerAccount);
-                require!(tracker_info.is_writable,                GuardError::InvalidTrackerAccount);
-
-                let mut counter: BurstCounter =
-                    BurstCounter::try_deserialize(&mut &tracker_info.try_borrow_data()?[..])?;
-
-                let current_slot = Clock::get()?.slot;
-
-                // Roll window when expired — reset count but preserve window boundary.
-                if current_slot.saturating_sub(counter.window_start_slot) > window_slots {
-                    counter.window_start_slot = current_slot;
-                    counter.call_count        = 0;
-                }
-                counter.call_count = counter.call_count.saturating_add(1);
-
-                // Serialize back before verification — atomically reverts on tx failure.
-                counter.try_serialize(&mut &mut tracker_info.try_borrow_mut_data()?[..])?;
-
-                if counter.call_count > max_calls {
-                    msg!(
-                        "TRANA require | policy=trana.burst_frequency | count={} | max={} | owner={}",
-                        counter.call_count, max_calls, owner_key,
-                    );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.burst_frequency", &fee)?;
-                }
-                Ok(())
-            }
-
-            Policy::Cooldown { min_slots } => {
-                let (protected_program_id, discriminator) =
-                    verify::get_protected_ix_metadata(ix)?;
-
-                require!(!ctx.remaining_accounts.is_empty(), GuardError::MissingTrackerAccount);
-                let tracker_info = &ctx.remaining_accounts[0];
-
-                let (expected_pda, _) = Pubkey::find_program_address(
-                    &[b"cooldown", protected_program_id.as_ref(), &discriminator, owner_key.as_ref()],
-                    ctx.program_id,
-                );
-                require!(tracker_info.key()    == expected_pda, GuardError::InvalidTrackerAccount);
-                require!(tracker_info.owner    == ctx.program_id, GuardError::InvalidTrackerAccount);
-                require!(tracker_info.is_writable,                GuardError::InvalidTrackerAccount);
-
-                let mut tracker: CooldownTracker =
-                    CooldownTracker::try_deserialize(&mut &tracker_info.try_borrow_data()?[..])?;
-
-                let current_slot = Clock::get()?.slot;
-
-                // Save previous slot BEFORE updating — then check against the old value.
-                let last = tracker.last_called_slot;
-                tracker.last_called_slot = current_slot;
-                tracker.try_serialize(&mut &mut tracker_info.try_borrow_mut_data()?[..])?;
-
-                let slots_since = current_slot.saturating_sub(last);
-
-                // last == 0 means first call ever — allow without passkey.
-                if last != 0 && slots_since < min_slots {
-                    msg!(
-                        "TRANA require | policy=trana.cooldown | slots_since={} | min={} | owner={}",
-                        slots_since, min_slots, owner_key,
-                    );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.cooldown", &fee)?;
                 }
                 Ok(())
             }
