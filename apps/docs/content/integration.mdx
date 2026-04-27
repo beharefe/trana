@@ -1,0 +1,178 @@
+# Integration
+
+Full reference for integrating Trana into a Solana Anchor program and a React frontend.
+
+---
+
+## Onchain — Rust / Anchor
+
+### 1. Add the dependency
+
+`Cargo.toml`:
+
+```toml
+[dependencies]
+anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
+trana-guard = { version = "0.1", features = ["cpi"] }
+```
+
+### 2. Import
+
+```rust
+use trana_guard::cpi::accounts::Enforce;
+use trana_guard::program::TranaGuard;
+```
+
+### 3. Add three accounts to your instruction struct
+
+```rust
+#[derive(Accounts)]
+pub struct YourProtectedAction<'info> {
+    // --- your existing accounts ---
+    #[account(mut, has_one = owner)]
+    pub your_state: Account<'info, YourState>,
+    pub owner: Signer<'info>,
+
+    // --- Trana: 3 accounts ---
+    pub guard_program: Program<'info, TranaGuard>,
+
+    #[account(
+        mut,
+        seeds  = [b"2fa", owner.key().as_ref()],
+        bump,
+        seeds::program = guard_program.key(),
+        constraint = trana_registry.enabled @ YourError::PasskeyNotRegistered,
+    )]
+    pub trana_registry: Account<'info, trana_guard::TwoFactorRegistry>,
+
+    /// CHECK: Instructions sysvar
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub trana_instructions: UncheckedAccount<'info>,
+}
+```
+
+### 4. Call enforce
+
+```rust
+pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> Result<()> {
+    trana_guard::cpi::enforce(
+        CpiContext::new(
+            ctx.accounts.guard_program.to_account_info(),
+            Enforce {
+                registry:            ctx.accounts.trana_registry.to_account_info(),
+                instructions_sysvar: ctx.accounts.trana_instructions.to_account_info(),
+            },
+        ),
+        trana_guard::Policy::default(), // or a specific policy
+    )?;
+
+    // your logic here — only runs if passkey verified
+    Ok(())
+}
+```
+
+### Policies
+
+The `Policy` enum controls when enforcement is required:
+
+```rust
+// Always require passkey
+Policy::Always
+
+// Require passkey when a u64 param at `param_offset` bytes exceeds `threshold`
+Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 }
+
+// No enforcement (useful for gradual rollout)
+Policy::Never
+```
+
+---
+
+## TypeScript SDK
+
+### Installation
+
+```bash
+npm install @trana/sdk
+# or
+pnpm add @trana/sdk
+```
+
+### Provider setup
+
+```tsx
+import { TranaProvider, TranaModal } from "@trana/sdk"
+import { PublicKey } from "@solana/web3.js"
+
+const GUARD = new PublicKey("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6")
+
+function App({ children }: { children: React.ReactNode }) {
+  return (
+    <TranaProvider config={{ guardProgramId: GUARD, cluster: "devnet" }}>
+      {children}
+      <TranaModal />
+    </TranaProvider>
+  )
+}
+```
+
+### useTrana hook
+
+```tsx
+import { useTrana } from "@trana/sdk"
+
+const { authorizeAndSend, isRegistered, register } = useTrana()
+```
+
+| Property | Type | Description |
+|---|---|---|
+| `authorizeAndSend` | `(opts) => Promise<string>` | Build intent → passkey approval → send. Returns signature. |
+| `isRegistered` | `boolean` | Whether the current wallet has a registered passkey. |
+| `register` | `() => Promise<void>` | Explicitly trigger passkey registration. |
+
+### authorizeAndSend options
+
+```ts
+await authorizeAndSend({
+  // Describes the action to the passkey device (becomes the WebAuthn challenge)
+  buildIntent: () => ({
+    targetProgramId:          PublicKey,   // program being called
+    instructionDiscriminator: Uint8Array,  // first 8 bytes of instruction data
+    accounts:                 PublicKey[], // accounts in the protected instruction
+    params:                   Uint8Array,  // raw instruction params (after discriminator)
+    label:                    string,      // shown in the approval modal
+  }),
+
+  // Called after passkey approval — builds the actual transaction
+  buildTransaction: async ({ recentBlockhash }) => Transaction,
+})
+```
+
+### Low-level: manual proof injection
+
+If you need direct control over the transaction structure:
+
+```ts
+import { buildSecp256r1Ix, buildRecordProofIx, buildWebAuthnMessage } from "@trana/sdk"
+
+// After receiving WebAuthn assertion:
+const eValue    = buildWebAuthnMessage(authenticatorData, clientDataJSON)
+const secp256r1 = buildSecp256r1Ix(pubkeyBytes, compactSig, eValue)
+const proof     = buildRecordProofIx(authenticatorData, clientDataJSON, expiry, cluster, policy)
+
+// Prepend to your transaction:
+tx.instructions.unshift(proof, secp256r1) // ix[0]=secp, ix[1]=proof, ix[2]=your ix
+```
+
+---
+
+## Error reference
+
+| Error code | Meaning |
+|---|---|
+| `MissingProof` | No `record_proof` instruction found two positions before the protected instruction |
+| `ProofExpired` | The proof's expiry timestamp is in the past (default window: 120s) |
+| `WrongSigner` | The public key in the secp256r1 instruction doesn't match the registry |
+| `PayloadMismatch` | The intent hash doesn't match — accounts, params, or nonce changed after approval |
+| `RegistryDisabled` | The user's `TwoFactorRegistry` has `enabled = false` |
+| `PasskeyNotRegistered` | No registry PDA found for this wallet |

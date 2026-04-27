@@ -1,0 +1,46 @@
+# Trana
+
+Trana adds a WebAuthn second factor to any Solana Anchor program — verified onchain at execution time, with no backend required.
+
+> Any instruction that calls `guard::cpi::enforce()` cannot execute unless the wallet's registered passkey signed a hash that exactly describes this transaction.
+
+## What it does
+
+Traditional wallet signing is all-or-nothing. If a transaction is signed, it executes — regardless of when, or by whom the broadcast was triggered.
+
+Trana adds a second check **inside the program itself** at the moment of execution. The check verifies a fresh passkey approval tied to the exact transaction. It defeats:
+
+- Pre-signed transactions held by attackers
+- Clipboard hijacking (wrong destination address)
+- Malicious dApp frontends swapping amounts
+- Compromised RPC nodes replaying old proofs
+
+## How it works
+
+```
+ix[0]:  secp256r1 precompile   ← Solana verifies the P-256 signature natively
+ix[1]:  guard::record_proof    ← carries WebAuthn authenticatorData + clientDataJSON
+ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
+```
+
+The guard reads `ix[0]` and `ix[1]` from the Instructions sysvar at the moment `ix[2]` executes. If the proof is missing, expired, or tampered — the entire transaction reverts.
+
+The Solana runtime guarantees atomicity: all three instructions succeed or all fail. There is no way to get `ix[2]` to land without `ix[0]` and `ix[1]`.
+
+## Key facts
+
+| | |
+|---|---|
+| Guard program (devnet) | `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6` |
+| Onchain verification | SIMD-0075 secp256r1 precompile (mainnet since Feb 2025) |
+| Backend required | None — credentials stored in a PDA on-chain |
+| Supported devices | Touch ID, Face ID, YubiKey, Google Titan, Windows Hello |
+| Integration cost | 3 extra accounts + 1 CPI call + 1 React hook |
+| Proof expiry | 120 seconds (configurable) |
+
+## Get started
+
+→ [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps  
+→ [Integration](/docs/integration) — full Rust/Anchor + SDK reference  
+→ [Architecture](/docs/architecture) — how the three layers fit together  
+→ [Glossary](/docs/glossary) — definitions for every technical term

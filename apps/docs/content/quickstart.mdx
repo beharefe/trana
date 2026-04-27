@@ -1,0 +1,145 @@
+# Quickstart
+
+Three accounts. One CPI call. That's the entire integration.
+
+Trana works with any Anchor program and any FIDO2 device: passkeys (Touch ID, Face ID, iCloud Keychain), YubiKey, Google Titan, Windows Hello.
+
+**Guard program ID (devnet):** `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6`
+
+---
+
+## Step 1 — Add the Guard as a CPI dependency
+
+In your program's `Cargo.toml`:
+
+```toml
+[dependencies]
+anchor-lang = "0.30"
+trana-guard = { version = "0.1", features = ["cpi"] }
+```
+
+## Step 2 — Add the enforce CPI to your instruction
+
+```rust
+use trana_guard::cpi::accounts::Enforce;
+use trana_guard::program::TranaGuard;
+use trana_guard::Policy;
+
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    // ... your existing accounts ...
+
+    pub guard_program: Program<'info, TranaGuard>,
+
+    #[account(
+        mut,
+        seeds = [b"2fa", owner.key().as_ref()],
+        bump,
+        seeds::program = guard_program.key(),
+    )]
+    pub two_factor_registry: Account<'info, trana_guard::TwoFactorRegistry>,
+
+    /// CHECK: Instructions sysvar — required by the guard
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+}
+
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    trana_guard::cpi::enforce(
+        CpiContext::new(
+            ctx.accounts.guard_program.to_account_info(),
+            Enforce {
+                registry:            ctx.accounts.two_factor_registry.to_account_info(),
+                instructions_sysvar: ctx.accounts.instructions_sysvar.to_account_info(),
+            },
+        ),
+        Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 },
+    )?;
+
+    // your withdrawal logic here
+    Ok(())
+}
+```
+
+That's the entire program-side integration.
+
+## Step 3 — Install the SDK
+
+```bash
+npm install @trana/sdk
+```
+
+## Step 4 — Wrap your app with TranaProvider
+
+```tsx
+import { TranaProvider, TranaModal } from "@trana/sdk"
+import { PublicKey } from "@solana/web3.js"
+
+const GUARD_PROGRAM_ID = new PublicKey("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6")
+
+export default function App({ children }: { children: React.ReactNode }) {
+  return (
+    <TranaProvider config={{ guardProgramId: GUARD_PROGRAM_ID, cluster: "devnet" }}>
+      {children}
+      <TranaModal />
+    </TranaProvider>
+  )
+}
+```
+
+## Step 5 — Call authorizeAndSend
+
+Replace your existing `sendTransaction` with `authorizeAndSend`:
+
+```tsx
+import { useTrana } from "@trana/sdk"
+
+export function WithdrawButton({ vaultPda, amount }: Props) {
+  const { authorizeAndSend } = useTrana()
+  const { publicKey } = useWallet()
+
+  async function handleWithdraw() {
+    const lamports = BigInt(Math.floor(amount * 1e9))
+
+    await authorizeAndSend({
+      buildIntent: () => ({
+        targetProgramId:          MY_VAULT_PROGRAM_ID,
+        instructionDiscriminator: WITHDRAW_DISCRIMINATOR,
+        accounts:                 [vaultPda, publicKey!],
+        params:                   u64LE(lamports),
+        label:                    `Withdraw ${amount} SOL`,
+      }),
+      buildTransaction: async ({ recentBlockhash }) => {
+        const tx = new Transaction({ recentBlockhash, feePayer: publicKey! })
+        tx.add(buildWithdrawIx(vaultPda, publicKey!, lamports))
+        return tx
+      },
+    })
+  }
+
+  return <button onClick={handleWithdraw}>Withdraw</button>
+}
+```
+
+The SDK handles the rest: simulates the transaction to detect which policy fires, lazily registers the passkey on first use, shows a confirmation modal, prompts Touch ID / YubiKey, constructs the secp256r1 + record_proof instructions, and retries on blockhash expiry.
+
+## What lands onchain
+
+```
+ix[0]: secp256r1 precompile    ← Solana validates this P-256 signature natively
+ix[1]: guard::record_proof     ← carries WebAuthn authenticatorData + intent binding
+ix[2]: your_program::withdraw  → calls guard::cpi::enforce() internally
+```
+
+## Supported FIDO2 devices
+
+Any WebAuthn authenticator using P-256 (COSE algorithm ES256 / -7):
+
+| Device | Notes |
+|---|---|
+| Touch ID (Mac, iPhone) | Synced via iCloud Keychain |
+| Face ID (iPhone, iPad) | Synced via iCloud Keychain |
+| Android biometric | Synced via Google Password Manager |
+| YubiKey 5 series | Hardware-bound, not synced |
+| Google Titan | Hardware-bound |
+| Windows Hello | Platform authenticator |

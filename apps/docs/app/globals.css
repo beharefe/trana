@@ -1,0 +1,17 @@
+:root {
+  --nextra-primary-hue: 145deg;
+  --nextra-primary-saturation: 75%;
+}
+
+html {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: rgba(122, 240, 168, 0.2);
+  color: #7af0a8;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
