@@ -104,7 +104,7 @@ When `enforce()` is called:
 7. **Compare with WebAuthn clientDataHash.** The passkey signs `SHA-256(authenticatorData || clientDataJSON)`, where `clientDataJSON` contains the challenge (= intent hash). Verify they match.
 8. **Verify secp256r1 signature.** Read the public key and signature offsets from the precompile instruction. Confirm the pubkey matches the registry. Confirm the signature is valid over the WebAuthn message.
 9. **Check expiry.** Reject if `Clock::get().unix_timestamp >= proof.expiry_unix`.
-10. **Evaluate policy.** Check policy conditions (Threshold, Velocity, RapidDrain, Always, Admin). If condition not met: noop. If met and proof valid: enforce.
+10. **Evaluate policy.** Check policy conditions (Limit, Velocity, RapidDrain, NotBefore, NotAfter, BurstFrequency, Cooldown, Require, Custom). If condition not met: noop. If met and proof valid: enforce.
 11. **Increment nonce.** Write `registry.nonce += 1` to prevent replay.
 12. **Emit ProofVerified event.** Policy, target program, nonce — permanent onchain audit trail.
 

@@ -534,9 +534,9 @@ render: () => (
         </p>
         <div className="space-y-3 sm:space-y-4 mt-auto">
           {[
-            { policy: "::Threshold", desc: "Require approval when an amount exceeds a limit." },
-            { policy: "::Admin",     desc: "Require approval for privileged or irreversible instructions." },
-            { policy: "::Always",    desc: "Require approval on every execution, no exceptions." },
+            { policy: "::Limit",    desc: "Require approval when a transaction amount exceeds a threshold." },
+            { policy: "::NotBefore", desc: "Require approval until a specific slot — governance windows, upgrade delays." },
+            { policy: "::Require",   desc: "Require approval on every execution, no conditions, no exceptions." },
           ].map(({ policy, desc }) => (
             <div key={policy} className="flex items-center gap-6 sm:gap-10 border border-border bg-card rounded-2xl px-6 sm:px-8 py-5 sm:py-6">
               <span className="font-mono text-xl sm:text-2xl font-medium text-ink shrink-0">{policy}</span>

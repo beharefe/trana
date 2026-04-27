@@ -3,13 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --bg:       #F7F6F3;
-  --bg-card:  #EEECEA;
-  --fg:       #111111;
-  --fg-muted: #5C5855;
-  --fg-faint: #9E9A96;
-  --border:   #D8D4CE;
-  --accent:   #16A34A;
+  --bg:       #08090b;
+  --bg-card:  #0d0e11;
+  --fg:       #f4f4f5;
+  --fg-muted: #a1a1aa;
+  --fg-faint: #71717a;
+  --border:   rgba(255,255,255,0.08);
+  --border-2: rgba(255,255,255,0.14);
+  --accent:   #7af0a8;
+  --coral:    #ff7a59;
+  --violet:   #b794ff;
+  --danger:   #ff5560;
+  --sky:      #7aa8ff;
+  --gold:     #f3d77a;
+  --code-bg:  #0f1013;
 }
 
 * {
@@ -23,16 +30,15 @@ html {
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: "Inter", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 ::selection {
-  background: #16A34A20;
-  color: #16A34A;
+  background: rgba(122, 240, 168, 0.2);
+  color: #7af0a8;
 }
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }

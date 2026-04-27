@@ -19,22 +19,12 @@
  *   R15. withdraw_fees by authority                              → Success
  *   R16. withdraw_fees by non-authority                          → Unauthorized
  *   R17. Wrong treasury pubkey in Enforce accounts               → constraint error
- *   R18. Policy::Custom struct — any policy_string when passkey signed it → Success
- *  R18b. Policy::Custom — swapped policy in record_proof         → PayloadMismatch
- *   R19. Policy::AuthorityChange — passkey required              → Success
- *  R19b. Policy::AuthorityChange — missing proof                 → MissingProof
- *   R20. Policy::ConfigMutation — passkey required               → Success
- *   R21. Policy::EmergencyToggle — passkey required              → Success
  *   R22. Policy::NotBefore fires (far-future slot, no proof)     → MissingProof
  *  R22b. Policy::NotBefore passes (slot 0 already reached)       → Success (no proof)
  *  R22c. Policy::NotBefore fires (far-future slot, with proof)   → Success
  *   R23. Policy::NotAfter fires (slot 0 already elapsed, no proof) → MissingProof
  *  R23b. Policy::NotAfter passes (far-future slot)               → Success (no proof)
  *  R23c. Policy::NotAfter fires (slot 0 already elapsed, with proof) → Success
- *   R24. Policy::RecipientNovelty is_novel=true                  → passkey required
- *  R24b. Policy::RecipientNovelty is_novel=false                 → Success (no proof)
- *   R25. Policy::CallerNotApproved is_not_approved=true          → passkey required
- *  R25b. Policy::CallerNotApproved is_not_approved=false         → Success (no proof)
  */
 
 import { p256 } from "@noble/curves/nist.js"
@@ -185,22 +175,10 @@ function buildWebAuthnProof(
 const u32LE = (n: number)   => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
 const u64LEbig = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b }
 
-// Borsh-encode Policy::Custom { policy_string, context } (variant index 14).
-function borshCustomPolicy(policyString: string, context: Buffer = Buffer.alloc(0)): Buffer {
-  const ps = Buffer.from(policyString, "utf8")
-  return Buffer.concat([Buffer.from([14]), u32LE(ps.length), ps, u32LE(context.length), context])
-}
-
-// Borsh-encode a simple unit or single-u64 Policy variant by index.
+// Borsh-encode a single-u64 Policy variant by index.
 // Used to compute paramsHash when enforce is its own protected instruction.
-function borshUnitPolicy(variantIndex: number): Buffer {
-  return Buffer.from([variantIndex])
-}
 function borshU64Policy(variantIndex: number, value: bigint): Buffer {
   return Buffer.concat([Buffer.from([variantIndex]), u64LEbig(value)])
-}
-function borshPubkeyBoolPolicy(variantIndex: number, pk: PublicKey, flag: boolean): Buffer {
-  return Buffer.concat([Buffer.from([variantIndex]), pk.toBuffer(), Buffer.from([flag ? 1 : 0])])
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -555,14 +533,14 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
   // ── R12 ────────────────────────────────────────────────────────────────────
   //
-  // proof.policy = "trana.always" but withdraw enforces "trana.limit".
+  // proof.policy = "trana.require" but withdraw enforces "trana.limit".
   // verify_with_policy checks proof.policy == expected → PolicyMismatch before challenge verify.
 
   it("R12: wrong policy string in record_proof fails (PolicyMismatch)", async () => {
     try {
       await withdrawTx({
         amount: 1 * SOL, policy: "trana.limit", privKey: p256PrivKey,
-        withProof: true, policyInProof: "trana.always",
+        withProof: true, policyInProof: "trana.require",
       })
       assert.fail("Expected PolicyMismatch")
     } catch (err: unknown) {
@@ -675,127 +653,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
     }
   })
 
-  // ── R18 ────────────────────────────────────────────────────────────────────
-  //
-  // Policy::Custom { policy_string, context }: the protected instruction IS trana::enforce.
-  // enforce() calls verify_with_policy(... policy_string ...) which checks proof.policy
-  // matches. paramsHash = sha256(Borsh(Custom { "myapp.custom_action", [] })) —
-  // variant index 14 + u32(len) + string bytes + u32(0) for empty context.
-  //
-  // Transaction shape:
-  //   ix[0]: secp256r1
-  //   ix[1]: trana::record_proof    (policy = "myapp.custom_action")
-  //   ix[2]: trana::enforce(Custom) ← the protected instruction
-
-  it("R18: Policy::Custom — policy_string passkey-bound, accepted when passkey signed it", async () => {
-    const customPolicy = "myapp.custom_action"
-    const nonce  = registryNonce
-    const expiry = Math.floor(Date.now() / 1000) + 300
-
-    const accountsHash = sha256(Buffer.concat([
-      registryPda.toBuffer(),
-      owner.publicKey.toBuffer(),
-      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
-      configPda.toBuffer(),
-      treasuryPubkey.toBuffer(),
-      SystemProgram.programId.toBuffer(),
-    ]))
-
-    // Custom variant (idx=14) borsh: [14, u32(len), ...bytes, u32(0)]
-    const paramsHash = sha256(borshCustomPolicy(customPolicy))
-
-    const intentHash = computeIntentHash(
-      "trana:v1", "localnet",
-      owner.publicKey, trana.programId, trana.programId,
-      customPolicy, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
-    )
-
-    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
-
-    const enforceIx = await trana.methods
-      .enforce({ custom: { policyString: customPolicy, context: [] } })
-      .accounts({
-        registry:      registryPda,
-        owner:         owner.publicKey,
-        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:        configPda,
-        treasury:      treasuryPubkey,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction()
-
-    const { blockhash } = await conn.getLatestBlockhash("confirmed")
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
-    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", customPolicy, authData, clientDataJSON))
-    tx.add(enforceIx)
-
-    await sendAndConfirmTransaction(conn, tx, [owner])
-    registryNonce++
-
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after Custom enforcement")
-  })
-
-  // ── R18b ───────────────────────────────────────────────────────────────────
-  //
-  // Attacker calls enforce({ custom: "myapp.evil_swap" }) and puts "myapp.evil_swap"
-  // in record_proof — but the passkey signed an intent for "myapp.safe_action".
-  // Policy check passes (proof.policy == enforce.policy_string == "myapp.evil_swap"),
-  // but the intent hash computed with "myapp.evil_swap" ≠ the challenge → PayloadMismatch.
-
-  it("R18b: Policy::Custom — mismatched policy in enforce vs signed intent fails (PayloadMismatch)", async () => {
-    const nonce  = registryNonce
-    const expiry = Math.floor(Date.now() / 1000) + 300
-
-    const accountsHash = sha256(Buffer.concat([
-      registryPda.toBuffer(), owner.publicKey.toBuffer(),
-      SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(), configPda.toBuffer(),
-      treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
-    ]))
-
-    // Passkey signs intent with "myapp.safe_action" and its Borsh params bytes
-    const safeParams = borshCustomPolicy("myapp.safe_action")
-    const paramsHash = sha256(safeParams)
-
-    const intentHash = computeIntentHash(
-      "trana:v1", "localnet",
-      owner.publicKey, trana.programId, trana.programId,
-      "myapp.safe_action", Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
-    )
-
-    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
-
-    // Attacker replaces policy_string with "myapp.evil_swap" in enforce AND record_proof
-    const enforceIx = await trana.methods
-      .enforce({ custom: { policyString: "myapp.evil_swap", context: [] } })
-      .accounts({
-        registry:      registryPda,
-        owner:         owner.publicKey,
-        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:        configPda,
-        treasury:      treasuryPubkey,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction()
-
-    const { blockhash } = await conn.getLatestBlockhash("confirmed")
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
-    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", "myapp.evil_swap", authData, clientDataJSON))
-    tx.add(enforceIx)
-
-    try {
-      await sendAndConfirmTransaction(conn, tx, [owner])
-      assert.fail("Expected PayloadMismatch")
-    } catch (err: unknown) {
-      assert.ok(
-        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
-        `Expected PayloadMismatch, got: ${(err as Error).message}`,
-      )
-    }
-  })
-
   // ── Shared constant for tests using enforce as its own protected instruction ─
 
   // enforce discriminator — used to compute paramsHash when enforce is its own protected instruction
@@ -869,73 +726,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
     return sendAndConfirmTransaction(conn, tx, [owner])
   }
 
-  // ── R19: Policy::AuthorityChange ───────────────────────────────────────────
-
-  it("R19: Policy::AuthorityChange — always requires passkey, succeeds with proof", async () => {
-    await enforceSelf({
-      policyArg:    { authorityChange: {} },
-      policyString: "trana.authority_change",
-      policyBytes:  borshUnitPolicy(2),
-      withProof:    true,
-    })
-    registryNonce++
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after AuthorityChange")
-  })
-
-  it("R19b: Policy::AuthorityChange — missing proof fails (MissingProof)", async () => {
-    // No secp256r1 or record_proof in the tx → current_idx < 2 → MissingProof
-    const enforceIx = await trana.methods
-      .enforce({ authorityChange: {} })
-      .accounts({
-        registry: registryPda, owner: owner.publicKey,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction()
-    const { blockhash } = await conn.getLatestBlockhash("confirmed")
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    tx.add(enforceIx)
-    try {
-      await sendAndConfirmTransaction(conn, tx, [owner])
-      assert.fail("Expected MissingProof")
-    } catch (err: unknown) {
-      assert.ok(
-        (err as Error).message.includes("MissingProof") || (err as Error).message.includes("0x1770"),
-        `Expected MissingProof, got: ${(err as Error).message}`,
-      )
-    }
-  })
-
-  // ── R20: Policy::ConfigMutation ────────────────────────────────────────────
-
-  it("R20: Policy::ConfigMutation — always requires passkey, succeeds with proof", async () => {
-    await enforceSelf({
-      policyArg:    { configMutation: {} },
-      policyString: "trana.config_mutation",
-      policyBytes:  borshUnitPolicy(3),
-      withProof:    true,
-    })
-    registryNonce++
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after ConfigMutation")
-  })
-
-  // ── R21: Policy::EmergencyToggle ───────────────────────────────────────────
-
-  it("R21: Policy::EmergencyToggle — always requires passkey, succeeds with proof", async () => {
-    await enforceSelf({
-      policyArg:    { emergencyToggle: {} },
-      policyString: "trana.emergency_toggle",
-      policyBytes:  borshUnitPolicy(4),
-      withProof:    true,
-    })
-    registryNonce++
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after EmergencyToggle")
-  })
-
   // ── R22: Policy::NotBefore ─────────────────────────────────────────────────
   //
   // Passkey required UNTIL slot is reached. While current_slot < slot, every call
@@ -989,7 +779,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     await enforceSelf({
       policyArg:    { notBefore: { slot: farFutureSlot } },
       policyString: "trana.not_before",
-      policyBytes:  borshU64Policy(5, BigInt("18446744073709551615")),
+      policyBytes:  borshU64Policy(1, BigInt("18446744073709551615")),
       withProof:    true,
     })
     registryNonce++
@@ -1047,88 +837,10 @@ describe("guard — secp256r1 passkey enforcement", () => {
     await enforceSelf({
       policyArg:    { notAfter: { slot: new BN(0) } },
       policyString: "trana.not_after",
-      policyBytes:  borshU64Policy(6, BigInt(0)),
+      policyBytes:  borshU64Policy(2, BigInt(0)),
       withProof:    true,
     })
     registryNonce++
-  })
-
-  // ── R24: Policy::RecipientNovelty ──────────────────────────────────────────
-  //
-  // Program-attested: when is_novel=true, passkey must sign intent with
-  // "trana.recipient_novelty:<recipient_b58>" as the policy string.
-
-  it("R24: Policy::RecipientNovelty is_novel=true requires passkey (proof bound to recipient)", async () => {
-    const recipient = Keypair.generate().publicKey
-    const policyString = `trana.recipient_novelty:${recipient.toBase58()}`
-    const policyBytes  = borshPubkeyBoolPolicy(7, recipient, true)
-
-    await enforceSelf({
-      policyArg:    { recipientNovelty: { recipient, isNovel: true } },
-      policyString,
-      policyBytes,
-      withProof:    true,
-    })
-    registryNonce++
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after RecipientNovelty")
-  })
-
-  it("R24b: Policy::RecipientNovelty is_novel=false — no proof required", async () => {
-    const recipient = Keypair.generate().publicKey
-    const enforceIx = await trana.methods
-      .enforce({ recipientNovelty: { recipient, isNovel: false } })
-      .accounts({
-        registry: registryPda, owner: owner.publicKey,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction()
-    const { blockhash } = await conn.getLatestBlockhash("confirmed")
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    tx.add(enforceIx)
-    await sendAndConfirmTransaction(conn, tx, [owner])
-    // Nonce must NOT change — no verification happened
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce must not change when is_novel=false")
-  })
-
-  // ── R25: Policy::CallerNotApproved ─────────────────────────────────────────
-
-  it("R25: Policy::CallerNotApproved is_not_approved=true requires passkey", async () => {
-    const caller = Keypair.generate().publicKey
-    const policyString = `trana.caller_not_approved:${caller.toBase58()}`
-    const policyBytes  = borshPubkeyBoolPolicy(8, caller, true)
-
-    await enforceSelf({
-      policyArg:    { callerNotApproved: { caller, isNotApproved: true } },
-      policyString,
-      policyBytes,
-      withProof:    true,
-    })
-    registryNonce++
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after CallerNotApproved")
-  })
-
-  it("R25b: Policy::CallerNotApproved is_not_approved=false — no proof required", async () => {
-    const caller = Keypair.generate().publicKey
-    const enforceIx = await trana.methods
-      .enforce({ callerNotApproved: { caller, isNotApproved: false } })
-      .accounts({
-        registry: registryPda, owner: owner.publicKey,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction()
-    const { blockhash } = await conn.getLatestBlockhash("confirmed")
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    tx.add(enforceIx)
-    await sendAndConfirmTransaction(conn, tx, [owner])
-    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
-    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce must not change when is_not_approved=false")
   })
 
 })

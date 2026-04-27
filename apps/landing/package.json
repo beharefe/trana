@@ -12,6 +12,8 @@
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^16.2.4",
+    "@types/animejs": "^3.1.13",
+    "animejs": "^3.2.2",
     "framer-motion": "^11.0.0",
     "next": "16.2.2",
     "react": "^19.0.0",
