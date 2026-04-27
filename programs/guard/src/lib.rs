@@ -184,6 +184,10 @@ pub mod trana {
     pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         let treasury_info = ctx.accounts.treasury.to_account_info();
         let dest_info     = ctx.accounts.destination.to_account_info();
+        require!(
+            amount <= **treasury_info.try_borrow_lamports()?,
+            GuardError::InsufficientFunds
+        );
         **treasury_info.try_borrow_mut_lamports()? -= amount;
         **dest_info.try_borrow_mut_lamports()?     += amount;
         msg!("TRANA fees withdrawn | amount={} | destination={}", amount, ctx.accounts.destination.key());

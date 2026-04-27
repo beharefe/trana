@@ -62,37 +62,6 @@ pub fn read_u64_from_protected_ix(
 }
 
 // ── Core verification ─────────────────────────────────────────────────────────
-//
-// Two entry points:
-//
-//   verify_from_proof(...)   — used by enforce().
-//                              Reads policy string from proof data.
-//                              Application defines the policy string.
-//
-//   verify_with_policy(...)  — used by enforce_threshold / enforce_velocity etc.
-//                              Policy string is hardcoded by the standard instruction.
-//                              Verifies proof.policy matches — rejects mismatches.
-//                              This is what makes standard policies trustless.
-
-/// Called by `enforce()`. Reads the policy string from the proof.
-/// Use this for application-defined policies.
-pub fn verify_from_proof<'info>(
-    ix_sysvar:        &AccountInfo<'info>,
-    registry:         &mut TwoFactorRegistry,
-    owner:            &Pubkey,
-    guard_program_id: &Pubkey,
-    fee:              &FeeAccounts<'_, 'info>,
-) -> Result<()> {
-    let current_idx = load_current_index_checked(ix_sysvar)
-        .map_err(|_| error!(GuardError::InvalidProof))?;
-    if current_idx < 2 {
-        msg!("TRANA_MISSING_PROOF");
-        return Err(error!(GuardError::MissingProof));
-    }
-    let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
-    let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy, fee)
-}
 
 pub fn verify_with_policy<'info>(
     ix_sysvar:        &AccountInfo<'info>,
@@ -348,8 +317,8 @@ fn base64url_decode(input: &[u8]) -> Option<Vec<u8>> {
             b'A'..=b'Z' => (c - b'A') as u32,
             b'a'..=b'z' => (c - b'a') as u32 + 26,
             b'0'..=b'9' => (c - b'0') as u32 + 52,
-            b'-' | b'+' => 62,
-            b'_' | b'/' => 63,
+            b'-' => 62,
+            b'_' => 63,
             b'='         => continue,
             _            => return None,
         };
