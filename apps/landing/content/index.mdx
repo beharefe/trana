@@ -25,8 +25,6 @@ ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
 
 The guard reads `ix[0]` and `ix[1]` from the Instructions sysvar at the moment `ix[2]` executes. If the proof is missing, expired, or tampered — the entire transaction reverts.
 
-The Solana runtime guarantees atomicity: all three instructions succeed or all fail. There is no way to get `ix[2]` to land without `ix[0]` and `ix[1]`.
-
 ## Key facts
 
 | | |
@@ -36,11 +34,11 @@ The Solana runtime guarantees atomicity: all three instructions succeed or all f
 | Backend required | None — credentials stored in a PDA on-chain |
 | Supported devices | Touch ID, Face ID, YubiKey, Google Titan, Windows Hello |
 | Integration cost | 3 extra accounts + 1 CPI call + 1 React hook |
-| Proof expiry | 120 seconds (configurable) |
+| Proof expiry | 120 seconds |
 
 ## Get started
 
-→ [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps  
-→ [Integration](/docs/integration) — full Rust/Anchor + SDK reference  
-→ [Architecture](/docs/architecture) — how the three layers fit together  
-→ [Glossary](/docs/glossary) — definitions for every technical term
+- [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps
+- [Integration](/docs/integration) — full Rust/Anchor + SDK reference
+- [Architecture](/docs/architecture) — how the three layers fit together
+- [Glossary](/docs/glossary) — definitions for every technical term

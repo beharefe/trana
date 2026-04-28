@@ -63,7 +63,7 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
                 instructions_sysvar: ctx.accounts.trana_instructions.to_account_info(),
             },
         ),
-        trana_guard::Policy::default(), // or a specific policy
+        trana_guard::Policy::default(),
     )?;
 
     // your logic here — only runs if passkey verified
@@ -73,17 +73,10 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
 
 ### Policies
 
-The `Policy` enum controls when enforcement is required:
-
 ```rust
-// Always require passkey
-Policy::Always
-
-// Require passkey when a u64 param at `param_offset` bytes exceeds `threshold`
-Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 }
-
-// No enforcement (useful for gradual rollout)
-Policy::Never
+Policy::Always                                              // always require passkey
+Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 } // >= 1 SOL
+Policy::Never                                               // no enforcement
 ```
 
 ---
@@ -119,8 +112,6 @@ function App({ children }: { children: React.ReactNode }) {
 ### useTrana hook
 
 ```tsx
-import { useTrana } from "@trana/sdk"
-
 const { authorizeAndSend, isRegistered, register } = useTrana()
 ```
 
@@ -134,45 +125,26 @@ const { authorizeAndSend, isRegistered, register } = useTrana()
 
 ```ts
 await authorizeAndSend({
-  // Describes the action to the passkey device (becomes the WebAuthn challenge)
   buildIntent: () => ({
-    targetProgramId:          PublicKey,   // program being called
-    instructionDiscriminator: Uint8Array,  // first 8 bytes of instruction data
-    accounts:                 PublicKey[], // accounts in the protected instruction
-    params:                   Uint8Array,  // raw instruction params (after discriminator)
+    targetProgramId:          PublicKey,
+    instructionDiscriminator: Uint8Array,  // first 8 bytes of ix data
+    accounts:                 PublicKey[],
+    params:                   Uint8Array,  // raw params after discriminator
     label:                    string,      // shown in the approval modal
   }),
-
-  // Called after passkey approval — builds the actual transaction
   buildTransaction: async ({ recentBlockhash }) => Transaction,
 })
-```
-
-### Low-level: manual proof injection
-
-If you need direct control over the transaction structure:
-
-```ts
-import { buildSecp256r1Ix, buildRecordProofIx, buildWebAuthnMessage } from "@trana/sdk"
-
-// After receiving WebAuthn assertion:
-const eValue    = buildWebAuthnMessage(authenticatorData, clientDataJSON)
-const secp256r1 = buildSecp256r1Ix(pubkeyBytes, compactSig, eValue)
-const proof     = buildRecordProofIx(authenticatorData, clientDataJSON, expiry, cluster, policy)
-
-// Prepend to your transaction:
-tx.instructions.unshift(proof, secp256r1) // ix[0]=secp, ix[1]=proof, ix[2]=your ix
 ```
 
 ---
 
 ## Error reference
 
-| Error code | Meaning |
+| Error | Meaning |
 |---|---|
 | `MissingProof` | No `record_proof` instruction found two positions before the protected instruction |
 | `ProofExpired` | The proof's expiry timestamp is in the past (default window: 120s) |
-| `WrongSigner` | The public key in the secp256r1 instruction doesn't match the registry |
-| `PayloadMismatch` | The intent hash doesn't match — accounts, params, or nonce changed after approval |
+| `WrongSigner` | Public key in the secp256r1 instruction doesn't match the registry |
+| `PayloadMismatch` | Intent hash mismatch — accounts, params, or nonce changed after approval |
 | `RegistryDisabled` | The user's `TwoFactorRegistry` has `enabled = false` |
 | `PasskeyNotRegistered` | No registry PDA found for this wallet |

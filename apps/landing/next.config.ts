@@ -1,10 +1,12 @@
 import type { NextConfig } from "next"
-import createMDX from "@next/mdx"
+import nextra from "nextra"
 
-const withMDX = createMDX({})
+const withNextra = nextra({
+  contentDirBasePath: "/docs",
+})
 
 const config: NextConfig = {
   pageExtensions: ["ts", "tsx", "mdx"],
 }
 
-export default withMDX(config)
+export default withNextra(config)

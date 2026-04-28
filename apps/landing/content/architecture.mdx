@@ -5,7 +5,6 @@ Trana is structured as three cooperating layers. All three are required; the Sol
 ```
 ┌─────────────────────────────────────────────────────┐
 │  dApp / Frontend  (React)                           │
-│  wallet + UI                                        │
 └──────────────────┬──────────────────────────────────┘
                    │  TypeScript SDK (@trana/sdk)
 ┌──────────────────▼──────────────────────────────────┐
@@ -15,7 +14,6 @@ Trana is structured as three cooperating layers. All three are required; the Sol
                    │  Signed transaction
 ┌──────────────────▼──────────────────────────────────┐
 │  Solana Runtime                                     │
-│                                                     │
 │  ix[0]  secp256r1 precompile  (SIMD-0075)           │
 │  ix[1]  guard::record_proof   (data carrier)        │
 │  ix[2]  your_program::action  → guard::enforce()    │
@@ -28,17 +26,15 @@ Trana is structured as three cooperating layers. All three are required; the Sol
 
 ### programs/guard — the authorization primitive
 
-A single deployed program. Any Anchor program integrates against it. Three instructions:
+A single deployed program. Three instructions:
 
 **`register_two_fa`** — writes a P-256 public key and WebAuthn credential ID into a PDA owned by the user's wallet. Seeds: `["2fa", wallet_pubkey]`. Idempotent; re-registering updates the key and preserves the nonce.
 
-**`record_proof`** — a pure data carrier. Carries WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in its instruction data. Does nothing else. Exists so the protected instruction can read proof data from the Instructions sysvar without passing it as parameters.
+**`record_proof`** — a pure data carrier. Carries WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in its instruction data. Does nothing else.
 
 **`enforce`** — called by external programs via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature, checks the intent hash, increments the nonce. If any check fails, the entire transaction reverts.
 
 ### packages/sdk — TypeScript client
-
-Browser-first. No Node.js backend required.
 
 ```
 packages/sdk/src/
@@ -48,9 +44,9 @@ packages/sdk/src/
     ├── webauthn.ts    doRegistration, doApproval, derToCompact, lowS
     ├── intent.ts      buildIntent, hashIntent
     ├── registry.ts    findRegistryPda, fetchRegistry
-    ├── detector.ts    detectEnforcement, hasSecp256r1Ix
-    ├── provider.tsx   TranaProvider, useTranaContext
-    ├── useTrana.ts    useTrana() → authorizeAndSend()
+    ├── detector.ts    detectEnforcement
+    ├── provider.tsx   TranaProvider
+    ├── useTrana.ts    authorizeAndSend()
     └── modal.tsx      RegistrationModal, ApprovalModal
 ```
 
@@ -63,71 +59,40 @@ User device                   SDK                        Solana
 ──────────                    ───                        ──────
 
 1.  dApp calls authorizeAndSend()
-           │
-2.         ├─ fetchRegistry() ──────────────────────────► read registry PDA
-           │                  ◄────────── { pubkey, credentialId, nonce }
-           │
-3.         ├─ buildIntent()
-           │    version, domain, cluster, wallet, guardProgramId,
-           │    targetProgramId, policy, discriminator,
-           │    accountsHash, paramsHash, nonce, expiryUnix
-           │
-4.         ├─ hashIntent()  →  32-byte SHA-256
-           │
+2.         ├─ fetchRegistry() ──────────────────────► read registry PDA
+           │                  ◄──── { pubkey, credentialId, nonce }
+3.         ├─ buildIntent()   (version, domain, cluster, wallet, ...)
+4.         ├─ hashIntent()    → 32-byte SHA-256
 5.         ├─ navigator.credentials.get(challenge = intentHash)
-           │                                         ◄── Touch ID / Face ID
-           │    ◄── { sig (DER), authenticatorData, clientDataJSON }
-           │
+           │                                     ◄── Touch ID / Face ID
 6.         ├─ derToCompact(sig) → lowS → 64-byte r‖s
 7.         ├─ buildWebAuthnMessage(authData, cdJSON)   [32-byte e-value]
 8.         ├─ buildSecp256r1Ix(pubkey, sig, eValue)   [ix[0]]
 9.         ├─ buildRecordProofIx(authData, cdJSON, …)  [ix[1]]
 10.        ├─ buildTransaction() → your instruction    [ix[2]]
-11.        ├─ getLatestBlockhash()
-12.        ├─ signTransaction()  ◄── Phantom
-13.        └─ sendRawTransaction()  ─────────────────► Solana runtime
+11.        ├─ signTransaction()  ◄── Phantom
+12.        └─ sendRawTransaction()  ────────────────► Solana runtime
 
-                                        Runtime executes ix[2]:
-                                          your_program::action()
-                                            └─ guard::cpi::enforce()
-14.                                              └─ verify_via_sysvar()
+                                    Runtime executes ix[2]:
+                                      your_program::action()
+                                        └─ guard::cpi::enforce()
+                                             └─ verify_via_sysvar()
 ```
 
-### What happens onchain (verify_via_sysvar)
+### What happens onchain
 
 ```
-Step 0:  current_idx = load_current_index_checked()
-         require!(current_idx >= 2)              → MissingProof if ≤ 1
-
-Step 1:  proof = ix[current_idx - 1]             → record_proof data
-         Deserialize: version, expiry, cluster, policy, authData, cdJSON
-
-Step 2:  protected = ix[current_idx]             → your program's instruction
-         target_program_id = protected.program_id
-         discriminator     = protected.data[0..8]
-         accounts_hash     = SHA-256(all protected.accounts[].pubkey)
-         params_hash       = SHA-256(protected.data[8..])
-
+Step 1:  Deserialize record_proof from ix[current_idx - 1]
+Step 2:  Extract target program, discriminator, accounts_hash, params_hash
+         from ix[current_idx]
 Step 3:  require!(clock.unix_timestamp < proof.expiry)   → ProofExpired
-
-Step 4:  intent_hash = compute_intent_hash(
-           "trana:v1", cluster, owner, guard_program_id,
-           target_program_id, policy, discriminator,
-           accounts_hash, params_hash, nonce, expiry
-         )
-
-Step 5:  challenge = base64url_decode(cdJSON["challenge"])
-         require!(challenge == intent_hash)        → PayloadMismatch
-
+Step 4:  Compute intent_hash from all fields
+Step 5:  require!(cdJSON["challenge"] == intent_hash)    → PayloadMismatch
 Step 6:  e_value = SHA-256(authData ‖ SHA-256(cdJSON))
-
-Step 7:  secp_ix = ix[current_idx - 2]
-         require!(secp_ix.program_id == secp256r1) → MissingProof
-         require!(pubkey  == registry.pubkey_bytes) → WrongSigner
-         require!(message == e_value)               → PayloadMismatch
-
-Step 8:  registry.nonce += 1                       → prevents replay
-Step 9:  emit!(ProofVerified { owner, policy, target, nonce, expiry })
+Step 7:  require!(secp_ix.pubkey == registry.pubkey)     → WrongSigner
+         require!(secp_ix.message == e_value)            → PayloadMismatch
+Step 8:  registry.nonce += 1                             → prevents replay
+Step 9:  emit!(ProofVerified { owner, policy, nonce })
 ```
 
 ---
@@ -140,11 +105,11 @@ The 32-byte SHA-256 that binds the passkey signature to the exact transaction:
 SHA-256(
   u8(1)                      version
   u16LE(len) + "trana:v1"    domain
-  u16LE(len) + cluster       "devnet" | "mainnet-beta"
+  u16LE(len) + cluster
   32 bytes                   wallet pubkey
   32 bytes                   guard program ID
   32 bytes                   target program ID
-  u16LE(len) + policy_id     e.g. "transfer.large"
+  u16LE(len) + policy_id
   8 bytes                    instruction discriminator
   32 bytes                   SHA-256(all account pubkeys)
   32 bytes                   SHA-256(instruction params)
@@ -153,7 +118,7 @@ SHA-256(
 )
 ```
 
-Computed identically in TypeScript (`packages/sdk/src/react/intent.ts → hashIntent()`) and Rust (`programs/guard/src/lib.rs → compute_intent_hash()`). The tests verify they match.
+Computed identically in `packages/sdk/src/react/intent.ts` → `hashIntent()` and `programs/guard/src/lib.rs` → `compute_intent_hash()`.
 
 ---
 
@@ -165,12 +130,12 @@ Seeds: `["2fa", wallet_pubkey]`, program: guard.
 |---|---|---|
 | 0 | 8 | Anchor discriminator |
 | 8 | 32 | owner (Pubkey) |
-| 40 | 1 | key_kind (0 = Secp256r1Passkey) |
+| 40 | 1 | key_kind |
 | 41 | 4 | pubkey_bytes length |
 | 45 | ≤33 | pubkey_bytes (compressed P-256) |
 | ? | 4 | credential_id length |
-| ? | ≤128 | credential_id (WebAuthn credential ID) |
+| ? | ≤128 | credential_id |
 | ? | 1 | enabled (bool) |
 | ? | 8 | nonce (u64 LE) |
 
-Total allocated: 219 bytes. The `nonce` starts at 0 and increments on every successful `enforce()` call. A proof carrying nonce=5 is only valid when the registry reads 5; after use it reads 6.
+Total allocated: 219 bytes. The `nonce` increments on every successful `enforce()` call — a captured proof becomes invalid immediately after use.

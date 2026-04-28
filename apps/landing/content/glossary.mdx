@@ -1,0 +1,109 @@
+# Glossary
+
+---
+
+### secp256r1
+
+A standard elliptic curve for digital signatures, also called **P-256** or **prime256v1**. Used by WebAuthn, FIDO2, Apple Secure Enclave, and most hardware security keys. Solana's native signatures use secp256k1 and Ed25519; secp256r1 requires the dedicated SIMD-0075 precompile.
+
+---
+
+### P-256
+
+An alias for secp256r1. P-256 is the curve used by COSE algorithm **ES256** (ECDSA with SHA-256), the default signature algorithm for FIDO2/WebAuthn authenticators.
+
+---
+
+### SIMD-0075
+
+A Solana Improvement and Modification Document that added a native secp256r1 signature verification instruction to the Solana validator. Deployed on mainnet in **February 2025**. This is what makes Trana possible — a passkey signature can now be verified inside any Solana program without a server.
+
+---
+
+### FIDO2
+
+An authentication standard from the FIDO Alliance combining **WebAuthn** (browser/app API) and **CTAP2** (hardware device protocol). FIDO2 authenticators generate P-256 key pairs where the private key never leaves the device.
+
+---
+
+### WebAuthn
+
+The Web Authentication API — a W3C standard for interacting with FIDO2 authenticators. Two operations: `navigator.credentials.create()` (registration) and `navigator.credentials.get()` (assertion). A WebAuthn assertion produces a signature, `authenticatorData`, and `clientDataJSON` — all three are bundled into the transaction as `record_proof`.
+
+---
+
+### Passkey
+
+A FIDO2 credential **synced** across devices via the platform's cloud service (iCloud Keychain for Apple, Google Password Manager for Android). Enterprise deployments often prefer hardware-bound keys (YubiKey). Both work with Trana.
+
+---
+
+### ES256 / COSE algorithm -7
+
+The COSE identifier for ECDSA with P-256 and SHA-256. COSE algorithm -7 is the default for most FIDO2 authenticators and is what Trana registers and verifies.
+
+---
+
+### Execution-time authorization
+
+A security model where protected actions require explicit approval at the moment they execute — not just when a transaction is signed. A pre-signed transaction or replayed signature cannot bypass enforcement because the check happens inside the program at runtime.
+
+---
+
+### Intent hash
+
+A 32-byte SHA-256 that cryptographically binds a passkey signature to a specific authorized action. It commits to: version, domain, cluster, wallet pubkey, guard program ID, target program ID, policy ID, instruction discriminator, accounts hash, params hash, nonce, and expiry timestamp. The intent hash becomes the **WebAuthn challenge**.
+
+---
+
+### Accounts hash
+
+A 32-byte SHA-256 of all account public keys in the protected instruction. The guard recomputes this at execution time — any account substitution fails with `PayloadMismatch`.
+
+---
+
+### Params hash
+
+A 32-byte SHA-256 of the raw instruction parameter bytes. Any change to amounts, destinations, or configuration invalidates the proof.
+
+---
+
+### TwoFactorRegistry
+
+The on-chain PDA storing a user's registered P-256 public key and enforcement nonce. Seeds: `["2fa", wallet_pubkey]` on the guard program. Fields: `owner`, `pubkey_bytes` (33-byte compressed P-256), `credential_id` (up to 128 bytes), `enabled`, `nonce`.
+
+---
+
+### Enforcement nonce
+
+A u64 counter in the TwoFactorRegistry, incremented after every successful `enforce()` call. A captured proof becomes invalid after the next enforcement because the nonce no longer matches.
+
+---
+
+### enforce CPI
+
+The onchain entry point into the guard program. Called by external programs via `guard::cpi::enforce(ctx, policy)`. Verifies the proof, increments the nonce, emits a `ProofVerified` event. If any check fails, the entire transaction reverts.
+
+---
+
+### record_proof instruction
+
+A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]` — one position before the protected instruction.
+
+---
+
+### Pre-signed transaction attack
+
+An attack where a valid transaction is constructed, signed legitimately, and submitted later by an attacker. Trana defeats this: the proof is bound to a specific nonce and expires within 120 seconds.
+
+---
+
+### Durable nonce
+
+A Solana mechanism that allows transactions to remain valid indefinitely by replacing the blockhash. Trana defeats durable nonce replay via proof expiry and the registry nonce.
+
+---
+
+### ProofVerified event
+
+An Anchor event emitted after every successful `enforce()` call. Contains: `owner`, `policy`, `target_program`, `nonce`, `expiry`. Permanently recorded on-chain for compliance auditing.
