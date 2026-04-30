@@ -1,21 +1,26 @@
 import { useMDXComponents as getNextraDocsMDXComponents } from "nextra-theme-docs"
 import type { MDXComponents } from "mdx/types"
+import { CodeBlock } from "@/components/CodeBlock"
 
-// ─── Shared table override (overflow-x-auto on both docs and content pages) ───
+// ─── Shared table override ────────────────────────────────────────────────────
+// Relaxed spacing + horizontal scroll so no column gets squished on mobile.
 
 const tableComponents: MDXComponents = {
   table: ({ children }) => (
-    <div className="overflow-x-auto my-6 rounded-lg border border-[rgba(255,255,255,0.08)]">
-      <table className="w-full text-sm border-collapse min-w-[480px]">{children}</table>
+    <div className="my-8 -mx-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+      <table className="text-sm border-collapse min-w-[560px] w-full">{children}</table>
     </div>
   ),
+  thead: ({ children }) => (
+    <thead className="border-b-2 border-[rgba(255,255,255,0.1)]">{children}</thead>
+  ),
   th: ({ children }) => (
-    <th className="text-left text-[11px] font-semibold uppercase tracking-wider py-3 px-4 border-b border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.03)] whitespace-nowrap">
+    <th className="text-left text-[11px] font-semibold uppercase tracking-wider py-3 px-5 text-faint whitespace-nowrap">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="py-3 px-4 border-b border-[rgba(255,255,255,0.06)] align-top leading-relaxed">
+    <td className="py-4 px-5 border-b border-[rgba(255,255,255,0.05)] align-top leading-relaxed text-muted">
       {children}
     </td>
   ),
@@ -34,8 +39,15 @@ const docsComponents: MDXComponents = {
 }
 
 // ─── Content pages (/security, /protocol, /compare) ──────────────────────────
-// These use the standard Next.js MDX loader (no nextra/shiki), so we must
-// style everything ourselves.
+// Standard Next.js MDX — no nextra/shiki, so we handle all prose + code.
+
+function extractCodeProps(children: React.ReactNode): { code: string; language: string } {
+  const el = children as React.ReactElement<{ children?: string; className?: string }>
+  const className = el?.props?.className ?? ""
+  const language  = className.replace("language-", "") || "text"
+  const code      = (el?.props?.children ?? "").toString().trimEnd()
+  return { code, language }
+}
 
 const contentComponents: MDXComponents = {
   ...tableComponents,
@@ -75,10 +87,9 @@ const contentComponents: MDXComponents = {
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 border-accent pl-5 my-6 font-serif italic text-muted">{children}</blockquote>
   ),
-  // Inline code vs block code — block code has a language-* className
   code: ({ children, className, ...rest }: React.ComponentProps<"code">) => {
     if (className?.startsWith("language-")) {
-      return <code className={`${className} text-[0.875rem]`} {...rest}>{children}</code>
+      return <code className={className} {...rest}>{children}</code>
     }
     return (
       <code className="font-mono text-[0.8125rem] bg-card border border-[rgba(255,255,255,0.08)] rounded px-1.5 py-0.5 text-accent">
@@ -86,11 +97,10 @@ const contentComponents: MDXComponents = {
       </code>
     )
   },
-  pre: ({ children }) => (
-    <pre className="bg-[#0d0e11] border border-[rgba(255,255,255,0.08)] rounded-xl p-5 overflow-x-auto my-6 text-[0.875rem] font-mono leading-relaxed text-[#e2e8f0]">
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => {
+    const { code, language } = extractCodeProps(children)
+    return <CodeBlock language={language} code={code} />
+  },
   hr: () => <hr className="border-[rgba(255,255,255,0.08)] my-10" />,
 }
 
