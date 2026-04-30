@@ -27,7 +27,6 @@ export function SiteNav() {
         href="/"
         className="flex items-center gap-2.5 font-semibold text-[15px] tracking-[-0.01em] text-ink"
       >
-        <BrandMark />
         <span>Trana</span>
       </Link>
 

@@ -313,7 +313,7 @@ export function LimitSection() {
             {/* ── Status ────────────────────────────────────────────── */}
             <div className="absolute bottom-[6%] left-1/2 -translate-x-1/2 flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-faint" />
-              <span ref={statusRef} className="font-mono text-[11px] text-faint tracking-[0.14em]">IDLE</span>
+              <span ref={statusRef} className="font-mono text-[11px] text-faint tracking-[0.14em] whitespace-nowrap">IDLE</span>
             </div>
           </div>
 
