@@ -71,7 +71,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`scroll-smooth ${inter.variable} ${dmSerif.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`dark scroll-smooth ${inter.variable} ${dmSerif.variable}`}>
       <body className="bg-bg text-ink antialiased font-sans">{children}</body>
     </html>
   )

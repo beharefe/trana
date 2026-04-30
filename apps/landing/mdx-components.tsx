@@ -4,7 +4,7 @@ import type { MDXComponents } from "mdx/types"
 const customComponents: MDXComponents = {
   // Serif headings for brand identity — nextra handles everything else
   h1: ({ children }) => (
-    <h1 className="font-serif text-[2.5rem] font-normal leading-tight mt-0 mb-6">{children}</h1>
+    <h1 className="font-serif text-[2.5rem] font-normal leading-tight mb-6">{children}</h1>
   ),
   h2: ({ children }) => (
     <h2 className="font-serif text-[1.75rem] font-normal leading-snug mt-12 mb-4 pb-2 border-b border-[rgba(255,255,255,0.08)]">{children}</h2>
