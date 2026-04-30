@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm --filter landing build",
+  "buildCommand": "npm run build -w landing",
   "outputDirectory": ".next",
-  "installCommand": "npm install -g pnpm@10.33.0 && pnpm install",
+  "installCommand": "npm install",
   "framework": "nextjs"
 }

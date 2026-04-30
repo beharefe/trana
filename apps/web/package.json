@@ -9,8 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@trana-guard/sdk": "workspace:*",
-    "@solana/web3.js": "catalog:",
+    "@trana-guard/sdk": "*",
+    "@solana/web3.js": "1.98.4",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-react": "^0.15.35",
     "@solana/wallet-adapter-react-ui": "^0.9.35",
