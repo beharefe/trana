@@ -16,6 +16,12 @@
   --sky:      #7aa8ff;
   --gold:     #f3d77a;
   --code-bg:  #0f1013;
+
+  /* Nextra docs theme — brand green accent, our dark bg */
+  --nextra-primary-hue: 144;
+  --nextra-primary-saturation: 80%;
+  --nextra-primary-lightness: 71%;
+  --nextra-bg: 8 9 11;
 }
 
 * {

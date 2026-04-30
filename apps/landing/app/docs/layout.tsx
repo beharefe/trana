@@ -7,13 +7,10 @@ export default async function DocsLayout({ children }: { children: ReactNode }) 
   const pageMap = await getPageMap("/docs")
   return (
     <Layout
+      nextThemes={{ forcedTheme: "dark" }}
       navbar={
         <Navbar
-          logo={
-            <span style={{ fontWeight: 600, fontFamily: "var(--font-inter)" }}>
-              Trana
-            </span>
-          }
+          logo={<span style={{ fontWeight: 700, letterSpacing: "-0.02em" }}>Trana</span>}
         />
       }
       pageMap={pageMap}
