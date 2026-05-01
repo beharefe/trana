@@ -41,11 +41,24 @@ const docsComponents: MDXComponents = {
 // ─── Content pages (/security, /protocol, /compare) ──────────────────────────
 // Standard Next.js MDX — no nextra/shiki, so we handle all prose + code.
 
+function getTextContent(node: React.ReactNode): string {
+  if (node == null) return ""
+  if (typeof node === "string") return node
+  if (typeof node === "number" || typeof node === "boolean") return String(node)
+  if (Array.isArray(node)) return node.map(getTextContent).join("")
+  if (typeof node === "object" && "props" in (node as object)) {
+    const el = node as React.ReactElement<{ children?: React.ReactNode }>
+    return getTextContent(el.props?.children)
+  }
+  return ""
+}
+
 function extractCodeProps(children: React.ReactNode): { code: string; language: string } {
-  const el = children as React.ReactElement<{ children?: string; className?: string }>
-  const className = el?.props?.className ?? ""
-  const language  = className.replace("language-", "") || "text"
-  const code      = (el?.props?.children ?? "").toString().trimEnd()
+  const codeEl = (Array.isArray(children) ? children[0] : children) as
+    React.ReactElement<{ children?: React.ReactNode; className?: string }>
+  const className = codeEl?.props?.className ?? ""
+  const language  = className.replace("language-", "").trim() || "text"
+  const code      = getTextContent(codeEl?.props?.children).trimEnd()
   return { code, language }
 }
 
