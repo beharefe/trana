@@ -4,6 +4,7 @@ import { useCallback } from "react"
 import {
   Connection,
   Transaction,
+  TransactionInstruction,
   VersionedTransaction,
 } from "@solana/web3.js"
 
@@ -26,9 +27,33 @@ export type { IntentInput }
 /**
  * Arguments passed to useTrana().authorizeAndSend().
  *
- * Drop-in design — the developer only needs two callbacks:
- *   buildIntent()       — describe the action being authorized
- *   buildTransaction()  — build the Solana transaction (no proof plumbing)
+ * Three usage modes, from simplest to most flexible:
+ *
+ * 1. Instruction only — SDK derives intent and builds the transaction:
+ *    ```tsx
+ *    await authorizeAndSend({ instruction: withdrawIx, label: "Withdraw 1.5 SOL" })
+ *    ```
+ *
+ * 2. Instruction + custom transaction — SDK derives intent, you build the tx
+ *    (useful for priority fees, multiple instructions, etc.):
+ *    ```tsx
+ *    await authorizeAndSend({
+ *      instruction: withdrawIx,
+ *      buildTransaction: async ({ recentBlockhash }) => {
+ *        const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
+ *        tx.add(computeBudgetIx).add(withdrawIx)
+ *        return tx
+ *      },
+ *    })
+ *    ```
+ *
+ * 3. Full manual control — provide both buildIntent and buildTransaction:
+ *    ```tsx
+ *    await authorizeAndSend({
+ *      buildIntent: () => ({ targetProgramId, accounts, params }),
+ *      buildTransaction: async ({ recentBlockhash }) => { ... },
+ *    })
+ *    ```
  *
  * The SDK handles everything else:
  *   1. Simulate without signature — detect which policy fires
@@ -47,47 +72,34 @@ export type { IntentInput }
  */
 export type AuthorizeAndSendArgs = {
   /**
-   * Describe the action being authorized.
+   * The guarded instruction. When provided, the SDK automatically derives
+   * the intent (programId, discriminator, accounts, params).
+   * Either instruction or buildIntent must be provided.
+   */
+  instruction?: TransactionInstruction
+  /** Human-readable label shown in the confirmation modal. e.g. "Withdraw 1.5 SOL" */
+  label?: string
+  /**
+   * Advanced: manually describe the action being authorized.
+   * Required when instruction is not provided.
    * Called after simulation — intent will use the policy detected from logs.
    */
-  buildIntent: () => Promise<IntentInput> | IntentInput
+  buildIntent?: () => Promise<IntentInput> | IntentInput
   /**
    * Build the Solana transaction containing your guarded instruction(s).
    * Use the fresh recentBlockhash provided — it is fetched AFTER passkey approval.
    * Do NOT include secp256r1 or record_proof instructions here.
+   *
+   * When omitted and instruction is provided, the SDK wraps the instruction
+   * in a simple transaction automatically.
    */
-  buildTransaction: (args: { recentBlockhash: string }) => Promise<Transaction | VersionedTransaction>
+  buildTransaction?: (args: { recentBlockhash: string }) => Promise<Transaction | VersionedTransaction>
   /** Override the connection for this call */
   connection?: Connection
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-/**
- * useTrana — primary integration point for protected transactions.
- *
- * ```tsx
- * const { authorizeAndSend } = useTrana()
- *
- * await authorizeAndSend({
- *   buildIntent: () => ({
- *     targetProgramId: MY_PROGRAM_ID,
- *     instructionDiscriminator: WITHDRAW_DISCRIMINATOR,
- *     accounts: [vaultPda, recipient],
- *     params: amountBuffer,
- *   }),
- *   buildTransaction: async ({ recentBlockhash }) => {
- *     const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
- *     tx.add(buildWithdrawIx(...))
- *     return tx
- *   },
- * })
- * ```
- *
- * Flow:
- *   Simulate → Detect policy → Register (if needed) → Confirm preview
- *   → Passkey approve → Build proof → [retry loop] Blockhash → Build tx → Sign → Send
- */
 export function useTrana() {
   const ctx = useTranaContext()
   const { connection: walletConn }                              = useConnection()
@@ -97,13 +109,44 @@ export function useTrana() {
     args: AuthorizeAndSendArgs
   ): Promise<string> => {
     if (!publicKey) throw new Error("Wallet not connected")
+    if (!args.instruction && !args.buildIntent) {
+      throw new Error("Trana: provide either instruction or buildIntent")
+    }
+
     const conn = args.connection ?? walletConn ?? ctx.connection
+
+    // Resolve intent input: from instruction or manual buildIntent
+    const resolveIntentInput = async (): Promise<IntentInput> => {
+      if (args.instruction) {
+        const derived = intentFromInstruction(args.instruction, args.label)
+        // Allow buildIntent to override individual fields if both are provided
+        if (args.buildIntent) {
+          const manual = await args.buildIntent()
+          return { ...derived, ...manual }
+        }
+        return derived
+      }
+      return args.buildIntent!()
+    }
+
+    // Resolve transaction builder: from buildTransaction or wrap instruction
+    const resolveBuildTransaction = (
+    ): ((a: { recentBlockhash: string }) => Promise<Transaction | VersionedTransaction>) => {
+      if (args.buildTransaction) return args.buildTransaction
+      // Default: wrap the instruction in a simple legacy transaction
+      return async ({ recentBlockhash }) => {
+        const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
+        tx.add(args.instruction!)
+        return tx
+      }
+    }
+    const buildTx = resolveBuildTransaction()
 
     // ── 1. Build a probe transaction to simulate (no blockhash needed) ─────────
     // Use a dummy blockhash — simulation replaces it. We only need the instruction
     // structure to be correct so the guard can evaluate which policy fires.
     const { blockhash: probeBlockhash } = await conn.getLatestBlockhash("processed")
-    const probeTx = await args.buildTransaction({ recentBlockhash: probeBlockhash })
+    const probeTx = await buildTx({ recentBlockhash: probeBlockhash })
 
     // ── 2. Simulate without wallet signature — detect which policy fires ────────
     // sigVerify: false   — no wallet signature needed
@@ -119,15 +162,14 @@ export function useTrana() {
     // If no enforcement needed (e.g. small withdrawal below the configured limit), send directly.
     if (!detection.needed) {
       const { blockhash } = await conn.getLatestBlockhash("confirmed")
-      const tx = await args.buildTransaction({ recentBlockhash: blockhash })
+      const tx = await buildTx({ recentBlockhash: blockhash })
       return walletSend(tx, conn)
     }
 
     // ── 3. Ensure registry exists (lazy registration) ─────────────────────────
     let registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
     if (!registry || detection.reason === "no-registry") {
-      // Build intent preview so the registration modal can show what the user is trying to do
-      const previewInput = await args.buildIntent()
+      const previewInput = await resolveIntentInput()
       const raw = previewInput.params ? decodeParamsU64(previewInput.params) : null
       const amountSol = raw !== null ? (Number(raw) / 1e9).toFixed(4) : undefined
       await ctx._triggerRegistration({ label: previewInput.label, amountSol, policy: detection.policy })
@@ -139,7 +181,7 @@ export function useTrana() {
     // The guard reads the policy string from the proof and validates it matches
     // the hardcoded policy inside the enforce() instruction. Using the detected
     // policy guarantees the intent hash matches what the guard expects.
-    const intentInput = await args.buildIntent()
+    const intentInput = await resolveIntentInput()
     const intent = buildIntent(
       publicKey,
       ctx.config.guardProgramId,
@@ -181,7 +223,7 @@ export function useTrana() {
     const MAX_BLOCKHASH_RETRIES = 2
     for (let attempt = 0; attempt < MAX_BLOCKHASH_RETRIES; attempt++) {
       const { blockhash: recentBlockhash } = await conn.getLatestBlockhash("confirmed")
-      const tx = await args.buildTransaction({ recentBlockhash })
+      const tx = await buildTx({ recentBlockhash })
 
       if (isLegacyTransaction(tx)) {
         tx.instructions.unshift(recordProofIx)

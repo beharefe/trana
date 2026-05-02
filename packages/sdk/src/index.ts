@@ -58,7 +58,9 @@ export {
 // Correct integration flow:
 //   1. Wrap app:  <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
 //   2. Call:      const { authorizeAndSend } = useTrana()
-//   3. Use:       await authorizeAndSend({ buildIntent, buildTransaction })
+//   3. Use (simple):  await authorizeAndSend({ instruction: ix, label: "..." })
+//      Use (custom):  await authorizeAndSend({ instruction: ix, buildTransaction })
+//      Use (manual):  await authorizeAndSend({ buildIntent, buildTransaction })
 //
 // Flow: Detect → Register (if needed) → Approve (device) → Build tx → Sign once → Send
 // Passkey approves the action intent. Wallet signs the final transaction. Both required.
@@ -69,7 +71,7 @@ export type { AuthorizeAndSendArgs, IntentInput } from "./react/useTrana"
 export { TranaModal } from "./react/modal"
 export type { TranaConfig, TranaState, TranaAction } from "./react/state"
 export type { TranaIntent } from "./react/intent"
-export { buildIntent, hashIntent, intentToPayloadHash } from "./react/intent"
+export { buildIntent, hashIntent, intentToPayloadHash, intentFromInstruction } from "./react/intent"
 export { findRegistryPda, fetchRegistry } from "./react/registry"
 export type { RegistryState } from "./react/registry"
 // Error-based detection utilities (for custom flows that catch failed tx errors)
