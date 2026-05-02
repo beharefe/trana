@@ -26,21 +26,23 @@ export type { IntentInput }
 /**
  * Arguments passed to useTrana().authorizeAndSend().
  *
- * Minimal usage — the SDK derives the intent automatically from the last
- * instruction in your transaction (the guarded instruction must be last):
+ * The guarded instruction must be LAST in your transaction. The SDK inserts
+ * secp256r1 + record_proof immediately before it and derives the intent from it.
+ * Preamble instructions (ComputeBudget etc.) go before the guarded instruction.
  *
  * ```tsx
  * await authorizeAndSend({
  *   label: "Withdraw 1.5 SOL",
  *   buildTransaction: async ({ recentBlockhash }) => {
  *     const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
- *     tx.add(withdrawIx)
+ *     tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }))
+ *     tx.add(withdrawIx)  // ← guarded instruction last
  *     return tx
  *   },
  * })
  * ```
  *
- * Advanced — override auto-derived intent fields (rarely needed):
+ * Override auto-derived intent (edge cases: synthetic ixs, multiple guarded ixs):
  * ```tsx
  * await authorizeAndSend({
  *   buildTransaction: ...,
@@ -66,8 +68,9 @@ export type { IntentInput }
 export type AuthorizeAndSendArgs = {
   /**
    * Build the Solana transaction containing your guarded instruction(s).
-   * The guarded instruction must be last — the SDK prepends secp256r1 and
-   * record_proof before it and derives the intent from it automatically.
+   * The guarded instruction must be LAST — the SDK inserts secp256r1 and
+   * record_proof immediately before it and derives the intent from it automatically.
+   * Preamble instructions (ComputeBudget etc.) go before the guarded instruction.
    * Use the fresh recentBlockhash provided — it is fetched AFTER passkey approval.
    */
   buildTransaction: (args: { recentBlockhash: string }) => Promise<Transaction | VersionedTransaction>
@@ -194,8 +197,11 @@ export function useTrana() {
       const tx = await args.buildTransaction({ recentBlockhash })
 
       if (isLegacyTransaction(tx)) {
-        tx.instructions.unshift(recordProofIx)
-        tx.instructions.unshift(secp256r1Ix)
+        // Insert [secp256r1, record_proof] immediately before the last instruction
+        // (the guarded one). Preamble ixs (ComputeBudget etc.) stay in front,
+        // and the guard's N-2/N-1 relative indexing lands correctly.
+        const insertAt = Math.max(0, tx.instructions.length - 1)
+        tx.instructions.splice(insertAt, 0, secp256r1Ix, recordProofIx)
         try {
           if (signTransaction) {
             const signed = await signTransaction(tx)
