@@ -58,9 +58,8 @@ export {
 // Correct integration flow:
 //   1. Wrap app:  <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
 //   2. Call:      const { authorizeAndSend } = useTrana()
-//   3. Use (simple):  await authorizeAndSend({ instruction: ix, label: "..." })
-//      Use (custom):  await authorizeAndSend({ instruction: ix, buildTransaction })
-//      Use (manual):  await authorizeAndSend({ buildIntent, buildTransaction })
+//   3. Use:           await authorizeAndSend({ buildTransaction, label: "..." })
+//      Override:      await authorizeAndSend({ buildTransaction, buildIntent })
 //
 // Flow: Detect → Register (if needed) → Approve (device) → Build tx → Sign once → Send
 // Passkey approves the action intent. Wallet signs the final transaction. Both required.
