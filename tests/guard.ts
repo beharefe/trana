@@ -25,6 +25,9 @@
  *   R23. Policy::NotAfter fires (slot 0 already elapsed, no proof) → MissingProof
  *  R23b. Policy::NotAfter passes (far-future slot)               → Success (no proof)
  *  R23c. Policy::NotAfter fires (slot 0 already elapsed, with proof) → Success
+ *   R24. ComputeBudget prepended — secp256r1 still found at N-2   → Success
+ *   R25. Two protected instructions in one tx (nonces N, N+1)     → Success (nonce +2)
+ *   R26. V0 transaction with address lookup table                 → Success
  */
 
 import { p256 } from "@noble/curves/nist.js"
@@ -32,11 +35,14 @@ import pkg from "@coral-xyz/anchor"
 const { BN, AnchorProvider, workspace, setProvider } = pkg
 type Program<T extends pkg.Idl> = pkg.Program<T>
 import {
+  AddressLookupTableProgram,
+  ComputeBudgetProgram,
   Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  TransactionMessage,
   VersionedTransaction,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   sendAndConfirmTransaction,
@@ -841,6 +847,207 @@ describe("guard — secp256r1 passkey enforcement", () => {
       withProof:    true,
     })
     registryNonce++
+  })
+
+  // ── R24: ComputeBudget prefix ──────────────────────────────────────────────
+  //
+  // Real-world txs commonly prepend ComputeBudget instructions.
+  // Guard uses load_current_index_checked → N is relative, so secp256r1 at N-2
+  // and record_proof at N-1 are still correct regardless of how many instructions
+  // precede the triplet.
+  //
+  // tx layout: [ComputeBudget(0), secp256r1(1), record_proof(2), enforce(3)]
+  //   enforce is at N=3 → N-1=2 (record_proof ✓) → N-2=1 (secp256r1 ✓)
+
+  it("R24: ComputeBudget prepended — secp256r1 still found at N-2", async () => {
+    const policyArg    = { require: {} }
+    const policyString = "trana.require"
+    const policyBytes  = Buffer.from([0])   // Borsh: Require variant = 0, no fields
+    const nonce        = registryNonce
+    const expiry       = Math.floor(Date.now() / 1000) + 300
+
+    const accountsList = [
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
+      configPda, treasuryPubkey, SystemProgram.programId,
+    ]
+    const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
+    const paramsHash   = sha256(policyBytes)
+    const intentHash   = computeIntentHash(
+      "trana:v1", "localnet", owner.publicKey, trana.programId, trana.programId,
+      policyString, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods.enforce(policyArg)
+      .accounts({
+        registry: registryPda, owner: owner.publicKey,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: configPda, treasury: treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
+    tx.add(buildSecp256r1Ix(p256PubKey, sig, rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, authData, clientDataJSON))
+    tx.add(enforceIx)
+
+    await sendAndConfirmTransaction(conn, tx, [owner])
+    registryNonce++
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after R24")
+  })
+
+  // ── R25: Two protected instructions in one tx ──────────────────────────────
+  //
+  // Each protected instruction needs its own secp256r1 + record_proof pair.
+  // The N-2 rule handles this correctly because N is relative for each instruction.
+  //
+  // tx layout: [secp_A(0), proof_A(1), enforce_A(2), secp_B(3), proof_B(4), enforce_B(5)]
+  //   enforce_A at N=2 → N-1=1 (proof_A ✓) → N-2=0 (secp_A ✓)
+  //   enforce_B at N=5 → N-1=4 (proof_B ✓) → N-2=3 (secp_B ✓)
+  //
+  // Proof B must be signed with nonce+1 — A consumes nonce N on-chain before B runs.
+  // Both proofs are signed client-side before the tx is submitted.
+
+  it("R25: two protected instructions in one tx — each triplet succeeds independently (nonce +2)", async () => {
+    const policyArg    = { require: {} }
+    const policyString = "trana.require"
+    const policyBytes  = Buffer.from([0])
+    const nonceA       = registryNonce
+    const nonceB       = registryNonce + 1
+    const expiry       = Math.floor(Date.now() / 1000) + 300
+
+    const accountsList = [
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
+      configPda, treasuryPubkey, SystemProgram.programId,
+    ]
+    const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
+    const paramsHash   = sha256(policyBytes)
+
+    const intentA = computeIntentHash(
+      "trana:v1", "localnet", owner.publicKey, trana.programId, trana.programId,
+      policyString, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonceA, expiry,
+    )
+    const proofA = buildWebAuthnProof(intentA, p256PrivKey)
+
+    const intentB = computeIntentHash(
+      "trana:v1", "localnet", owner.publicKey, trana.programId, trana.programId,
+      policyString, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonceB, expiry,
+    )
+    const proofB = buildWebAuthnProof(intentB, p256PrivKey)
+
+    const enforceIx = await trana.methods.enforce(policyArg)
+      .accounts({
+        registry: registryPda, owner: owner.publicKey,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: configPda, treasury: treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash } = await conn.getLatestBlockhash("confirmed")
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
+    // Triplet A — indices 0, 1, 2
+    tx.add(buildSecp256r1Ix(p256PubKey, proofA.sig, proofA.rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, proofA.authData, proofA.clientDataJSON))
+    tx.add(enforceIx)
+    // Triplet B — indices 3, 4, 5
+    tx.add(buildSecp256r1Ix(p256PubKey, proofB.sig, proofB.rawMsg))
+    tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, proofB.authData, proofB.clientDataJSON))
+    tx.add(enforceIx)
+
+    await sendAndConfirmTransaction(conn, tx, [owner])
+    registryNonce += 2
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment by 2 after R25")
+  })
+
+  // ── R26: V0 transaction with address lookup table ──────────────────────────
+  //
+  // Solana's instructions sysvar resolves ALT accounts to their full pubkeys
+  // before exposing them to programs. So accounts_hash computed on-chain (from
+  // sysvar) must equal accounts_hash computed client-side (from resolved pubkeys).
+  //
+  // This test puts three enforce accounts into an ALT and verifies the intent
+  // hash still matches after ALT resolution — confirming V0 txs are supported.
+
+  it("R26: V0 transaction with address lookup table — ALT accounts resolve correctly in sysvar", async () => {
+    // Create and populate the ALT
+    const currentSlot = await conn.getSlot("finalized")
+    const [createLutIx, lutAddress] = AddressLookupTableProgram.createLookupTable({
+      authority:   owner.publicKey,
+      payer:       owner.publicKey,
+      recentSlot:  currentSlot,
+    })
+    const extendLutIx = AddressLookupTableProgram.extendLookupTable({
+      payer:       owner.publicKey,
+      authority:   owner.publicKey,
+      lookupTable: lutAddress,
+      addresses:   [registryPda, configPda, treasuryPubkey],
+    })
+    const { blockhash: setupBlockhash } = await conn.getLatestBlockhash("confirmed")
+    const setupTx = new Transaction({ recentBlockhash: setupBlockhash, feePayer: owner.publicKey })
+    setupTx.add(createLutIx, extendLutIx)
+    await sendAndConfirmTransaction(conn, setupTx, [owner])
+
+    // ALTs need a slot to warm up before use
+    await sleep(1500)
+
+    const lutInfo = await conn.getAddressLookupTable(lutAddress)
+    assert.ok(lutInfo.value, "lookup table must exist and be active")
+
+    const policyArg    = { require: {} }
+    const policyString = "trana.require"
+    const policyBytes  = Buffer.from([0])
+    const nonce        = registryNonce
+    const expiry       = Math.floor(Date.now() / 1000) + 300
+
+    // accountsHash uses fully-resolved pubkeys — same as what the sysvar will expose
+    const accountsList = [
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
+      configPda, treasuryPubkey, SystemProgram.programId,
+    ]
+    const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
+    const paramsHash   = sha256(policyBytes)
+    const intentHash   = computeIntentHash(
+      "trana:v1", "localnet", owner.publicKey, trana.programId, trana.programId,
+      policyString, Buffer.from(ENFORCE_DISC), accountsHash, paramsHash, nonce, expiry,
+    )
+    const { authData, clientDataJSON, rawMsg, sig } = buildWebAuthnProof(intentHash, p256PrivKey)
+
+    const enforceIx = await trana.methods.enforce(policyArg)
+      .accounts({
+        registry: registryPda, owner: owner.publicKey,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: configPda, treasury: treasuryPubkey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed")
+    const message = new TransactionMessage({
+      payerKey:        owner.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [
+        buildSecp256r1Ix(p256PubKey, sig, rawMsg),
+        buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, authData, clientDataJSON),
+        enforceIx,
+      ],
+    }).compileToV0Message([lutInfo.value!])
+
+    const v0tx = new VersionedTransaction(message)
+    v0tx.sign([owner])
+    const txSig = await conn.sendTransaction(v0tx, { skipPreflight: false })
+    await conn.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed")
+
+    registryNonce++
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce should increment after R26")
   })
 
 })
