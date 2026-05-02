@@ -38,45 +38,49 @@ A single deployed program. Three instructions:
 
 ```
 packages/sdk/src/
-├── secp256r1.ts       buildSecp256r1Ix, buildRecordProofIx, buildWebAuthnMessage
-├── utils.ts           sha256Bytes, generateNonce
+├── policy.ts          Policy type, policyString(), evaluatePolicy()
+├── requirement.ts     checkRequirement() — client-side condition check (UX only)
 └── react/
-    ├── webauthn.ts    doRegistration, doApproval, derToCompact, lowS
-    ├── intent.ts      buildIntent, hashIntent
-    ├── registry.ts    findRegistryPda, fetchRegistry
-    ├── detector.ts    detectEnforcement
-    ├── provider.tsx   TranaProvider
-    ├── useTrana.ts    authorizeAndSend()
-    └── modal.tsx      RegistrationModal, ApprovalModal
+    └── detector.ts    parsePolicyFromLogs() — reads policy from simulation logs
 ```
+
+The transaction-building primitives (intent hash, secp256r1 instruction, record_proof instruction) live in `tests/guard.ts` as the canonical reference and will move to the SDK package.
 
 ---
 
 ## Authorization flow
 
 ```
-User device                   SDK                        Solana
-──────────                    ───                        ──────
+User device              Client                         Solana
+───────────              ──────                         ──────
 
-1.  dApp calls authorizeAndSend()
-2.         ├─ fetchRegistry() ──────────────────────► read registry PDA
-           │                  ◄──── { pubkey, credentialId, nonce }
-3.         ├─ buildIntent()   (version, domain, cluster, wallet, ...)
-4.         ├─ hashIntent()    → 32-byte SHA-256
-5.         ├─ navigator.credentials.get(challenge = intentHash)
-           │                                     ◄── Touch ID / Face ID
-6.         ├─ derToCompact(sig) → lowS → 64-byte r‖s
-7.         ├─ buildWebAuthnMessage(authData, cdJSON)   [32-byte e-value]
-8.         ├─ buildSecp256r1Ix(pubkey, sig, eValue)   [ix[0]]
-9.         ├─ buildRecordProofIx(authData, cdJSON, …)  [ix[1]]
-10.        ├─ buildTransaction() → your instruction    [ix[2]]
-11.        ├─ signTransaction()  ◄── Phantom
-12.        └─ sendRawTransaction()  ────────────────► Solana runtime
+1.  dApp simulates the tx to detect which policy fires
+    (parsePolicyFromLogs reads "trana.limit" from program logs)
 
-                                    Runtime executes ix[2]:
-                                      your_program::action()
-                                        └─ guard::cpi::enforce()
-                                             └─ verify_via_sysvar()
+2.  Fetch registry PDA ────────────────────────────► read nonce, pubkey
+
+3.  Compute intent hash (SHA-256 over wallet, program IDs, policy,
+    discriminator, accounts_hash, params_hash, nonce, expiry)
+
+4.  navigator.credentials.get(challenge = intentHash)
+                                              ◄── Touch ID / Face ID
+
+5.  Compact the DER signature → 64-byte r‖s (low-S normalized)
+
+6.  Compute WebAuthn e-value: SHA-256(authData ‖ SHA-256(cdJSON))
+
+7.  Build three-instruction transaction:
+      ix[N-2]: secp256r1Ix(pubkey, sig, eValue)
+      ix[N-1]: recordProofIx(authData, cdJSON, expiry, policy)
+      ix[N]:   your instruction
+
+8.  Sign with wallet ──────────────────────────────► Solana runtime
+                                                       executes ix[N]:
+                                                         your_program::action()
+                                                           └─ guard::enforce()
+                                                                verify P-256 sig
+                                                                check intent hash
+                                                                nonce += 1
 ```
 
 ### What happens onchain

@@ -1,134 +1,126 @@
 # Quickstart
 
-Three accounts. One CPI call. That's the entire integration.
+Three instructions. One CPI call. That's the entire integration.
 
-Trana works with any Anchor program and any FIDO2 device: passkeys (Touch ID, Face ID, iCloud Keychain), YubiKey, Google Titan, Windows Hello.
-
-**Guard program ID (devnet):** `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6`
+**Guard program ID (devnet):** `BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb`
 
 ---
 
 ## Step 1 — Add the Guard as a CPI dependency
 
-In your program's `Cargo.toml`:
-
 ```toml
 [dependencies]
-anchor-lang = "0.30"
-trana-guard = { version = "0.1", features = ["cpi"] }
+anchor-lang = "0.32.0"
+trana       = { version = "0.1", features = ["cpi"] }
 ```
 
-## Step 2 — Add the enforce CPI to your instruction
+## Step 2 — Add six accounts to your instruction struct
 
 ```rust
-use trana_guard::cpi::accounts::Enforce;
-use trana_guard::program::TranaGuard;
-use trana_guard::Policy;
+use trana::cpi::accounts::Enforce;
+use trana::program::Trana;
+use trana::Policy;
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
     // ... your existing accounts ...
 
-    pub guard_program: Program<'info, TranaGuard>,
+    // ── Trana: 6 accounts ────────────────────────────────────────────────────
+    pub guard_program: Program<'info, Trana>,
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds  = [b"2fa", owner.key().as_ref()],
         bump,
         seeds::program = guard_program.key(),
+        constraint = trana_registry.enabled @ YourError::PasskeyNotRegistered,
     )]
-    pub two_factor_registry: Account<'info, trana_guard::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
 
-    /// CHECK: Instructions sysvar — required by the guard
+    /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
-    pub instructions_sysvar: UncheckedAccount<'info>,
-}
+    pub trana_instructions: UncheckedAccount<'info>,
 
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
+
+    /// CHECK: treasury address validated inside trana against config
+    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
+    pub trana_treasury: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+```
+
+## Step 3 — Call enforce
+
+```rust
 pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-    trana_guard::cpi::enforce(
+    trana::cpi::enforce(
         CpiContext::new(
             ctx.accounts.guard_program.to_account_info(),
             Enforce {
-                registry:            ctx.accounts.two_factor_registry.to_account_info(),
-                instructions_sysvar: ctx.accounts.instructions_sysvar.to_account_info(),
+                registry:       ctx.accounts.trana_registry.to_account_info(),
+                owner:          ctx.accounts.owner.to_account_info(),
+                instructions:   ctx.accounts.trana_instructions.to_account_info(),
+                config:         ctx.accounts.trana_config.to_account_info(),
+                treasury:       ctx.accounts.trana_treasury.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
             },
         ),
-        Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 },
+        // Guard reads `amount` from this instruction at byte offset 0 (after discriminator).
+        // If amount < limit, enforce() is a no-op — no proof required.
+        Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
     )?;
 
-    // your withdrawal logic here
+    // your withdrawal logic here — only reached if passkey approved (or amount < limit)
     Ok(())
 }
 ```
 
 That's the entire program-side integration.
 
-## Step 3 — Install the SDK
+## Step 4 — Build the transaction
 
-```bash
-npm install @trana/sdk
-```
-
-## Step 4 — Wrap your app with TranaProvider
-
-```tsx
-import { TranaProvider, TranaModal } from "@trana/sdk"
-import { PublicKey } from "@solana/web3.js"
-
-const GUARD_PROGRAM_ID = new PublicKey("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6")
-
-export default function App({ children }: { children: React.ReactNode }) {
-  return (
-    <TranaProvider config={{ guardProgramId: GUARD_PROGRAM_ID, cluster: "devnet" }}>
-      {children}
-      <TranaModal />
-    </TranaProvider>
-  )
-}
-```
-
-## Step 5 — Call authorizeAndSend
-
-Replace your existing `sendTransaction` with `authorizeAndSend`:
-
-```tsx
-import { useTrana } from "@trana/sdk"
-
-export function WithdrawButton({ vaultPda, amount }: Props) {
-  const { authorizeAndSend } = useTrana()
-  const { publicKey } = useWallet()
-
-  async function handleWithdraw() {
-    const lamports = BigInt(Math.floor(amount * 1e9))
-
-    await authorizeAndSend({
-      buildIntent: () => ({
-        targetProgramId:          MY_VAULT_PROGRAM_ID,
-        instructionDiscriminator: WITHDRAW_DISCRIMINATOR,
-        accounts:                 [vaultPda, publicKey!],
-        params:                   u64LE(lamports),
-        label:                    `Withdraw ${amount} SOL`,
-      }),
-      buildTransaction: async ({ recentBlockhash }) => {
-        const tx = new Transaction({ recentBlockhash, feePayer: publicKey! })
-        tx.add(buildWithdrawIx(vaultPda, publicKey!, lamports))
-        return tx
-      },
-    })
-  }
-
-  return <button onClick={handleWithdraw}>Withdraw</button>
-}
-```
-
-The SDK handles the rest: detects which policy fires, lazily registers the passkey on first use, shows a confirmation modal, prompts Touch ID / YubiKey, constructs the secp256r1 + record_proof instructions, and retries on blockhash expiry.
-
-## What lands onchain
+Every protected instruction must be preceded by exactly two guard instructions:
 
 ```
-ix[0]: secp256r1 precompile    ← Solana validates this P-256 signature natively
-ix[1]: guard::record_proof     ← carries WebAuthn authenticatorData + intent binding
-ix[2]: your_program::withdraw  → calls guard::cpi::enforce() internally
+ix[N-2]: secp256r1 precompile    ← native P-256 signature verification (SIMD-0075)
+ix[N-1]: trana::record_proof     ← WebAuthn binding data (authenticatorData, cdJSON)
+ix[N]:   your_program::withdraw  ← calls trana::cpi::enforce() internally
+```
+
+`ComputeBudget` instructions can be prepended — they shift all indices up and the guard adjusts. For multiple protected instructions in one transaction, include a separate `(secp256r1, record_proof, protected)` triplet for each.
+
+```typescript
+const tx = new Transaction({ recentBlockhash, feePayer: owner })
+
+// ComputeBudget before the triplet is fine
+tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
+
+// The triplet — must be contiguous, in this order
+tx.add(buildSecp256r1Ix(pubkey, sig, webAuthnEValue))
+tx.add(buildRecordProofIx(guardProgramId, expiry, cluster, policy, authData, cdJSON))
+tx.add(withdrawIx)
+```
+
+See `tests/guard.ts` for the full reference implementation of `buildSecp256r1Ix`, `buildRecordProofIx`, and `computeIntentHash`.
+
+## Policies
+
+```rust
+// Always require a passkey — no conditions
+Policy::Require
+
+// Require when the u64 at param_offset bytes (after discriminator) >= limit.
+// Guard reads the value directly from the instruction — cannot be faked.
+Policy::Limit { param_offset: 0, limit: 1_000_000_000 }
+
+// Require until slot is reached; free after
+Policy::NotBefore { slot: activation_slot }
+
+// Require after slot passes; free before
+Policy::NotAfter { slot: expiry_slot }
 ```
 
 ## Supported FIDO2 devices

@@ -25,6 +25,8 @@
  *   R23. Policy::NotAfter fires (slot 0 already elapsed, no proof) → MissingProof
  *  R23b. Policy::NotAfter passes (far-future slot)               → Success (no proof)
  *  R23c. Policy::NotAfter fires (slot 0 already elapsed, with proof) → Success
+ *   R18. Policy::Limit does not fire below threshold               → Success (no proof)
+ *   R19. Re-registration preserves nonce, updates pubkey          → Success
  *   R24. ComputeBudget prepended — secp256r1 still found at N-2   → Success
  *   R25. Two protected instructions in one tx (nonces N, N+1)     → Success (nonce +2)
  *   R26. V0 transaction with address lookup table                 → Success
@@ -847,6 +849,78 @@ describe("guard — secp256r1 passkey enforcement", () => {
       withProof:    true,
     })
     registryNonce++
+  })
+
+  // ── R18: Limit policy below threshold ─────────────────────────────────────
+  //
+  // Policy::Limit is a no-op when the guarded value < limit.
+  // enforce() returns Ok(()) without requiring any proof instructions.
+  // This verifies the conditional path: enforce CPI is called but passes through.
+  //
+  // Uses vault deposit (< 1 SOL threshold) — enforce is always called by the
+  // vault but doesn't require a proof when the condition doesn't fire.
+
+  it("R18: Policy::Limit does not fire below threshold — no proof required", async () => {
+    const depositAmount = 0.5 * SOL   // below 1 SOL LARGE_LIMIT
+
+    // No secp256r1 or record_proof instructions — just the deposit.
+    // If Limit fired, this would throw MissingProof.
+    await vault.methods
+      .deposit(new BN(depositAmount))
+      .accounts({
+        vault:             vaultPda,
+        owner:             owner.publicKey,
+        systemProgram:     SystemProgram.programId,
+        guardProgram:      trana.programId,
+        tranaRegistry:     registryPda,
+        tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
+        tranaTreasury:     treasuryPubkey,
+      })
+      .signers([owner]).rpc()
+
+    // Nonce must not change — no proof was consumed
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), registryNonce, "nonce must not change when policy does not fire")
+  })
+
+  // ── R19: Re-registration preserves nonce ───────────────────────────────────
+  //
+  // register_two_fa is idempotent: calling it again updates the key but must
+  // NOT reset the nonce. A reset would allow replay of any previously consumed
+  // proof, breaking the replay-protection guarantee.
+
+  it("R19: re-registration updates pubkey without resetting nonce", async () => {
+    const newKey    = p256.utils.randomSecretKey()
+    const newPubKey = p256.getPublicKey(newKey, true)
+    const nonceBefore = registryNonce
+
+    await trana.methods
+      .registerTwoFa(
+        { secp256R1Passkey: {} },
+        Buffer.from(newPubKey),
+        Buffer.from("new-cred-id"),
+      )
+      .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner]).rpc()
+
+    const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(reg.nonce.toNumber(), nonceBefore,        "nonce must survive re-registration")
+    assert.deepEqual(Buffer.from(reg.pubkeyBytes), Buffer.from(newPubKey), "pubkey should be updated")
+
+    // Restore original key so subsequent tests still work
+    await trana.methods
+      .registerTwoFa(
+        { secp256R1Passkey: {} },
+        Buffer.from(p256PubKey),
+        Buffer.from("test-cred"),
+      )
+      .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
+      .signers([owner]).rpc()
+
+    const regRestored = await trana.account.twoFactorRegistry.fetch(registryPda)
+    assert.equal(regRestored.nonce.toNumber(), nonceBefore, "nonce must survive second re-registration")
+    assert.deepEqual(Buffer.from(regRestored.pubkeyBytes), Buffer.from(p256PubKey), "original key restored")
   })
 
   // ── R24: ComputeBudget prefix ──────────────────────────────────────────────
