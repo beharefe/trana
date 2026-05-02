@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js"
+import { PublicKey, TransactionInstruction } from "@solana/web3.js"
 import { sha256Bytes } from "../utils"
 
 // ── IntentInput ───────────────────────────────────────────────────────────────
@@ -200,3 +200,39 @@ export function hashIntent(intent: TranaIntent): Uint8Array {
 
 /** Alias for backward compatibility */
 export const intentToPayloadHash = hashIntent
+
+// ── intentFromInstruction ─────────────────────────────────────────────────────
+
+/**
+ * Derive IntentInput directly from a TransactionInstruction.
+ *
+ * Eliminates the need to manually extract discriminator, accounts, and params —
+ * all three are computed from the instruction object the caller already has.
+ *
+ * @example
+ * ```typescript
+ * const ix = await program.methods.withdraw(amount).instruction()
+ *
+ * await authorizeAndSend({
+ *   instruction: ix,
+ *   label: `Withdraw ${amount / 1e9} SOL`,
+ *   buildTransaction: async ({ recentBlockhash }) => {
+ *     const tx = new Transaction({ recentBlockhash, feePayer: publicKey })
+ *     tx.add(ix)
+ *     return tx
+ *   },
+ * })
+ * ```
+ */
+export function intentFromInstruction(
+  ix:     TransactionInstruction,
+  label?: string,
+): IntentInput {
+  return {
+    targetProgramId:          ix.programId,
+    instructionDiscriminator: ix.data.length >= 8 ? Uint8Array.from(ix.data.slice(0, 8)) : undefined,
+    accounts:                 ix.keys.map(k => k.pubkey),
+    params:                   ix.data.length > 8  ? Uint8Array.from(ix.data.slice(8))    : undefined,
+    label,
+  }
+}

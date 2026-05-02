@@ -15,7 +15,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "../secp256r1"
 import { decodeParamsU64 } from "../utils"
 import { fetchRegistry } from "./registry"
-import { buildIntent, IntentInput } from "./intent"
+import { buildIntent, intentFromInstruction, IntentInput } from "./intent"
 import { detectEnforcement } from "./detector"
 import { useTranaContext } from "./provider"
 
