@@ -1,12 +1,12 @@
 # Integration
 
-Full reference for integrating Trana into a Solana Anchor program.
+Full reference for adding Trana to a Solana Anchor program.
 
 ---
 
 ## Onchain — Rust / Anchor
 
-### 1. Add the dependency
+### 1. Dependency
 
 ```toml
 [dependencies]
@@ -14,7 +14,7 @@ anchor-lang = "0.32.0"
 trana       = { version = "0.1", features = ["cpi"] }
 ```
 
-### 2. Import
+### 2. Imports
 
 ```rust
 use trana::cpi::accounts::Enforce;
@@ -22,7 +22,7 @@ use trana::program::Trana;
 use trana::Policy;
 ```
 
-### 3. Add six accounts to your instruction struct
+### 3. Six accounts
 
 ```rust
 #[derive(Accounts)]
@@ -33,7 +33,7 @@ pub struct YourProtectedAction<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    // --- Trana: 6 accounts ---
+    // --- Trana ---
     pub guard_program: Program<'info, Trana>,
 
     #[account(
@@ -45,7 +45,7 @@ pub struct YourProtectedAction<'info> {
     )]
     pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
 
-    /// CHECK: Solana Instructions sysvar
+    /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
 
@@ -79,7 +79,7 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
     )?;
 
-    // your logic here — only runs if passkey verified (or condition didn't fire)
+    // your logic here
     Ok(())
 }
 ```
@@ -89,69 +89,89 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
 | Variant | Fires when | Policy string |
 |---|---|---|
 | `Policy::Require` | Always | `trana.require` |
-| `Policy::Limit { param_offset, limit }` | `u64 at offset >= limit` | `trana.limit` |
-| `Policy::NotBefore { slot }` | `current_slot < slot` | `trana.not_before` |
-| `Policy::NotAfter { slot }` | `current_slot > slot` | `trana.not_after` |
+| `Policy::Limit { param_offset, limit }` | u64 at offset ≥ limit | `trana.limit` |
+| `Policy::NotBefore { slot }` | current slot < slot | `trana.not_before` |
+| `Policy::NotAfter { slot }` | current slot > slot | `trana.not_after` |
 
-For `Limit`, the guard reads the u64 directly from your instruction's data at `param_offset` bytes after the 8-byte Anchor discriminator. The caller cannot fake this value.
-
-Conditional policies (`Limit`, `NotBefore`, `NotAfter`) are no-ops when their condition is false — `enforce()` returns `Ok(())` without requiring a proof.
+The guard reads `u64` directly from your instruction data at `param_offset` bytes after the 8-byte Anchor discriminator. Conditional policies are no-ops when their condition is false.
 
 ---
 
 ## Transaction shape
 
-The three-instruction triplet must appear in this exact order:
+The triplet must appear in this exact order, contiguously:
 
 ```
-ix[N-2]: secp256r1 precompile    SIMD-0075 — native P-256 sig verify
-ix[N-1]: trana::record_proof     data carrier — authenticatorData, clientDataJSON, expiry
+ix[N-2]: secp256r1 precompile    native P-256 sig verify (SIMD-0075)
+ix[N-1]: trana::record_proof     WebAuthn data carrier
 ix[N]:   your instruction        calls trana::cpi::enforce() via CPI
 ```
 
-`N` is the index of your instruction in the transaction. Rules:
+Rules:
 
-- **ComputeBudget instructions can be prepended** — they shift `N` up uniformly and the guard adjusts.
-- **Multiple protected instructions** work in one transaction. Each needs its own `(secp256r1, record_proof, protected)` triplet. Sign proof B with `nonce + 1` before submitting; nonces are consumed sequentially on-chain.
-- **V0 transactions and address lookup tables** are supported. The Instructions sysvar exposes fully-resolved pubkeys, so `accounts_hash` computed client-side (from resolved pubkeys) matches on-chain.
-- **The triplet must be contiguous** — no instructions between `secp256r1` and `record_proof`, or between `record_proof` and your instruction.
+- **ComputeBudget** can be prepended — it shifts all indices up and the guard adjusts.
+- **Multiple protected instructions** work in one transaction. Each needs its own `(secp256r1, record_proof, protected)` triplet, with proofs signed at consecutive nonces.
+- **V0 transactions and lookup tables** work. The Instructions sysvar exposes fully-resolved pubkeys, so account hashes computed client-side match on-chain.
+- The triplet must be contiguous — no instructions between the three.
+
+`authorizeAndSend` handles triplet construction automatically.
 
 ---
 
-## Client-side — TypeScript
+## Client — TypeScript
 
-The SDK (`packages/sdk`) currently exposes policy helpers. The transaction-building primitives are in `tests/guard.ts` and will move to the SDK package.
+### Setup
 
-### Policy helpers
+```tsx
+import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/guard-sdk"
 
-```ts
-import { policyString, evaluatePolicy } from "@trana/sdk"
-
-// "trana.limit" | "trana.require" | "trana.not_before" | "trana.not_after"
-const str = policyString(policy)
-
-// Client-side condition check (for UX only — not authoritative)
-const { required } = evaluatePolicy(policy, { amount, currentSlot })
+<TranaProvider config={{
+  guardProgramId: new PublicKey("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"),
+  policy: "trana.limit",
+  cluster: "devnet",       // default: "mainnet-beta"
+  expiryTtlSec: 120,       // default: 120
+}}>
+  <App />
+  <TranaModal />
+</TranaProvider>
 ```
 
-### Intent hash (canonical encoding)
+### authorizeAndSend
 
 ```ts
-// Must match programs/guard/src/verify.rs → compute_intent_hash() exactly
-SHA-256(
-  u8(1)                      // version
-  u16LE(len) + "trana:v1"   // domain
-  u16LE(len) + cluster       // "mainnet-beta" | "devnet" | "localnet"
-  32 bytes                   // wallet pubkey
-  32 bytes                   // guard program ID
-  32 bytes                   // target program ID
-  u16LE(len) + policy_id    // policy string from policyString()
-  8 bytes                    // instruction discriminator
-  SHA-256(all account pubkeys concatenated)
-  SHA-256(instruction data after discriminator)
-  u64LE                      // nonce from registry PDA
-  i64LE                      // expiry unix timestamp
-)
+const { authorizeAndSend } = useTrana()
+
+// Simple — SDK derives intent and builds the transaction:
+await authorizeAndSend({
+  instruction: withdrawIx,
+  label: "Withdraw 1.5 SOL",
+})
+
+// Custom transaction (priority fees, extra instructions):
+await authorizeAndSend({
+  instruction: withdrawIx,
+  buildTransaction: async ({ recentBlockhash }) => {
+    const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
+    tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 }))
+    tx.add(withdrawIx)
+    return tx
+  },
+})
+```
+
+`instruction` is the anchor — the SDK derives intent from it and inserts the proof pair immediately before it in the final transaction. The instruction can appear anywhere in the transaction.
+
+### Low-level helpers
+
+```ts
+import {
+  buildSecp256r1Ix,
+  buildWebAuthnMessage,
+  buildRecordProofIx,
+  intentFromInstruction,
+  buildIntent,
+  hashIntent,
+} from "@tranaprotocol/guard-sdk"
 ```
 
 ---
@@ -160,10 +180,10 @@ SHA-256(
 
 | Error | Code | Meaning |
 |---|---|---|
-| `MissingProof` | `0x1770` | No `record_proof` found at `ix[N-1]`, or no `secp256r1` at `ix[N-2]` |
+| `MissingProof` | `0x1770` | No `record_proof` at `ix[N-1]` or no `secp256r1` at `ix[N-2]` |
 | `ProofExpired` | `0x1771` | `proof.expiry < clock.unix_timestamp` |
-| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed after signing |
-| `WrongSigner` | `0x1773` | Pubkey in `secp256r1` instruction doesn't match the registry |
-| `RegistryDisabled` | — | `trana_registry.enabled == false` — fails at Anchor account validation |
-| `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match the policy the program enforced |
-| `PasskeyNotRegistered` | — | No `TwoFactorRegistry` PDA found for this wallet (your constraint, not the guard's) |
+| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
+| `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
+| `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
+| `RegistryDisabled` | — | `trana_registry.enabled == false` — fails at account validation |
+| `PasskeyNotRegistered` | — | No registry PDA found — your constraint, not the guard's |

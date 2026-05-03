@@ -1,87 +1,56 @@
-// Types
-export type {
-  ProofPayload,
-  VaultProofPayload,
-  PasskeyProof,
-  GuardRequirement,
-  GuardContext,
-  StatusResponse,
-  VaultStatusResponse,
-} from "./types"
+// ── Policy helpers ────────────────────────────────────────────────────────────
+export { evaluatePolicy, policyString, type Policy } from "./policy"
 
-// Policy
-export {
-  evaluatePolicy,
-  buildDefaultPolicy,
-  type Policy,
-  type PrimitiveRule,
-  type PolicyContext,
-} from "./policy"
-
-// Requirement check (deterministic client-side policy evaluation)
+// ── Requirement check (client-side, UX only) ──────────────────────────────────
 export { checkRequirement } from "./requirement"
 
-// Passkey / WebAuthn (browser-only)
-export {
-  startPasskeyRegistration,
-  getPasskeyProof,
-  getVaultProof,
-  canonicalJson,
-  canonicalVaultJson,
-} from "./passkey"
-
-// Transaction proof attachment
-export { attachProof } from "./proof"
-
-// Utilities
+// ── Utilities ─────────────────────────────────────────────────────────────────
 export { sha256, sha256Bytes, generateNonce, decodeParamsU64 } from "./utils"
 
-// secp256r1 precompile (browser + Node)
-export { SECP256R1_PROGRAM_ID, buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx } from "./secp256r1"
-
-// Browser WebAuthn utilities (no backend required)
-export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
-
-
-// HTTP client (legacy backend bridge — not required for secp256r1 passkey flow)
+// ── secp256r1 precompile ──────────────────────────────────────────────────────
 export {
-  getPasskeyStatus,
-  getVaultStatus,
-  fetchRegistrationOptions,
-  verifyRegistration,
-  fetchApprovalOptions,
-  verifyApproval,
-} from "./client"
+  SECP256R1_PROGRAM_ID,
+  buildSecp256r1Ix,
+  buildWebAuthnMessage,
+  buildRecordProofIx,
+} from "./secp256r1"
 
-// ── React provider + hook (browser only) ─────────────────────────────────────
+// ── React: provider + hook ────────────────────────────────────────────────────
 //
-// Correct integration flow:
 //   1. Wrap app:  <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
-//   2. Call:      const { authorizeAndSend } = useTrana()
-//   3. Use:           await authorizeAndSend({ buildTransaction, label: "..." })
-//      Override:      await authorizeAndSend({ buildTransaction, buildIntent })
+//   2. Hook:      const { authorizeAndSend } = useTrana()
+//   3. Call:      await authorizeAndSend({ instruction: ix, label: "..." })
 //
-// Flow: Detect → Register (if needed) → Approve (device) → Build tx → Sign once → Send
-// Passkey approves the action intent. Wallet signs the final transaction. Both required.
 export { TranaProvider, useTranaContext } from "./react/provider"
 export type { TranaContextValue } from "./react/provider"
 export { useTrana } from "./react/useTrana"
 export type { AuthorizeAndSendArgs, IntentInput } from "./react/useTrana"
 export { TranaModal } from "./react/modal"
 export type { TranaConfig, TranaState, TranaAction } from "./react/state"
+
+// ── Intent ────────────────────────────────────────────────────────────────────
 export type { TranaIntent } from "./react/intent"
 export { buildIntent, hashIntent, intentToPayloadHash, intentFromInstruction } from "./react/intent"
+
+// ── Registry ──────────────────────────────────────────────────────────────────
 export { findRegistryPda, fetchRegistry } from "./react/registry"
 export type { RegistryState } from "./react/registry"
-// Error-based detection utilities (for custom flows that catch failed tx errors)
-export { isTranaError, parseTranaError } from "./react/error"
-export type { TranaErrorKind } from "./react/error"
-// Simulation-based pre-detection (optional — authorizeAndSend does not require it)
+
+// ── Detection ─────────────────────────────────────────────────────────────────
 export { detectEnforcement, hasSecp256r1Ix } from "./react/detector"
 export type { DetectionResult } from "./react/detector"
-// Passkey management hook (Phase 1: v1 registry stub; Phase 2: full multi-key impl)
+
+// ── WebAuthn (browser only) ───────────────────────────────────────────────────
+export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
+
+// ── Error helpers ─────────────────────────────────────────────────────────────
+export { isTranaError, parseTranaError } from "./react/error"
+export type { TranaErrorKind } from "./react/error"
+
+// ── Passkey management ────────────────────────────────────────────────────────
 export { useTranaPasskeys } from "./react/useTranaPasskeys"
 export type { PasskeyEntry, RecoveryState, UseTranaPasskeysResult } from "./react/useTranaPasskeys"
-// Backup nudge hook — surfaces one-time prompt to add a second passkey after first approval
+
+// ── Backup nudge ──────────────────────────────────────────────────────────────
 export { useBackupNudge } from "./react/useBackupNudge"
 export type { BackupNudgeState } from "./react/useBackupNudge"

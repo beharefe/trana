@@ -1,22 +1,22 @@
 # Architecture
 
-Trana is structured as three cooperating layers. All three are required; the Solana runtime enforces atomicity.
+Trana is three cooperating layers. The Solana runtime enforces atomicity — all three execute in a single transaction or none of them do.
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  dApp / Frontend  (React)                           │
 └──────────────────┬──────────────────────────────────┘
-                   │  TypeScript SDK (@trana/sdk)
+                   │  @tranaprotocol/guard-sdk
 ┌──────────────────▼──────────────────────────────────┐
 │  packages/sdk                                       │
-│  WebAuthn  │  Intent hash  │  Tx builder            │
+│  Intent hash  │  WebAuthn  │  Tx builder            │
 └──────────────────┬──────────────────────────────────┘
                    │  Signed transaction
 ┌──────────────────▼──────────────────────────────────┐
 │  Solana Runtime                                     │
-│  ix[0]  secp256r1 precompile  (SIMD-0075)           │
-│  ix[1]  guard::record_proof   (data carrier)        │
-│  ix[2]  your_program::action  → guard::enforce()    │
+│  ix[N-2]  secp256r1 precompile  (SIMD-0075)         │
+│  ix[N-1]  guard::record_proof   (data carrier)      │
+│  ix[N]    your_program::action  → guard::enforce()  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -26,120 +26,112 @@ Trana is structured as three cooperating layers. All three are required; the Sol
 
 ### programs/guard — the authorization primitive
 
-A single deployed program. Three instructions:
+One deployed program, three instructions:
 
-**`register_two_fa`** — writes a P-256 public key and WebAuthn credential ID into a PDA owned by the user's wallet. Seeds: `["2fa", wallet_pubkey]`. Idempotent; re-registering updates the key and preserves the nonce.
+**`register_two_fa`** — writes a P-256 public key and credential ID into a PDA. Seeds: `["2fa", wallet_pubkey]`. Idempotent; re-registering updates the key and preserves the nonce.
 
-**`record_proof`** — a pure data carrier. Carries WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in its instruction data. Does nothing else.
+**`record_proof`** — pure data carrier. Holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in instruction data. No accounts modified.
 
-**`enforce`** — called by external programs via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature, checks the intent hash, increments the nonce. If any check fails, the entire transaction reverts.
+**`enforce`** — called by your program via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against the registry pubkey, checks the intent hash, increments the nonce. If anything fails, the whole transaction reverts.
 
 ### packages/sdk — TypeScript client
 
 ```
 packages/sdk/src/
+├── secp256r1.ts       buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx
+├── utils.ts           sha256, decodeParamsU64
 ├── policy.ts          Policy type, policyString(), evaluatePolicy()
-├── requirement.ts     checkRequirement() — client-side condition check (UX only)
+├── requirement.ts     checkRequirement() — client-side condition check
 └── react/
-    └── detector.ts    parsePolicyFromLogs() — reads policy from simulation logs
+    ├── intent.ts      buildIntent(), hashIntent(), intentFromInstruction()
+    ├── useTrana.ts    authorizeAndSend() — the main integration hook
+    ├── provider.tsx   TranaProvider — context and deferred promise hub
+    ├── modal.tsx      TranaModal — registration, confirmation, approval, error
+    ├── detector.ts    detectEnforcement() — simulation-based policy detection
+    └── registry.ts    fetchRegistry(), findRegistryPda()
 ```
-
-The transaction-building primitives (intent hash, secp256r1 instruction, record_proof instruction) live in `tests/guard.ts` as the canonical reference and will move to the SDK package.
 
 ---
 
 ## Authorization flow
 
 ```
-User device              Client                         Solana
-───────────              ──────                         ──────
+Device                   Client                        Solana
+──────                   ──────                        ──────
 
-1.  dApp simulates the tx to detect which policy fires
-    (parsePolicyFromLogs reads "trana.limit" from program logs)
+1.  Simulate the transaction to detect which policy fires
+    (reads "trana.limit" / "trana.require" etc. from logs)
 
-2.  Fetch registry PDA ────────────────────────────► read nonce, pubkey
+2.  Fetch registry PDA ──────────────────────────► nonce, pubkey
 
-3.  Compute intent hash (SHA-256 over wallet, program IDs, policy,
-    discriminator, accounts_hash, params_hash, nonce, expiry)
+3.  Compute intent hash:
+    SHA-256(version, domain, cluster, wallet, guard,
+            target, policy, discriminator,
+            accounts_hash, params_hash, nonce, expiry)
 
-4.  navigator.credentials.get(challenge = intentHash)
-                                              ◄── Touch ID / Face ID
+4.  Show confirmation modal — user reviews action details
 
-5.  Compact the DER signature → 64-byte r‖s (low-S normalized)
+5.  navigator.credentials.get(challenge = intentHash)
+                                         ◄── Touch ID / Face ID
 
-6.  Compute WebAuthn e-value: SHA-256(authData ‖ SHA-256(cdJSON))
+6.  Compact DER → 64-byte r‖s (low-S normalized)
 
-7.  Build three-instruction transaction:
-      ix[N-2]: secp256r1Ix(pubkey, sig, eValue)
+7.  Build transaction:
+      ix[N-2]: secp256r1Ix(pubkey, sig, authData ‖ SHA-256(cdJSON))
       ix[N-1]: recordProofIx(authData, cdJSON, expiry, policy)
       ix[N]:   your instruction
 
-8.  Sign with wallet ──────────────────────────────► Solana runtime
-                                                       executes ix[N]:
-                                                         your_program::action()
-                                                           └─ guard::enforce()
-                                                                verify P-256 sig
-                                                                check intent hash
-                                                                nonce += 1
-```
-
-### What happens onchain
-
-```
-Step 1:  Deserialize record_proof from ix[current_idx - 1]
-Step 2:  Extract target program, discriminator, accounts_hash, params_hash
-         from ix[current_idx]
-Step 3:  require!(clock.unix_timestamp < proof.expiry)   → ProofExpired
-Step 4:  Compute intent_hash from all fields
-Step 5:  require!(cdJSON["challenge"] == intent_hash)    → PayloadMismatch
-Step 6:  e_value = SHA-256(authData ‖ SHA-256(cdJSON))
-Step 7:  require!(secp_ix.pubkey == registry.pubkey)     → WrongSigner
-         require!(secp_ix.message == e_value)            → PayloadMismatch
-Step 8:  registry.nonce += 1                             → prevents replay
-Step 9:  emit!(ProofVerified { owner, policy, nonce })
+8.  Sign with wallet ────────────────────────────► Solana runtime
+                                                    executes ix[N]:
+                                                      your_program::action()
+                                                        └─ guard::enforce()
+                                                             verify P-256 sig
+                                                             check intent hash
+                                                             nonce += 1
 ```
 
 ---
 
 ## Intent hash
 
-The 32-byte SHA-256 that binds the passkey signature to the exact transaction:
+The 32-byte challenge that binds the passkey signature to the exact authorized action. Computed identically in `packages/sdk/src/react/intent.ts` → `hashIntent()` and `programs/guard/src/verify.rs` → `compute_intent_hash()`.
 
 ```
 SHA-256(
-  u8(1)                      version
-  u16LE(len) + "trana:v1"    domain
-  u16LE(len) + cluster
-  32 bytes                   wallet pubkey
-  32 bytes                   guard program ID
-  32 bytes                   target program ID
-  u16LE(len) + policy_id
-  8 bytes                    instruction discriminator
-  32 bytes                   SHA-256(all account pubkeys)
-  32 bytes                   SHA-256(instruction params)
-  u64LE                      nonce (from registry PDA)
-  i64LE                      expiry unix timestamp
+  u8           version = 1
+  u16LE + utf8 "trana:v1"
+  u16LE + utf8 cluster
+  32 bytes     wallet pubkey
+  32 bytes     guard program ID
+  32 bytes     target program ID
+  u16LE + utf8 policy_id
+  8 bytes      instruction discriminator
+  32 bytes     SHA-256(all account pubkeys concatenated)
+  32 bytes     SHA-256(instruction params)
+  u64LE        nonce (from registry PDA)
+  i64LE        expiry unix timestamp
 )
 ```
 
-Computed identically in `packages/sdk/src/react/intent.ts` → `hashIntent()` and `programs/guard/src/lib.rs` → `compute_intent_hash()`.
+Replay is prevented by:
+- **nonce** — incremented on-chain after every valid approval
+- **expiryUnix** — proof rejected past this timestamp
+- **exact field binding** — changing any account, param, or cluster invalidates the hash
 
 ---
 
-## Registry PDA layout
+## Registry PDA
 
 Seeds: `["2fa", wallet_pubkey]`, program: guard.
 
-| Offset | Bytes | Field |
+| Field | Bytes | Notes |
 |---|---|---|
-| 0 | 8 | Anchor discriminator |
-| 8 | 32 | owner (Pubkey) |
-| 40 | 1 | key_kind |
-| 41 | 4 | pubkey_bytes length |
-| 45 | ≤33 | pubkey_bytes (compressed P-256) |
-| ? | 4 | credential_id length |
-| ? | ≤128 | credential_id |
-| ? | 1 | enabled (bool) |
-| ? | 8 | nonce (u64 LE) |
+| Anchor discriminator | 8 | |
+| owner | 32 | wallet pubkey |
+| key_kind | 1 | |
+| pubkey_bytes | 4 + ≤33 | compressed P-256 |
+| credential_id | 4 + ≤128 | WebAuthn credential ID |
+| enabled | 1 | constraint-checked before enforce() |
+| nonce | 8 | u64 LE, increments on each approval |
 
-Total allocated: 219 bytes. The `nonce` increments on every successful `enforce()` call — a captured proof becomes invalid immediately after use.
+Total: 219 bytes allocated.
