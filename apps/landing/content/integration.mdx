@@ -126,9 +126,8 @@ Rules:
 import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/guard-sdk"
 
 <TranaProvider config={{
-  guardProgramId: new PublicKey("BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"),
+  guardProgramId: GUARD_PROGRAM_ID,
   policy: "trana.limit",
-  cluster: "devnet",       // default: "mainnet-beta"
   expiryTtlSec: 120,       // default: 120
 }}>
   <App />

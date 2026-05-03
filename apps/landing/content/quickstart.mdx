@@ -2,8 +2,6 @@
 
 Three instructions. One CPI call.
 
-**Guard program (devnet):** `BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb`
-
 ---
 
 ## 1. Add the dependency
@@ -83,7 +81,6 @@ Wrap your app once, then call `authorizeAndSend` wherever you trigger a protecte
 <TranaProvider config={{
   guardProgramId: GUARD_PROGRAM_ID,
   policy: "trana.limit",
-  cluster: "devnet",
 }}>
   <App />
   <TranaModal />
