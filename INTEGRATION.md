@@ -59,6 +59,10 @@ pub struct YourProtectedInstruction<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+
+    /// Global config — enforce() reads this to validate proof.cluster == deployment cluster.
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 ```
 
@@ -75,6 +79,7 @@ pub fn your_protected_instruction(ctx: Context<YourProtectedInstruction>, amount
                 registry:     ctx.accounts.trana_registry.to_account_info(),
                 owner:        ctx.accounts.owner.to_account_info(),
                 instructions: ctx.accounts.trana_instructions.to_account_info(),
+                config:       ctx.accounts.trana_config.to_account_info(),
             },
         ),
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
@@ -85,8 +90,15 @@ pub fn your_protected_instruction(ctx: Context<YourProtectedInstruction>, amount
 }
 ```
 
-The `param_offset` field tells the guard where to read the u64 from your instruction
-data (after the 8-byte Anchor discriminator). Set it to `0` for the first parameter.
+`param_offset` is the byte offset of the target `u64` **after the 8-byte Anchor discriminator**:
+
+| Instruction | `param_offset` |
+|---|---|
+| `fn action(ctx, amount: u64)` | `0` |
+| `fn action(ctx, recipient: Pubkey, amount: u64)` | `32` |
+| `fn action(ctx, flag: bool, amount: u64)` | `1` |
+
+Sum the byte sizes of all parameters before the target u64: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
 
 ---
 

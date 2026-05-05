@@ -94,21 +94,24 @@ pub mod trana {
 
     /// One-time initialization of the global fee config PDA.
     /// Called once by the Trana team after deployment.
-    /// Fees and treasury are publicly readable by anyone on-chain.
+    /// Fees, treasury, and cluster are publicly readable by anyone on-chain.
     pub fn init_config(
         ctx:          Context<InitConfig>,
         register_fee: u64,
         recovery_fee: u64,
         treasury:     Pubkey,
+        cluster:      String,
     ) -> Result<()> {
+        require!(cluster.len() <= 32, GuardError::InvalidProof);
         let cfg           = &mut ctx.accounts.config;
         cfg.authority     = ctx.accounts.authority.key();
         cfg.treasury      = treasury;
         cfg.register_fee  = register_fee;
         cfg.recovery_fee  = recovery_fee;
+        cfg.cluster       = cluster.clone();
         msg!(
-            "TRANA config | register_fee={} | recovery_fee={} | treasury={}",
-            register_fee, recovery_fee, treasury,
+            "TRANA config | register_fee={} | recovery_fee={} | cluster={} | treasury={}",
+            register_fee, recovery_fee, cluster, treasury,
         );
         Ok(())
     }
@@ -214,15 +217,16 @@ pub mod trana {
     /// evaluated here and passkey is required only when the condition fires.
     /// For Policy::Require the passkey is always required unconditionally.
     pub fn enforce(ctx: Context<Enforce>, policy: Policy) -> Result<()> {
-        let owner_key = ctx.accounts.owner.key();
-        let ix        = &ctx.accounts.instructions;
-        let registry  = &mut ctx.accounts.registry;
-        let pid       = ctx.program_id;
+        let owner_key       = ctx.accounts.owner.key();
+        let ix              = &ctx.accounts.instructions;
+        let registry        = &mut ctx.accounts.registry;
+        let pid             = ctx.program_id;
+        let expected_cluster = &ctx.accounts.config.cluster;
 
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy=trana.require | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require")
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require", expected_cluster)
             }
 
             Policy::NotBefore { slot } => {
@@ -232,7 +236,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", expected_cluster)?;
                 }
                 Ok(())
             }
@@ -244,7 +248,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", expected_cluster)?;
                 }
                 Ok(())
             }
@@ -256,7 +260,7 @@ pub mod trana {
                         "TRANA require | policy=trana.limit | amount={} | limit={} | owner={}",
                         amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit", expected_cluster)?;
                 }
                 Ok(())
             }

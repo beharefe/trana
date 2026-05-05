@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
  * One-time init_config for the Trana guard program.
- * Usage: node scripts/init-config.mjs <guardProgramId> <treasuryAddr>
+ * Usage: node scripts/init-config.mjs <guardProgramId> <treasuryAddr> [cluster]
+ *   cluster defaults to "mainnet-beta"
  * Env:   ANCHOR_PROVIDER_URL, ANCHOR_WALLET
  */
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js"
 import { readFileSync } from "fs"
 
-const [,, guardId, treasury] = process.argv
+const [,, guardId, treasury, clusterArg] = process.argv
 if (!guardId || !treasury) {
-  console.error("Usage: init-config.mjs <guardProgramId> <treasuryAddr>")
+  console.error("Usage: init-config.mjs <guardProgramId> <treasuryAddr> [cluster]")
   process.exit(1)
 }
 
-const rpc        = process.env.ANCHOR_PROVIDER_URL ?? "http://localhost:8899"
-const walletPath = process.env.ANCHOR_WALLET
+const cluster     = clusterArg ?? "mainnet-beta"
+const rpc         = process.env.ANCHOR_PROVIDER_URL ?? "http://localhost:8899"
+const walletPath  = process.env.ANCHOR_WALLET
 if (!walletPath) { console.error("ANCHOR_WALLET not set"); process.exit(1) }
 
 const connection = new Connection(rpc, "confirmed")
@@ -32,19 +34,30 @@ if (existing) {
   process.exit(0)
 }
 
-// init_config discriminator from IDL
+// init_config discriminator (SHA-256("global:init_config")[0..8]) — unchanged by new param
 const disc = Buffer.from([23, 235, 115, 232, 168, 96, 1, 231])
 
-// Encode args: fee_lamports (u64 LE) + treasury (32 bytes)
-const feeBuf = Buffer.alloc(8)
-// fee = 0
-const data = Buffer.concat([disc, feeBuf, treasuryPubkey.toBuffer()])
+// Encode args: register_fee (u64 LE) + recovery_fee (u64 LE) + treasury (32 bytes) + cluster (4-byte LE length + UTF-8)
+const registerFeeBuf = Buffer.alloc(8)  // 0 lamports
+const recoveryFeeBuf = Buffer.alloc(8)  // 0 lamports
+const clusterBuf     = Buffer.from(cluster, "utf8")
+const clusterLenBuf  = Buffer.alloc(4)
+clusterLenBuf.writeUInt32LE(clusterBuf.length, 0)
+
+const data = Buffer.concat([
+  disc,
+  registerFeeBuf,
+  recoveryFeeBuf,
+  treasuryPubkey.toBuffer(),
+  clusterLenBuf,
+  clusterBuf,
+])
 
 const ix = new TransactionInstruction({
   programId: guardProgramId,
   keys: [
-    { pubkey: configPda,              isSigner: false, isWritable: true  },
-    { pubkey: payer.publicKey,        isSigner: true,  isWritable: true  },
+    { pubkey: configPda,               isSigner: false, isWritable: true  },
+    { pubkey: payer.publicKey,         isSigner: true,  isWritable: true  },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ],
   data,
@@ -57,4 +70,4 @@ tx.sign(payer)
 
 const sig = await connection.sendRawTransaction(tx.serialize())
 await connection.confirmTransaction(sig, "confirmed")
-console.log("init_config ok →", sig)
+console.log(`init_config ok → cluster=${cluster} | sig=${sig}`)

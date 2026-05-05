@@ -211,6 +211,8 @@ pub struct EmergencyFreeze<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 
 #[derive(Accounts)]
@@ -232,6 +234,8 @@ pub struct Deposit<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 
 #[derive(Accounts)]
@@ -256,6 +260,8 @@ pub struct Withdraw<'info> {
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 
 // ── Trana CPI helpers ─────────────────────────────────────────────────────────
@@ -266,6 +272,7 @@ impl<'info> EmergencyFreeze<'info> {
             registry:     self.trana_registry.to_account_info(),
             owner:        self.owner.to_account_info(),
             instructions: self.trana_instructions.to_account_info(),
+            config:       self.trana_config.to_account_info(),
         })
     }
 }
@@ -276,6 +283,7 @@ impl<'info> Deposit<'info> {
             registry:     self.trana_registry.to_account_info(),
             owner:        self.owner.to_account_info(),
             instructions: self.trana_instructions.to_account_info(),
+            config:       self.trana_config.to_account_info(),
         })
     }
 }
@@ -286,6 +294,7 @@ impl<'info> Withdraw<'info> {
             registry:     self.trana_registry.to_account_info(),
             owner:        self.owner.to_account_info(),
             instructions: self.trana_instructions.to_account_info(),
+            config:       self.trana_config.to_account_info(),
         })
     }
 }

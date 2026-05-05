@@ -22,7 +22,7 @@ use trana::program::Trana;
 use trana::Policy;
 ```
 
-### 3. Three Trana accounts
+### 3. Four Trana accounts
 
 ```rust
 #[derive(Accounts)]
@@ -48,6 +48,10 @@ pub struct YourProtectedAction<'info> {
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+
+    /// Global config — read by enforce() to validate proof cluster matches deployment.
+    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
+    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 ```
 
@@ -62,6 +66,7 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
                 registry:     ctx.accounts.trana_registry.to_account_info(),
                 owner:        ctx.accounts.owner.to_account_info(),
                 instructions: ctx.accounts.trana_instructions.to_account_info(),
+                config:       ctx.accounts.trana_config.to_account_info(),
             },
         ),
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
@@ -81,7 +86,18 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
 | `Policy::NotBefore { slot }` | current slot < slot | `trana.not_before` |
 | `Policy::NotAfter { slot }` | current slot > slot | `trana.not_after` |
 
-The guard reads `u64` directly from your instruction data at `param_offset` bytes after the 8-byte Anchor discriminator. Conditional policies are no-ops when their condition is false.
+The guard reads `u64` directly from your instruction data at `param_offset` bytes **after the 8-byte Anchor discriminator**. Conditional policies are no-ops when their condition is false.
+
+**`param_offset` layout** — byte position of your `u64` after the discriminator:
+
+| Instruction signature | `param_offset` |
+|---|---|
+| `fn action(ctx, amount: u64)` | `0` |
+| `fn action(ctx, recipient: Pubkey, amount: u64)` | `32` |
+| `fn action(ctx, flag: bool, amount: u64)` | `1` |
+| `fn action(ctx, a: u32, b: u32, amount: u64)` | `8` |
+
+Each type occupies its byte size: `u64` = 8, `u32` = 4, `Pubkey` = 32, `bool`/`u8` = 1. Sum the sizes of all parameters that come before the target `u64`.
 
 ---
 

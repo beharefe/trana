@@ -47,7 +47,9 @@ impl TwoFactorRegistry {
 /// Global fee configuration.
 /// Seeds: `[b"config"]`
 ///
-/// Stores registration fees and the treasury destination.
+/// Stores registration fees, the treasury destination, and the expected cluster
+/// name for this deployment. `enforce()` validates proof.cluster == config.cluster
+/// to prevent cross-cluster proof replay (e.g. a mainnet proof submitted to devnet).
 /// Publicly readable — any auditor can verify exact fees without reading source.
 /// Changes require a signed transaction from authority, full history on-chain.
 #[account]
@@ -61,6 +63,10 @@ pub struct TranaConfig {
     pub register_fee: u64,
     /// Lamports charged for a key recovery (re-registration).
     pub recovery_fee: u64,
+    /// Expected cluster for this deployment ("mainnet-beta", "devnet", "localnet").
+    /// Set once at init_config. Proof cluster must match to prevent cross-cluster replay.
+    #[max_len(32)]
+    pub cluster: String,
 }
 
 // ── Account contexts ──────────────────────────────────────────────────────────
@@ -118,6 +124,10 @@ pub struct Enforce<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
+
+    /// Global config — read to validate proof.cluster matches this deployment.
+    #[account(seeds = [b"config"], bump)]
+    pub config: Account<'info, TranaConfig>,
 }
 
 /// One-time initialization of the global fee config.
