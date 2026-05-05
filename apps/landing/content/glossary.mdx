@@ -16,7 +16,7 @@ An alias for secp256r1. P-256 is the curve used by COSE algorithm **ES256** (ECD
 
 ### SIMD-0075
 
-A Solana Improvement and Modification Document that added a native secp256r1 signature verification instruction to the Solana validator. Deployed on mainnet in **February 2025**. This is what makes Trana possible — a passkey signature can now be verified inside any Solana program without a server.
+A Solana Improvement and Modification Document that added a native secp256r1 signature verification instruction to the Solana validator, deployed on mainnet in February 2025. Before SIMD-0075, verifying a passkey signature onchain required routing through a trusted server. Now the runtime does it directly.
 
 ---
 
@@ -34,7 +34,7 @@ The Web Authentication API — a W3C standard for interacting with FIDO2 authent
 
 ### Passkey
 
-A FIDO2 credential **synced** across devices via the platform's cloud service (iCloud Keychain for Apple, Google Password Manager for Android). Enterprise deployments often prefer hardware-bound keys (YubiKey). Both work with Trana.
+A FIDO2 credential synced across devices via the platform's cloud service — iCloud Keychain on Apple, Google Password Manager on Android. Enterprise deployments often prefer hardware-bound keys (YubiKey) that don't sync. Both work with Trana.
 
 ---
 
@@ -106,4 +106,28 @@ A Solana mechanism that allows transactions to remain valid indefinitely by repl
 
 ### ProofVerified event
 
-An Anchor event emitted after every successful `enforce()` call. Contains: `owner`, `policy`, `target_program`, `nonce`, `expiry`. Permanently recorded on-chain for compliance auditing.
+An Anchor event emitted after every successful `enforce()` call. Fields: `owner`, `policy`, `target_program`, `nonce`, `expiry`. Recorded on-chain permanently, useful for compliance auditing.
+
+---
+
+### TranaConfig
+
+The global fee configuration PDA, seeded at `["config"]` on the guard program. Stores `authority`, `treasury`, `register_fee`, and `recovery_fee`. Anyone can read it on-chain to verify what fees are charged. Only the `authority` can update it via `update_config`.
+
+---
+
+### Policy
+
+The enum passed to `guard::cpi::enforce()`. Four variants: `Require` (always requires passkey), `NotBefore { slot }` (required until a slot is reached), `NotAfter { slot }` (required after a slot passes), `Limit { param_offset, limit }` (required when a u64 parameter is >= limit). For conditional policies, if the condition isn't met `enforce()` returns `Ok(())` immediately with no proof needed.
+
+---
+
+### param_offset
+
+The byte offset of a `u64` parameter inside the protected instruction's data, measured **after** the 8-byte Anchor discriminator. Used with `Policy::Limit` to tell the guard which field to read. For `fn action(ctx, amount: u64)` the offset is `0`. For `fn action(ctx, recipient: Pubkey, amount: u64)` the offset is `32`. Compute it by summing the byte sizes of all parameters before the target `u64`: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
+
+---
+
+### ClusterMismatch
+
+Error `0x177a`. Returned by `enforce()` when `proof.cluster` does not match the cluster string baked into the program binary at build time. Prevents a valid mainnet proof from being replayed against a devnet deployment of the same program — even if both binaries share the same program ID.

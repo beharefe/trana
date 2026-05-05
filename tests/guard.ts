@@ -12,7 +12,7 @@
  *   R8.  2 s passkey delay — fresh blockhash                     → Success
  *   R9.  5 s passkey delay — fresh blockhash                     → Success
  *   R10. Expired proof (expiry < now)                            → ProofExpired
- *   R11. Wrong cluster in record_proof                           → PayloadMismatch
+ *   R11. Wrong cluster in record_proof                           → ClusterMismatch
  *   R12. Wrong policy string in record_proof                     → PolicyMismatch
  *   R13. Registration fee charged on first register              → +REGISTER_FEE in treasury
  *   R14. Recovery fee charged on re-registration                 → +RECOVERY_FEE in treasury
@@ -328,6 +328,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
         systemProgram:     SystemProgram.programId,
+        tranaConfig:       configPda,
       })
       .instruction()
 
@@ -427,6 +428,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
         systemProgram:     SystemProgram.programId,
+        tranaConfig:       configPda,
       })
       .instruction()
 
@@ -512,17 +514,17 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   // ── R11 ────────────────────────────────────────────────────────────────────
-  it("R11: wrong cluster in record_proof fails (PayloadMismatch)", async () => {
+  it("R11: wrong cluster in record_proof fails (ClusterMismatch)", async () => {
     try {
       await withdrawTx({
         amount: 1 * SOL, policy: "trana.limit", privKey: p256PrivKey,
         withProof: true, clusterInProof: "wrongnet",
       })
-      assert.fail("Expected PayloadMismatch")
+      assert.fail("Expected ClusterMismatch")
     } catch (err: unknown) {
       assert.ok(
-        (err as Error).message.includes("PayloadMismatch") || (err as Error).message.includes("0x1772"),
-        `Expected PayloadMismatch, got: ${(err as Error).message}`,
+        (err as Error).message.includes("ClusterMismatch") || (err as Error).message.includes("0x177a"),
+        `Expected ClusterMismatch, got: ${(err as Error).message}`,
       )
     }
   })
@@ -816,6 +818,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tranaConfig:       configPda,
       })
       .signers([owner]).rpc()
 

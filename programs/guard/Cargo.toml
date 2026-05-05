@@ -13,8 +13,14 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
-default = []
 idl-build = ["anchor-lang/idl-build"]
+# Cluster selection — exactly one must be active per deployment.
+# default = localnet so tests work without extra flags.
+mainnet  = []
+devnet   = []
+testnet  = []
+localnet = []
+default  = ["localnet"]
 
 [dependencies]
 anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }

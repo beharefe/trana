@@ -10,122 +10,123 @@ via a single CPI call. No custody change. No trusted bridge. No server key.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         TRUSTED                              │
-│                                                              │
-│   Trana Guard Program (onchain)                              │
-│   ├── registry PDA  [b"2fa", authority]                      │
-│   │    └── stores: P-256 pubkey, key_kind, credential_id     │
-│   └── enforce instruction (CPI endpoint)                     │
-│        └── reads Instructions sysvar at runtime             │
-│             └── verifies secp256r1 precompile at ix 0        │
-│                  └── pubkey must match registry PDA          │
-│                                                              │
-│   Solana secp256r1 precompile                                │
-│   └── verifies P-256 signatures natively, no trusted party  │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      NOT TRUSTED                             │
-│                                                              │
-│   WebAuthn helper (apps/web)                                 │
-│   ├── runs WebAuthn ceremony (registration / authentication) │
-│   ├── returns raw P-256 signature to the client             │
-│   └── does NOT sign, store keys, or authorize anything      │
-│                                                              │
-│   Frontend / SDK (@trana-guard/sdk)                         │
-│   └── builds secp256r1 precompile instruction               │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  dApp / Frontend  (React)                           │
+└──────────────────┬──────────────────────────────────┘
+                   │  @tranaprotocol/guard-sdk
+┌──────────────────▼──────────────────────────────────┐
+│  packages/sdk                                       │
+│  Intent hash  │  WebAuthn  │  Tx builder            │
+└──────────────────┬──────────────────────────────────┘
+                   │  Signed transaction
+┌──────────────────▼──────────────────────────────────┐
+│  Solana Runtime                                     │
+│  ix[N-2]  secp256r1 precompile  (SIMD-0075)         │
+│  ix[N-1]  trana::record_proof   (data carrier)      │
+│  ix[N]    your_program::action  → trana::enforce()  │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## How passkeys work with Trana
+## How it works
 
-WebAuthn passkeys (Touch ID, Face ID, YubiKey) use the P-256 / secp256r1
-elliptic curve. Solana has a native secp256r1 precompile that verifies P-256
-signatures onchain.
+1. **Registration**: the user registers a P-256 passkey (Touch ID, Face ID, YubiKey)
+   once. The public key is stored in a Trana registry PDA seeded by their wallet.
 
-Trana bridges these:
+2. **Authorization**: when a protected instruction is triggered, the SDK builds an
+   intent hash (SHA-256 over the exact accounts, params, nonce, and cluster). The
+   user's passkey signs this hash via a WebAuthn ceremony — entirely in the browser.
 
-1. **Registration**: the user's authenticator generates a P-256 keypair.
-   The public key is stored in a Trana registry PDA onchain.
+3. **Enforcement**: the transaction carries three contiguous instructions: the
+   secp256r1 native precompile (P-256 sig verify), `record_proof` (data carrier),
+   and your protected instruction. `enforce()` via CPI reads the preceding two
+   instructions from the Instructions sysvar and verifies everything. Any mismatch
+   reverts the entire transaction atomically.
 
-2. **Authorization**: to protect an instruction, the caller passes a
-   `payload_hash` (sha256 of canonical JSON describing the action).
-   The user's authenticator signs this hash. The secp256r1 precompile
-   verifies the signature at the top level of the transaction.
-   Trana's `enforce` CPI reads the result from the Instructions sysvar.
-
-3. **Enforcement**: if the proof is absent, wrong key, or expired, the
-   transaction fails atomically. The protected instruction never runs.
-
-What Trana does NOT verify: RP ID, origin, authenticator extensions (not full
-WebAuthn verification). Trana uses challenge-based signing: the payload hash
-is the challenge, the P-256 signature is the proof.
+No backend required. No custody transfer. The private key never leaves the device.
 
 ---
 
 ## Onchain program
 
-**Program ID (devnet):** `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6`
+**Guard program ID:** `EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5`
 
 ### Instructions
 
 | Instruction | Description |
 |---|---|
-| `register_two_fa` | Register a passkey key in the user's registry PDA |
-| `enforce` | CPI endpoint: verify a passkey proof. Call from any Anchor program. |
-| `initialize` | Deploy-time config |
-| `update_config` | Update threshold / enabled flag |
-| `init_vault` | Demo: personal vault PDA |
-| `deposit` | Demo: deposit SOL |
-| `vault_withdraw` | Demo: withdraw with Ed25519 bridge proof |
-| `registry_vault_withdraw` | Demo: withdraw with secp256r1 proof |
+| `init_config` | One-time setup of the global fee config PDA |
+| `update_config` | Update registration/recovery fees or treasury address |
+| `register_two_fa` | Register a passkey in the caller's registry PDA |
+| `record_proof` | Data carrier — holds WebAuthn binding bytes for `enforce()` |
+| `enforce` | CPI endpoint: verify proof and increment nonce |
 
 ### Policy enum
 
 ```rust
 pub enum Policy {
-    AdminAction,
-    HighValueTransfer { amount: u64 },
-    VaultWithdraw,
-    Always,
+    /// Always require a passkey.
+    Require,
+    /// Require passkey when current slot < slot (new feature rollout window).
+    NotBefore { slot: u64 },
+    /// Require passkey when current slot > slot (emergency freeze).
+    NotAfter { slot: u64 },
+    /// Require passkey when u64 at param_offset >= limit.
+    Limit { param_offset: u8, limit: u64 },
 }
 ```
+
+### Fee system
+
+Fees are charged at **registration time** only — not at enforcement.
+
+- **`register_fee`**: charged when a wallet registers a passkey for the first time.
+- **`recovery_fee`**: charged when re-registering (replacing an existing key).
+
+The fee amount and treasury address live in the global `TranaConfig` PDA
+(`seeds = [b"config"]`), publicly readable on-chain. `enforce()` charges nothing.
 
 ---
 
 ## Developer integration
 
-See [INTEGRATION.md](./INTEGRATION.md) for the full guide.
+See [INTEGRATION.md](./INTEGRATION.md) or the full docs at `apps/landing/content/`.
 
 **Cargo.toml:**
 ```toml
-guard = { git = "https://github.com/beharefe/trana-guard", features = ["cpi"] }
+trana = { version = "0.1", features = ["cpi"] }
 ```
 
-**In your Anchor instruction:**
+**In your Anchor program:**
 ```rust
-pub fn your_protected_instruction(ctx: Context<...>, expiry: i64) -> Result<()> {
-    let payload_hash = sha256(your_canonical_json(...));
+use trana::cpi::accounts::Enforce;
+use trana::program::Trana;
+use trana::Policy;
 
-    guard::cpi::enforce(
-        CpiContext::new(
-            ctx.accounts.trana_program.to_account_info(),
-            guard::cpi::accounts::Enforce {
-                registry:     ctx.accounts.trana_registry.to_account_info(),
-                instructions: ctx.accounts.instructions.to_account_info(),
-            },
-        ),
-        guard::Policy::AdminAction,
-        payload_hash,
-        expiry,
-    )?;
+// Add a helper to your accounts struct — the enforce call becomes one line
+impl<'info> Withdraw<'info> {
+    pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
+        CpiContext::new(self.guard_program.to_account_info(), Enforce {
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
+        })
+    }
+}
 
-    // Only reached if proof was valid.
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
+    // your logic here
     Ok(())
 }
+```
+
+**Build flags (baked into binary at compile time):**
+```sh
+cargo build-sbf -- --features mainnet   # proof.cluster must be "mainnet-beta"
+cargo build-sbf -- --features devnet    # proof.cluster must be "devnet"
+cargo build-sbf                         # default: localnet (for tests)
 ```
 
 ---
@@ -133,59 +134,28 @@ pub fn your_protected_instruction(ctx: Context<...>, expiry: i64) -> Result<()> 
 ## Monorepo
 
 ```
-programs/guard/     Anchor program
-packages/sdk/       @trana-guard/sdk client library
-apps/web/           WebAuthn helper + demo UI
-docs/               Architecture, decisions, security, integration guides
+programs/guard/      Anchor program — authorization primitive
+programs/demo_vault/ Reference integration (deposit/withdraw vault)
+packages/sdk/        @tranaprotocol/guard-sdk — TypeScript/React client
+apps/landing/        Docs site and landing page
+apps/web/            Demo UI
+docs/                Internal architecture notes
 ```
+
 ---
 
 ## Security model
 
 | Component | Trusted | Reason |
 |---|---|---|
-| Anchor program | Yes | Onchain, immutable |
+| Guard program | Yes | Onchain, audited once |
 | Registry PDA | Yes | Onchain state, user-controlled |
-| secp256r1 precompile | Yes | Solana native |
-| `apps/web` backend | No | UX helper only |
-| Frontend SDK | No | Client-side |
+| secp256r1 precompile | Yes | Solana native (SIMD-0075) |
+| Frontend SDK | No | Client-side, UX only |
 | Any bridge or server | No | Never holds keys |
 
-A compromised backend cannot produce valid secp256r1 proofs.
-Only the user's hardware authenticator holds the P-256 private key.
-
----
-
-## Registration flow
-
-```
-browser                     helper backend          Solana
-────────────────────────────────────────────────────────────
-wallet.connect()
-WebAuthn create()  ──────► /api/register/options
-                             │ generate challenge
-WebAuthn ceremony ◄──────────┘
-assertion ──────────────► /api/register/verify
-                             │ verify, return P-256 pubkey
-p256PublicKey ◄──────────────┘
-register_two_fa(p256Pubkey) ──────────────────────► registry PDA created
-```
-
-## Execution flow
-
-```
-browser                     helper backend          Solana
-────────────────────────────────────────────────────────────
-build payload_hash
-redirect /approve ────────► /approve?payload=...
-                             WebAuthn get()
-                             /api/approve/verify (UX check only)
-                             p256Signature (raw)
-◄──────────────────────────── redirect back with sig
-build secp256r1Ix(pubKey, sig, payloadHash)
-tx = [secp256r1Ix, protectedIx] ──────────────────► enforce() verifies onchain
-                                                      protected logic runs
-```
+A compromised frontend cannot produce valid P-256 proofs — only the user's
+hardware authenticator holds the private key.
 
 ---
 

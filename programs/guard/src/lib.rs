@@ -11,6 +11,26 @@ pub use state::*;
 
 declare_id!("EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5");
 
+// ── Compile-time cluster binding ──────────────────────────────────────────────
+//
+// The expected cluster is baked into the program binary at build time, not
+// stored in a mutable config account. This eliminates trust in the deployer
+// for cluster validation — proof.cluster must match what was compiled in.
+//
+// Build with: cargo build-sbf -- --features mainnet
+//             cargo build-sbf -- --features devnet
+//             cargo build-sbf -- --features testnet
+//             (default = localnet for test runs)
+
+#[cfg(feature = "mainnet")]
+const EXPECTED_CLUSTER: &str = "mainnet-beta";
+#[cfg(feature = "devnet")]
+const EXPECTED_CLUSTER: &str = "devnet";
+#[cfg(feature = "testnet")]
+const EXPECTED_CLUSTER: &str = "testnet";
+#[cfg(not(any(feature = "mainnet", feature = "devnet", feature = "testnet")))]
+const EXPECTED_CLUSTER: &str = "localnet";
+
 // ── Policy enum ───────────────────────────────────────────────────────────────
 //
 // Defined at the crate root so Anchor's #[program] macro can resolve it as
@@ -94,7 +114,7 @@ pub mod trana {
 
     /// One-time initialization of the global fee config PDA.
     /// Called once by the Trana team after deployment.
-    /// Fees and treasury are publicly readable by anyone on-chain.
+    /// Fees, treasury, and cluster are publicly readable by anyone on-chain.
     pub fn init_config(
         ctx:          Context<InitConfig>,
         register_fee: u64,
@@ -222,7 +242,7 @@ pub mod trana {
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy=trana.require | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require")
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require", EXPECTED_CLUSTER)
             }
 
             Policy::NotBefore { slot } => {
@@ -232,7 +252,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }
@@ -244,7 +264,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }
@@ -256,7 +276,7 @@ pub mod trana {
                         "TRANA require | policy=trana.limit | amount={} | limit={} | owner={}",
                         amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }

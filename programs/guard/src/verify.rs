@@ -37,6 +37,7 @@ pub fn verify_with_policy<'info>(
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
     expected_policy:  &str,
+    expected_cluster: &str,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
@@ -45,7 +46,10 @@ pub fn verify_with_policy<'info>(
         return Err(error!(GuardError::MissingProof));
     }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
-    require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
+    // Explicit cluster check before hash computation — prevents cross-cluster replay
+    // (e.g. a mainnet proof submitted to a devnet deployment of the same program).
+    require!(proof.cluster == expected_cluster, GuardError::ClusterMismatch);
+    require!(proof.policy  == expected_policy,  GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
     run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
 }
