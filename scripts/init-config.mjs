@@ -1,20 +1,18 @@
 #!/usr/bin/env node
 /**
  * One-time init_config for the Trana guard program.
- * Usage: node scripts/init-config.mjs <guardProgramId> <treasuryAddr> [cluster]
- *   cluster defaults to "mainnet-beta"
+ * Usage: node scripts/init-config.mjs <guardProgramId> <treasuryAddr>
  * Env:   ANCHOR_PROVIDER_URL, ANCHOR_WALLET
  */
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js"
 import { readFileSync } from "fs"
 
-const [,, guardId, treasury, clusterArg] = process.argv
+const [,, guardId, treasury] = process.argv
 if (!guardId || !treasury) {
-  console.error("Usage: init-config.mjs <guardProgramId> <treasuryAddr> [cluster]")
+  console.error("Usage: init-config.mjs <guardProgramId> <treasuryAddr>")
   process.exit(1)
 }
 
-const cluster     = clusterArg ?? "mainnet-beta"
 const rpc         = process.env.ANCHOR_PROVIDER_URL ?? "http://localhost:8899"
 const walletPath  = process.env.ANCHOR_WALLET
 if (!walletPath) { console.error("ANCHOR_WALLET not set"); process.exit(1) }
@@ -34,23 +32,18 @@ if (existing) {
   process.exit(0)
 }
 
-// init_config discriminator (SHA-256("global:init_config")[0..8]) — unchanged by new param
+// init_config discriminator (SHA-256("global:init_config")[0..8])
 const disc = Buffer.from([23, 235, 115, 232, 168, 96, 1, 231])
 
-// Encode args: register_fee (u64 LE) + recovery_fee (u64 LE) + treasury (32 bytes) + cluster (4-byte LE length + UTF-8)
+// Encode args: register_fee (u64 LE) + recovery_fee (u64 LE) + treasury (32 bytes)
 const registerFeeBuf = Buffer.alloc(8)  // 0 lamports
 const recoveryFeeBuf = Buffer.alloc(8)  // 0 lamports
-const clusterBuf     = Buffer.from(cluster, "utf8")
-const clusterLenBuf  = Buffer.alloc(4)
-clusterLenBuf.writeUInt32LE(clusterBuf.length, 0)
 
 const data = Buffer.concat([
   disc,
   registerFeeBuf,
   recoveryFeeBuf,
   treasuryPubkey.toBuffer(),
-  clusterLenBuf,
-  clusterBuf,
 ])
 
 const ix = new TransactionInstruction({
@@ -70,4 +63,4 @@ tx.sign(payer)
 
 const sig = await connection.sendRawTransaction(tx.serialize())
 await connection.confirmTransaction(sig, "confirmed")
-console.log(`init_config ok → cluster=${cluster} | sig=${sig}`)
+console.log(`init_config ok → sig=${sig}`)

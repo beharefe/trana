@@ -227,7 +227,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     // Init global fee config first — register_two_fa needs it
     try {
       await trana.methods
-        .initConfig(new BN(REGISTER_FEE), new BN(RECOVERY_FEE), treasuryPubkey, "localnet")
+        .initConfig(new BN(REGISTER_FEE), new BN(RECOVERY_FEE), treasuryPubkey)
         .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
         .rpc()
     } catch { /* already initialized */ }
@@ -259,7 +259,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
           guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-          tranaConfig:       configPda,
         })
         .signers([owner]).rpc()
     }
@@ -297,7 +296,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
       SystemProgram.programId.toBuffer(),
-      configPda.toBuffer(),
     ]))
 
     const amountBuf = Buffer.alloc(8)
@@ -456,7 +454,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(), owner.publicKey.toBuffer(), dest.toBuffer(),
       trana.programId.toBuffer(), registryPda.toBuffer(), SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
-      SystemProgram.programId.toBuffer(), configPda.toBuffer(),
+      SystemProgram.programId.toBuffer(),
     ]))
     const amountBuf = Buffer.alloc(8)
     amountBuf.writeBigUInt64LE(BigInt(amount))
@@ -656,12 +654,11 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const nonce  = opts.useNonce ?? registryNonce
     const expiry = opts.overrideExpiry ?? Math.floor(Date.now() / 1000) + 300
 
-    // enforce accounts: registry, owner, instructions, config
+    // enforce accounts: registry, owner, instructions
     const regularAccounts = [
       registryPda,
       owner.publicKey,
       SYSVAR_INSTRUCTIONS_PUBKEY,
-      configPda,
     ]
     const remainingPubkeys = (opts.remainingAccounts ?? []).map(a => a.pubkey)
     const accountsHash = sha256(Buffer.concat(
@@ -682,7 +679,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
 
     if (opts.remainingAccounts?.length) {
@@ -715,7 +711,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -739,7 +734,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -768,7 +762,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -793,7 +786,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -894,7 +886,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const expiry       = Math.floor(Date.now() / 1000) + 300
 
     const accountsList = [
-      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY, configPda,
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -909,7 +901,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
 
@@ -940,7 +931,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const expiry       = Math.floor(Date.now() / 1000) + 300
 
     const accountsList = [
-      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY, configPda,
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -962,7 +953,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
 
@@ -1017,7 +1007,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const expiry       = Math.floor(Date.now() / 1000) + 300
 
     const accountsList = [
-      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY, configPda,
+      registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -1032,7 +1022,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         registry:     registryPda,
         owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:       configPda,
       })
       .instruction()
 

@@ -59,10 +59,6 @@ pub struct YourProtectedInstruction<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-
-    /// Global config — enforce() reads this to validate proof.cluster == deployment cluster.
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
 }
 ```
 
@@ -79,7 +75,6 @@ pub fn your_protected_instruction(ctx: Context<YourProtectedInstruction>, amount
                 registry:     ctx.accounts.trana_registry.to_account_info(),
                 owner:        ctx.accounts.owner.to_account_info(),
                 instructions: ctx.accounts.trana_instructions.to_account_info(),
-                config:       ctx.accounts.trana_config.to_account_info(),
             },
         ),
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },

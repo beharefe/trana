@@ -11,6 +11,26 @@ pub use state::*;
 
 declare_id!("EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5");
 
+// ── Compile-time cluster binding ──────────────────────────────────────────────
+//
+// The expected cluster is baked into the program binary at build time, not
+// stored in a mutable config account. This eliminates trust in the deployer
+// for cluster validation — proof.cluster must match what was compiled in.
+//
+// Build with: cargo build-sbf -- --features mainnet
+//             cargo build-sbf -- --features devnet
+//             cargo build-sbf -- --features testnet
+//             (default = localnet for test runs)
+
+#[cfg(feature = "mainnet")]
+const EXPECTED_CLUSTER: &str = "mainnet-beta";
+#[cfg(feature = "devnet")]
+const EXPECTED_CLUSTER: &str = "devnet";
+#[cfg(feature = "testnet")]
+const EXPECTED_CLUSTER: &str = "testnet";
+#[cfg(not(any(feature = "mainnet", feature = "devnet", feature = "testnet")))]
+const EXPECTED_CLUSTER: &str = "localnet";
+
 // ── Policy enum ───────────────────────────────────────────────────────────────
 //
 // Defined at the crate root so Anchor's #[program] macro can resolve it as
@@ -100,18 +120,15 @@ pub mod trana {
         register_fee: u64,
         recovery_fee: u64,
         treasury:     Pubkey,
-        cluster:      String,
     ) -> Result<()> {
-        require!(cluster.len() <= 32, GuardError::InvalidProof);
         let cfg           = &mut ctx.accounts.config;
         cfg.authority     = ctx.accounts.authority.key();
         cfg.treasury      = treasury;
         cfg.register_fee  = register_fee;
         cfg.recovery_fee  = recovery_fee;
-        cfg.cluster       = cluster.clone();
         msg!(
-            "TRANA config | register_fee={} | recovery_fee={} | cluster={} | treasury={}",
-            register_fee, recovery_fee, cluster, treasury,
+            "TRANA config | register_fee={} | recovery_fee={} | treasury={}",
+            register_fee, recovery_fee, treasury,
         );
         Ok(())
     }
@@ -217,16 +234,15 @@ pub mod trana {
     /// evaluated here and passkey is required only when the condition fires.
     /// For Policy::Require the passkey is always required unconditionally.
     pub fn enforce(ctx: Context<Enforce>, policy: Policy) -> Result<()> {
-        let owner_key       = ctx.accounts.owner.key();
-        let ix              = &ctx.accounts.instructions;
-        let registry        = &mut ctx.accounts.registry;
-        let pid             = ctx.program_id;
-        let expected_cluster = &ctx.accounts.config.cluster;
+        let owner_key = ctx.accounts.owner.key();
+        let ix        = &ctx.accounts.instructions;
+        let registry  = &mut ctx.accounts.registry;
+        let pid       = ctx.program_id;
 
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy=trana.require | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require", expected_cluster)
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require", EXPECTED_CLUSTER)
             }
 
             Policy::NotBefore { slot } => {
@@ -236,7 +252,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", expected_cluster)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }
@@ -248,7 +264,7 @@ pub mod trana {
                         "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", expected_cluster)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }
@@ -260,7 +276,7 @@ pub mod trana {
                         "TRANA require | policy=trana.limit | amount={} | limit={} | owner={}",
                         amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit", expected_cluster)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit", EXPECTED_CLUSTER)?;
                 }
                 Ok(())
             }
