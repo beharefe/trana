@@ -1,5 +1,5 @@
 {
-  "name": "@tranaprotocol/guard-sdk",
+  "name": "@trana-guard/sdk",
   "version": "0.1.0",
   "description": "Solana passkey guard — TypeScript SDK",
   "license": "MIT",

@@ -8,9 +8,13 @@ COPY packages/sdk/package.json ./packages/sdk/
 COPY apps/web/package.json      ./apps/web/
 RUN npm ci
 
-# Copy source (hot-reload dirs are overridden by bind mounts at runtime)
-COPY packages/sdk ./packages/sdk
-COPY apps/web     ./apps/web
+# Build the SDK so dist/ is always fresh and matches the installed source
+COPY packages/sdk/tsconfig*.json ./packages/sdk/
+COPY packages/sdk/src            ./packages/sdk/src
+RUN npm run build --workspace=packages/sdk
+
+# Copy web app source (hot-reload dirs are overridden by bind mounts at runtime)
+COPY apps/web ./apps/web
 
 EXPOSE 3000
 
