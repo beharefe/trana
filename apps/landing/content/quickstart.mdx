@@ -12,7 +12,7 @@ anchor-lang = "0.32.0"
 trana       = { version = "0.1", features = ["cpi"] }
 ```
 
-## 2. Add six accounts
+## 2. Add Trana accounts
 
 ```rust
 use trana::cpi::accounts::Enforce;
@@ -37,15 +37,6 @@ pub struct Withdraw<'info> {
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
-
-    /// CHECK: validated inside trana against config
-    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
-    pub trana_treasury: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
 }
 ```
 
@@ -55,12 +46,9 @@ pub struct Withdraw<'info> {
 pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     trana::cpi::enforce(
         CpiContext::new(ctx.accounts.guard_program.to_account_info(), Enforce {
-            registry:       ctx.accounts.trana_registry.to_account_info(),
-            owner:          ctx.accounts.owner.to_account_info(),
-            instructions:   ctx.accounts.trana_instructions.to_account_info(),
-            config:         ctx.accounts.trana_config.to_account_info(),
-            treasury:       ctx.accounts.trana_treasury.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
+            registry:     ctx.accounts.trana_registry.to_account_info(),
+            owner:        ctx.accounts.owner.to_account_info(),
+            instructions: ctx.accounts.trana_instructions.to_account_info(),
         }),
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
     )?;

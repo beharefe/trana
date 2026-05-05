@@ -4,19 +4,23 @@ Trana is an onchain authorization library for Solana. Any Anchor program can
 add execution-time passkey enforcement to any of its instructions via a single
 CPI call — no custody change, no vault, no new infrastructure.
 
+For the full reference see `apps/landing/content/integration.mdx` or the
+quickstart at `apps/landing/content/quickstart.mdx`.
+
 ---
 
 ## How it works
 
-1. The authority registers a passkey (Touch ID, Face ID, YubiKey) once onchain
-   in a Trana registry PDA.
-2. You add `guard` as a Rust dependency and call `guard::cpi::enforce(...)` at
+1. The user registers a P-256 passkey once in their Trana registry PDA.
+2. You add `trana` as a Rust dependency and call `trana::cpi::enforce(...)` at
    the top of any instruction you want protected.
-3. At execution time, Trana reads the Instructions sysvar, finds the
-   secp256r1 precompile proof at index 0, and verifies it against the
-   registered key. No proof or wrong proof → the transaction fails atomically.
-
-Your program's logic never runs without a valid proof. No UI bypass possible.
+3. At execution time, the transaction carries three contiguous instructions:
+   - `ix[N-2]`: secp256r1 precompile — native P-256 signature verification
+   - `ix[N-1]`: `trana::record_proof` — WebAuthn data carrier
+   - `ix[N]`: your protected instruction, which calls `trana::cpi::enforce()`
+4. `enforce()` reads the preceding two instructions from the Instructions sysvar
+   and verifies the P-256 signature against the registry pubkey. If anything
+   fails, the whole transaction reverts atomically.
 
 ---
 
@@ -25,32 +29,36 @@ Your program's logic never runs without a valid proof. No UI bypass possible.
 ```toml
 # programs/your-program/Cargo.toml
 [dependencies]
-guard = { git = "https://github.com/beharefe/trana-guard", features = ["cpi"] }
+trana = { version = "0.1", features = ["cpi"] }
 ```
 
 ---
 
-## Step 2 — Add accounts to your instruction
+## Step 2 — Add Trana accounts to your instruction
 
 ```rust
-use guard::cpi::accounts::Enforce;
-use guard::program::Guard;
+use trana::cpi::accounts::Enforce;
+use trana::program::Trana;
+use trana::Policy;
 
 #[derive(Accounts)]
 pub struct YourProtectedInstruction<'info> {
     // ... your existing accounts ...
 
-    /// The authority's Trana registry PDA.
-    /// Seeds: [b"2fa", authority.key()] on the Trana program.
-    /// CHECK: validated by Trana's enforce instruction.
-    pub trana_registry: UncheckedAccount<'info>,
+    pub guard_program: Program<'info, Trana>,
 
-    /// Trana Guard program.
-    pub trana_program: Program<'info, Guard>,
+    #[account(
+        mut,
+        seeds  = [b"2fa", owner.key().as_ref()],
+        bump,
+        seeds::program = guard_program.key(),
+        constraint = trana_registry.enabled @ YourError::PasskeyNotRegistered,
+    )]
+    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
 
-    /// CHECK: Solana Instructions sysvar.
+    /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
-    pub instructions: UncheckedAccount<'info>,
+    pub trana_instructions: UncheckedAccount<'info>,
 }
 ```
 
@@ -59,170 +67,105 @@ pub struct YourProtectedInstruction<'info> {
 ## Step 3 — Call enforce in your instruction
 
 ```rust
-pub fn your_protected_instruction(
-    ctx: Context<YourProtectedInstruction>,
-    amount: u64,
-    expiry: i64,
-) -> Result<()> {
-    // 1. Compute the payload hash — whatever canonical JSON your app defines.
-    //    The user's passkey must have signed this exact hash.
-    let payload_hash = your_payload_hash(
-        ctx.program_id,
-        &ctx.accounts.vault.key(),
-        amount,
-        expiry,
-    );
-
-    // 2. Enforce — Trana verifies the proof at instruction index 0.
-    //    This line fails the entire transaction if proof is absent or invalid.
-    guard::cpi::enforce(
+pub fn your_protected_instruction(ctx: Context<YourProtectedInstruction>, amount: u64) -> Result<()> {
+    trana::cpi::enforce(
         CpiContext::new(
-            ctx.accounts.trana_program.to_account_info(),
+            ctx.accounts.guard_program.to_account_info(),
             Enforce {
                 registry:     ctx.accounts.trana_registry.to_account_info(),
-                instructions: ctx.accounts.instructions.to_account_info(),
+                owner:        ctx.accounts.owner.to_account_info(),
+                instructions: ctx.accounts.trana_instructions.to_account_info(),
             },
         ),
-        payload_hash,
-        expiry,
+        Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
     )?;
 
-    // 3. Only reached if proof was valid.
-    //    Execute your instruction logic here.
-    // ...
-
+    // Only reached if passkey approved or policy condition not met.
     Ok(())
 }
 ```
 
+The `param_offset` field tells the guard where to read the u64 from your instruction
+data (after the 8-byte Anchor discriminator). Set it to `0` for the first parameter.
+
 ---
 
-## Step 4 — Register the passkey (once per authority)
+## Policies
 
-Call this once when the authority sets up their passkey. This writes a PDA on
-the Trana program that `enforce` reads on every protected call.
+| Variant | Fires when | Policy string |
+|---|---|---|
+| `Policy::Require` | Always | `trana.require` |
+| `Policy::Limit { param_offset, limit }` | u64 at offset ≥ limit | `trana.limit` |
+| `Policy::NotBefore { slot }` | current slot < slot | `trana.not_before` |
+| `Policy::NotAfter { slot }` | current slot > slot | `trana.not_after` |
+
+Conditional policies are no-ops when their condition is false — `enforce()` returns
+`Ok(())` immediately and no passkey is required.
+
+---
+
+## Transaction shape
+
+The three instructions must appear contiguously in this order:
+
+```
+ix[N-2]: secp256r1 precompile    — native P-256 sig verify (SIMD-0075)
+ix[N-1]: trana::record_proof     — WebAuthn data carrier
+ix[N]:   your instruction        — calls trana::cpi::enforce() via CPI
+```
+
+The SDK's `authorizeAndSend()` constructs this automatically. See the TypeScript
+client section in `apps/landing/content/integration.mdx`.
+
+---
+
+## Step 4 — Register the passkey (once per user)
+
+Use the SDK's `TranaModal` — it handles the WebAuthn ceremony and calls
+`register_two_fa` automatically when a user first triggers a protected action.
+
+For manual registration:
 
 ```typescript
-import { PublicKey, SystemProgram } from "@solana/web3.js"
-import { p256 } from "@noble/curves/nist.js"
+import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/guard-sdk"
 
-// Derive the registry PDA
-const [registryPda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("2fa"), authority.publicKey.toBuffer()],
-  TRANA_PROGRAM_ID
-)
+// Wrap your app once
+<TranaProvider config={{ guardProgramId: GUARD_PROGRAM_ID, policy: "trana.limit" }}>
+  <App />
+  <TranaModal />
+</TranaProvider>
 
-// p256PubKey = 33-byte compressed public key from the WebAuthn authenticator
-await tranaProgram.methods
-  .registerTwoFa(
-    { secp256R1Passkey: {} },
-    Buffer.from(p256PubKey),   // 33-byte compressed P-256 key
-    Buffer.from(credentialId)  // WebAuthn credential ID (for UX lookup)
-  )
-  .accounts({
-    registry: registryPda,
-    owner: authority.publicKey,
-    systemProgram: SystemProgram.programId,
-  })
-  .rpc()
+// Trigger a protected transaction — registration happens automatically on first use
+const { authorizeAndSend } = useTrana()
+await authorizeAndSend({ instruction: withdrawIx, label: "Withdraw 1 SOL" })
 ```
 
 ---
 
-## Step 5 — Build and send a protected transaction
+## Fee system
 
-On every call to your protected instruction, the client must:
-1. Compute the same payload hash
-2. Sign it with the passkey
-3. Prepend the secp256r1 precompile instruction at index 0
+Fees are charged at **registration time** only — not at enforcement.
 
-```typescript
-import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js"
-import { p256 } from "@noble/curves/nist.js"
-import { createHash } from "crypto"
+- **First registration** (`register_fee`): charged when the registry PDA is created.
+- **Key recovery** (`recovery_fee`): charged when re-registering an existing registry.
 
-// Must match what your program computes onchain
-function payloadHash(programId, vault, amount, expiry) {
-  const json = JSON.stringify({ programId, vault, amount, expiry })
-  return createHash("sha256").update(json).digest()
-}
-
-const hash   = payloadHash(YOUR_PROGRAM_ID, vaultAddr, amount, expiry)
-const privKey = /* P-256 private key from authenticator */
-const sig    = p256.sign(hash, privKey)          // sign the hash directly
-const pubKey = p256.getPublicKey(privKey, true)  // 33-byte compressed
-
-const proofIx = buildSecp256r1Ix(pubKey, sig, hash)  // see below
-const yourIx  = await yourProgram.methods
-  .yourProtectedInstruction(new BN(amount), new BN(expiry))
-  .accounts({ ..., tranaRegistry: registryPda, tranaProgram: TRANA_PROGRAM_ID })
-  .instruction()
-
-const tx = new Transaction()
-tx.add(proofIx)  // MUST be instruction index 0
-tx.add(yourIx)
-await sendAndConfirmTransaction(connection, tx, [authority])
-```
-
-### buildSecp256r1Ix
-
-```typescript
-import { TransactionInstruction, PublicKey } from "@solana/web3.js"
-
-const SECP256R1_PROGRAM_ID = "Secp256r1SigVerify1111111111111111111111111"
-
-function buildSecp256r1Ix(pubkey: Uint8Array, sig: Uint8Array, message: Uint8Array) {
-  const HEADER    = 16                        // count(1) + padding(1) + offsets(14)
-  const pkOffset  = HEADER                    // 16
-  const sigOffset = HEADER + 33              // 49
-  const msgOffset = HEADER + 33 + 64         // 113
-  const data = Buffer.alloc(msgOffset + message.length)
-  data[0] = 1                                // num_signatures
-  data[1] = 0                                // padding byte (required)
-  data.writeUInt16LE(sigOffset,      2)
-  data.writeUInt16LE(0xffff,         4)
-  data.writeUInt16LE(pkOffset,       6)
-  data.writeUInt16LE(0xffff,         8)
-  data.writeUInt16LE(msgOffset,      10)
-  data.writeUInt16LE(message.length, 12)
-  data.writeUInt16LE(0xffff,         14)
-  Buffer.from(pubkey).copy(data, pkOffset)
-  Buffer.from(sig).copy(data, sigOffset)
-  Buffer.from(message).copy(data, msgOffset)
-  return new TransactionInstruction({
-    keys: [],
-    programId: new PublicKey(SECP256R1_PROGRAM_ID),
-    data,
-  })
-}
-```
+The `enforce()` CPI has no fee. The fee amounts and treasury address live in the
+`TranaConfig` PDA (`seeds = [b"config"]`) and are publicly readable on-chain.
 
 ---
 
-## Precompile gotchas
+## Error reference
 
-| | Correct | Wrong |
-|--|--|--|
-| Header layout | `[count][padding][offsets at byte 2]` | `[count][offsets at byte 1]` |
-| Signing | `p256.sign(payloadHash, privKey)` | `p256.sign(sha256(payloadHash), privKey)` |
-| Pubkey format | 33-byte compressed SEC1 | 65-byte uncompressed |
-| Sig format | 64-byte compact r‖s | DER-encoded |
-| Proof position | Instruction index 0 | Any other index |
-
----
-
-## What Trana does NOT do
-
-- Hold custody of funds (that is your program's job)
-- Define what a "valid action" is (you define the payload hash)
-- Require any offchain bridge or server (registry path is fully onchain)
-
-Trana enforces one thing: **a valid passkey proof must exist at execution time.**
+| Error | Code | Meaning |
+|---|---|---|
+| `MissingProof` | `0x1770` | No `record_proof` at `ix[N-1]` or no `secp256r1` at `ix[N-2]` |
+| `ProofExpired` | `0x1771` | `proof.expiry < clock.unix_timestamp` |
+| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
+| `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
+| `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
 
 ---
 
-## Program ID (devnet)
+## Program ID
 
-```
-572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6
-```
+**Guard:** `EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5`

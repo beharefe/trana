@@ -22,7 +22,7 @@ use trana::program::Trana;
 use trana::Policy;
 ```
 
-### 3. Six accounts
+### 3. Three Trana accounts
 
 ```rust
 #[derive(Accounts)]
@@ -48,15 +48,6 @@ pub struct YourProtectedAction<'info> {
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
-
-    /// CHECK: treasury address validated inside trana against config
-    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
-    pub trana_treasury: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
 }
 ```
 
@@ -68,12 +59,9 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
         CpiContext::new(
             ctx.accounts.guard_program.to_account_info(),
             Enforce {
-                registry:       ctx.accounts.trana_registry.to_account_info(),
-                owner:          ctx.accounts.owner.to_account_info(),
-                instructions:   ctx.accounts.trana_instructions.to_account_info(),
-                config:         ctx.accounts.trana_config.to_account_info(),
-                treasury:       ctx.accounts.trana_treasury.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
+                registry:     ctx.accounts.trana_registry.to_account_info(),
+                owner:        ctx.accounts.owner.to_account_info(),
+                instructions: ctx.accounts.trana_instructions.to_account_info(),
             },
         ),
         Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
