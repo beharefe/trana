@@ -24,50 +24,65 @@ use trana::Policy;
 
 ### 3. Three Trana accounts
 
+Add a `trana_cpi_ctx()` helper on the accounts struct — the enforce call becomes a single line at every use site.
+
 ```rust
 #[derive(Accounts)]
-pub struct YourProtectedAction<'info> {
-    // --- your existing accounts ---
-    #[account(mut, has_one = owner)]
-    pub your_state: Account<'info, YourState>,
+pub struct Withdraw<'info> {
+    // --- your accounts ---
+    #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
+    pub vault: Account<'info, VaultState>,
     #[account(mut)]
     pub owner: Signer<'info>,
+    /// CHECK: withdrawal destination
+    #[account(mut)]
+    pub destination: UncheckedAccount<'info>,
 
     // --- Trana ---
     pub guard_program: Program<'info, Trana>,
-
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
         bump,
         seeds::program = guard_program.key(),
-        constraint = trana_registry.enabled @ YourError::PasskeyNotRegistered,
+        constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
-
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
+}
+
+impl<'info> Withdraw<'info> {
+    pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
+        CpiContext::new(self.guard_program.to_account_info(), Enforce {
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
+        })
+    }
 }
 ```
 
 ### 4. Call enforce
 
 ```rust
-pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> Result<()> {
-    trana::cpi::enforce(
-        CpiContext::new(
-            ctx.accounts.guard_program.to_account_info(),
-            Enforce {
-                registry:     ctx.accounts.trana_registry.to_account_info(),
-                owner:        ctx.accounts.owner.to_account_info(),
-                instructions: ctx.accounts.trana_instructions.to_account_info(),
-            },
-        ),
-        Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
-    )?;
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    require!(amount > 0,                           VaultError::ZeroAmount);
+    require!(amount <= ctx.accounts.vault.balance, VaultError::InsufficientFunds);
 
-    // your logic here
+    // Passkey required when amount >= 1 SOL. Guard reads amount directly — caller can't fake it.
+    trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
+
+    let vault_info = ctx.accounts.vault.to_account_info();
+    let dest_info  = ctx.accounts.destination.to_account_info();
+    **vault_info.try_borrow_mut_lamports()? -= amount;
+    **dest_info.try_borrow_mut_lamports()?  += amount;
+
+    ctx.accounts.vault.balance = ctx.accounts.vault.balance
+        .checked_sub(amount)
+        .ok_or(VaultError::Overflow)?;
+
     Ok(())
 }
 ```
