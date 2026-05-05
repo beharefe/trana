@@ -126,13 +126,16 @@ function Steps({ current }: { current: 1 | 2 }) {
 
 // ── register_two_fa instruction ────────────────────────────────────────────────
 
-const REGISTER_DISC = Buffer.from([0x63, 0xef, 0x62, 0x7d, 0x8a, 0x0c, 0x95, 0x4e])
+// sha256("global:register_two_fa")[0:8]
+const REGISTER_DISC = Buffer.from([0xd0, 0x77, 0x84, 0xf6, 0xfb, 0xec, 0x77, 0x36])
 
 function buildRegisterIx(
   walletPubkey:   PublicKey,
   guardProgramId: PublicKey,
   pubkey:         Uint8Array,
   credentialId:   Uint8Array,
+  configPda:      PublicKey,
+  treasury:       PublicKey,
 ): TransactionInstruction {
   const [registryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("2fa"), walletPubkey.toBuffer()],
@@ -145,11 +148,13 @@ function buildRegisterIx(
       { pubkey: registryPda,             isSigner: false, isWritable: true  },
       { pubkey: walletPubkey,            isSigner: true,  isWritable: true  },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: configPda,               isSigner: false, isWritable: false },
+      { pubkey: treasury,                isSigner: false, isWritable: true  },
     ],
     data: Buffer.concat([
       REGISTER_DISC,
       Buffer.from([0]),
-      u32le(pubkey.length),      Buffer.from(pubkey),
+      u32le(pubkey.length),       Buffer.from(pubkey),
       u32le(credentialId.length), Buffer.from(credentialId),
     ]),
   })
@@ -186,8 +191,18 @@ function RegistrationModal() {
     if (!publicKey || !signTransaction) return
     setBusy(true); setError(null)
     try {
+      // Derive config PDA and fetch treasury address from on-chain state.
+      // TranaConfig layout (after 8-byte discriminator):
+      //   authority [32], treasury [32], register_fee [8], recovery_fee [8]
+      const [configPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("config")], config.guardProgramId,
+      )
+      const configAccount = await connection.getAccountInfo(configPda)
+      if (!configAccount) throw new Error("Trana config not initialized — contact support")
+      const treasury = new PublicKey(configAccount.data.slice(40, 72))
+
       const { credentialId, pubkey } = await doRegistration(config.rpId)
-      const registerIx = buildRegisterIx(publicKey, config.guardProgramId, pubkey, credentialId)
+      const registerIx = buildRegisterIx(publicKey, config.guardProgramId, pubkey, credentialId, configPda, treasury)
       const { blockhash } = await connection.getLatestBlockhash("confirmed")
       const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
       tx.add(registerIx)
