@@ -1,19 +1,18 @@
-# Trana
+# Stolen keys can't drain guarded accounts.
 
-Trana adds execution-time WebAuthn authorization to any Solana Anchor program. No backend required.
+Trana adds a passkey check inside your program at execution time. No backend. No custody change.
 
 > Any instruction that calls `guard::cpi::enforce()` cannot execute unless the wallet's registered passkey signed a hash that exactly describes this transaction.
 
-## What it does
+---
 
-Traditional wallet signing is all-or-nothing: if a transaction is signed, it executes, regardless of when or how the broadcast was triggered.
+## The program requires your passkey. Not just your signature.
 
-Trana adds a second check **inside the program itself** at the moment of execution. The check verifies a fresh passkey approval tied to the exact transaction. It blocks:
+Wallet signing is all-or-nothing. Trana adds a second check at execution — inside the instruction itself.
 
-- Pre-signed transactions held by attackers
-- Clipboard hijacking (wrong destination address)
-- Malicious dApp frontends swapping amounts
-- Compromised RPC nodes replaying old proofs
+Proofs are tied to the exact accounts and params. They expire in 120 seconds. No backend required.
+
+---
 
 ## How it works
 
@@ -23,10 +22,6 @@ ix[1]:  guard::record_proof    ← carries WebAuthn authenticatorData + clientDa
 ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
 ```
 
-The guard reads `ix[0]` and `ix[1]` from the Instructions sysvar at the moment `ix[2]` executes. If the proof is missing, expired, or tampered with, the entire transaction reverts.
-
-## Key facts
-
 | | |
 |---|---|
 | Onchain verification | SIMD-0075 secp256r1 precompile (mainnet since Feb 2025) |
@@ -35,7 +30,7 @@ The guard reads `ix[0]` and `ix[1]` from the Instructions sysvar at the moment `
 | Integration cost | 3 extra accounts + 1 helper method + 1 React hook |
 | Proof expiry | 120 seconds |
 
-## Get started
+---
 
 - [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps
 - [Integration](/docs/integration) — full Rust/Anchor + SDK reference
