@@ -14,11 +14,9 @@
  *   R10. Expired proof (expiry < now)                            → ProofExpired
  *   R11. Wrong cluster in record_proof                           → PayloadMismatch
  *   R12. Wrong policy string in record_proof                     → PolicyMismatch
- *   R13. Fee deducted from owner and reaches treasury            → +20k in treasury
- *   R14. update_config by non-authority                          → Unauthorized
- *   R15. withdraw_fees by authority                              → Success
- *   R16. withdraw_fees by non-authority                          → Unauthorized
- *   R17. Wrong treasury pubkey in Enforce accounts               → constraint error
+ *   R13. Registration fee charged on first register              → +REGISTER_FEE in treasury
+ *   R14. Recovery fee charged on re-registration                 → +RECOVERY_FEE in treasury
+ *   R15. update_config by non-authority                          → Unauthorized
  *   R22. Policy::NotBefore fires (far-future slot, no proof)     → MissingProof
  *  R22b. Policy::NotBefore passes (slot 0 already reached)       → Success (no proof)
  *  R22c. Policy::NotBefore fires (far-future slot, with proof)   → Success
@@ -58,7 +56,8 @@ import { parsePolicyFromLogs } from "../packages/sdk/src/react/detector"
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SOL          = 1_000_000_000
-const FEE_LAMPORTS = 20_000
+const REGISTER_FEE = 5_000_000   // 0.005 SOL
+const RECOVERY_FEE = 10_000_000  // 0.01  SOL
 
 // demo_vault::withdraw discriminator
 const WITHDRAW_DISC = Buffer.from([0xb7, 0x12, 0x46, 0x9c, 0x94, 0x6d, 0xa1, 0x22])
@@ -180,11 +179,8 @@ function buildWebAuthnProof(
 
 // ── Borsh helpers (for paramsHash computation in enforce-as-self tests) ──────
 
-const u32LE = (n: number)   => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
 const u64LEbig = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b }
 
-// Borsh-encode a single-u64 Policy variant by index.
-// Used to compute paramsHash when enforce is its own protected instruction.
 function borshU64Policy(variantIndex: number, value: bigint): Buffer {
   return Buffer.concat([Buffer.from([variantIndex]), u64LEbig(value)])
 }
@@ -207,7 +203,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
   let vaultPda:       PublicKey
   let registryPda:    PublicKey
   let configPda:      PublicKey
-  let treasuryPubkey: PublicKey   // payer.publicKey — receives enforcement fees
+  let treasuryPubkey: PublicKey   // receives registration fees
   let registryNonce = 0
 
   before(async () => {
@@ -228,23 +224,29 @@ describe("guard — secp256r1 passkey enforcement", () => {
     )
     treasuryPubkey = payer.publicKey
 
+    // Init global fee config first — register_two_fa needs it
+    try {
+      await trana.methods
+        .initConfig(new BN(REGISTER_FEE), new BN(RECOVERY_FEE), treasuryPubkey)
+        .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
+        .rpc()
+    } catch { /* already initialized */ }
+
     await trana.methods
       .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("test-cred"))
-      .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
       .signers([owner]).rpc()
 
     await vault.methods
       .initVault()
       .accounts({ vault: vaultPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
       .signers([owner]).rpc()
-
-    // Init global fee config — idempotent across test runs
-    try {
-      await trana.methods
-        .initConfig(new BN(FEE_LAMPORTS), treasuryPubkey)
-        .accounts({ config: configPda, authority: payer.publicKey, systemProgram: SystemProgram.programId })
-        .rpc()
-    } catch { /* already initialized */ }
 
     // Fund vault: 5 × 0.9 SOL deposits (below 1 SOL threshold — no proof needed)
     for (let i = 0; i < 5; i++) {
@@ -257,8 +259,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
           guardProgram:      trana.programId,
           tranaRegistry:     registryPda,
           tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-          tranaConfig:       configPda,
-          tranaTreasury:     treasuryPubkey,
         })
         .signers([owner]).rpc()
     }
@@ -268,7 +268,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
   //
   // accounts_hash field order mirrors the Withdraw struct definition:
   //   vault, owner, destination, guard_program, trana_registry,
-  //   trana_instructions, trana_config, trana_treasury, system_program
+  //   trana_instructions, system_program
 
   async function withdrawTx(opts: {
     amount:           number
@@ -278,17 +278,15 @@ describe("guard — secp256r1 passkey enforcement", () => {
     tamperedAmount?:  number
     useNonce?:        number
     delayAfterProofMs?: number
-    overrideExpiry?:  number      // for R10: sign with a past expiry
-    clusterInProof?:  string      // for R11: cluster written to record_proof (signing uses "localnet")
-    policyInProof?:   string      // for R12: policy written to record_proof (signing uses `policy`)
-    overrideTreasury?: PublicKey  // for R17: wrong treasury in accounts
+    overrideExpiry?:  number
+    clusterInProof?:  string
+    policyInProof?:   string
   }): Promise<string> {
     const { amount, policy, privKey, withProof } = opts
     const actualAmount = opts.tamperedAmount ?? amount
     const nonce        = opts.useNonce ?? registryNonce
     const expiry       = opts.overrideExpiry ?? Math.floor(Date.now() / 1000) + 300
     const dest         = Keypair.generate().publicKey
-    const treasury     = opts.overrideTreasury ?? treasuryPubkey
 
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(),
@@ -297,8 +295,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
       trana.programId.toBuffer(),
       registryPda.toBuffer(),
       SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
-      configPda.toBuffer(),
-      treasury.toBuffer(),
       SystemProgram.programId.toBuffer(),
     ]))
 
@@ -331,8 +327,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        tranaConfig:       configPda,
-        tranaTreasury:     treasury,
         systemProgram:     SystemProgram.programId,
       })
       .instruction()
@@ -432,8 +426,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        tranaConfig:       configPda,
-        tranaTreasury:     treasuryPubkey,
         systemProgram:     SystemProgram.programId,
       })
       .instruction()
@@ -460,7 +452,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const accountsHash = sha256(Buffer.concat([
       vaultPda.toBuffer(), owner.publicKey.toBuffer(), dest.toBuffer(),
       trana.programId.toBuffer(), registryPda.toBuffer(), SYSVAR_INSTRUCTIONS_PUBKEY.toBuffer(),
-      configPda.toBuffer(), treasuryPubkey.toBuffer(), SystemProgram.programId.toBuffer(),
+      SystemProgram.programId.toBuffer(),
     ]))
     const amountBuf = Buffer.alloc(8)
     amountBuf.writeBigUInt64LE(BigInt(amount))
@@ -520,10 +512,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   // ── R11 ────────────────────────────────────────────────────────────────────
-  //
-  // Sign intent hash with "localnet" (correct), but put "wrongnet" in record_proof.
-  // Guard computes intent using proof.cluster="wrongnet" → different hash → challenge mismatch.
-
   it("R11: wrong cluster in record_proof fails (PayloadMismatch)", async () => {
     try {
       await withdrawTx({
@@ -540,10 +528,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   // ── R12 ────────────────────────────────────────────────────────────────────
-  //
-  // proof.policy = "trana.require" but withdraw enforces "trana.limit".
-  // verify_with_policy checks proof.policy == expected → PolicyMismatch before challenge verify.
-
   it("R12: wrong policy string in record_proof fails (PolicyMismatch)", async () => {
     try {
       await withdrawTx({
@@ -561,26 +545,84 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
   // ── R13 ────────────────────────────────────────────────────────────────────
   //
-  // Treasury = payer.publicKey. owner (fresh Keypair) pays the fee.
-  // After enforcement: treasury balance increases by exactly FEE_LAMPORTS.
+  // First-time registration (empty pubkey_bytes) → register_fee (0.005 SOL).
 
-  it("R13: 20k lamport fee is deducted from owner and reaches treasury", async () => {
-    const before = await conn.getBalance(treasuryPubkey)
-    await withdrawTx({ amount: 1 * SOL, policy: "trana.limit", privKey: p256PrivKey, withProof: true })
-    registryNonce++
-    const after = await conn.getBalance(treasuryPubkey)
-    assert.equal(after - before, FEE_LAMPORTS, `treasury should gain exactly ${FEE_LAMPORTS} lamports`)
+  it("R13: register_fee charged on first registration", async () => {
+    const freshWallet = Keypair.generate()
+    const airdrop = await conn.requestAirdrop(freshWallet.publicKey, 5 * SOL)
+    await conn.confirmTransaction(airdrop, "confirmed")
+
+    const [freshRegistry] = PublicKey.findProgramAddressSync(
+      [Buffer.from("2fa"), freshWallet.publicKey.toBuffer()], trana.programId,
+    )
+    const treasuryBefore = await conn.getBalance(treasuryPubkey)
+
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("fresh-cred"))
+      .accounts({
+        registry:      freshRegistry,
+        owner:         freshWallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
+      .signers([freshWallet]).rpc()
+
+    const treasuryAfter = await conn.getBalance(treasuryPubkey)
+    assert.equal(
+      treasuryAfter - treasuryBefore, REGISTER_FEE,
+      `treasury should gain exactly ${REGISTER_FEE} lamports on first registration`,
+    )
   })
 
   // ── R14 ────────────────────────────────────────────────────────────────────
-  it("R14: update_config by non-authority is rejected (Unauthorized)", async () => {
+  //
+  // Re-registration (pubkey_bytes already set) → recovery_fee (0.01 SOL).
+
+  it("R14: recovery_fee charged on re-registration", async () => {
+    const newKey    = p256.utils.randomSecretKey()
+    const newPubKey = p256.getPublicKey(newKey, true)
+    const treasuryBefore = await conn.getBalance(treasuryPubkey)
+
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(newPubKey), Buffer.from("recovery-cred"))
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
+      .signers([owner]).rpc()
+
+    const treasuryAfter = await conn.getBalance(treasuryPubkey)
+    assert.equal(
+      treasuryAfter - treasuryBefore, RECOVERY_FEE,
+      `treasury should gain exactly ${RECOVERY_FEE} lamports on re-registration`,
+    )
+
+    // Restore original key so subsequent tests still work
+    await trana.methods
+      .registerTwoFa({ secp256R1Passkey: {} }, Buffer.from(p256PubKey), Buffer.from("test-cred"))
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
+      .signers([owner]).rpc()
+  })
+
+  // ── R15 ────────────────────────────────────────────────────────────────────
+  it("R15: update_config by non-authority is rejected (Unauthorized)", async () => {
     const stranger = Keypair.generate()
     const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
     await conn.confirmTransaction(airdrop, "confirmed")
 
     try {
       await trana.methods
-        .updateConfig(new BN(99_000), stranger.publicKey)
+        .updateConfig(new BN(99_000), new BN(199_000), stranger.publicKey)
         .accounts({ config: configPda, authority: stranger.publicKey })
         .signers([stranger]).rpc()
       assert.fail("Expected Unauthorized")
@@ -592,86 +634,14 @@ describe("guard — secp256r1 passkey enforcement", () => {
     }
   })
 
-  // ── R15 ────────────────────────────────────────────────────────────────────
-  it("R15: authority can withdraw accumulated fees from treasury", async () => {
-    const treasuryBalance = await conn.getBalance(treasuryPubkey)
-    if (treasuryBalance < FEE_LAMPORTS) {
-      console.log("    → skipping R15: treasury has no accumulated fees")
-      return
-    }
-    const dest       = Keypair.generate().publicKey
-    const destBefore = await conn.getBalance(dest)
-    const withdrawAmt = FEE_LAMPORTS  // withdraw just one fee's worth
-
-    await trana.methods
-      .withdrawFees(new BN(withdrawAmt))
-      .accounts({
-        config:      configPda,
-        authority:   payer.publicKey,
-        treasury:    treasuryPubkey,
-        destination: dest,
-      })
-      .rpc()
-
-    const destAfter = await conn.getBalance(dest)
-    assert.equal(destAfter - destBefore, withdrawAmt, "destination should receive exact withdrawal amount")
-  })
-
-  // ── R16 ────────────────────────────────────────────────────────────────────
-  it("R16: withdraw_fees by non-authority is rejected (Unauthorized)", async () => {
-    const stranger = Keypair.generate()
-    const airdrop = await conn.requestAirdrop(stranger.publicKey, SOL)
-    await conn.confirmTransaction(airdrop, "confirmed")
-
-    try {
-      await trana.methods
-        .withdrawFees(new BN(FEE_LAMPORTS))
-        .accounts({
-          config:      configPda,
-          authority:   stranger.publicKey,
-          treasury:    treasuryPubkey,
-          destination: stranger.publicKey,
-        })
-        .signers([stranger]).rpc()
-      assert.fail("Expected Unauthorized")
-    } catch (err: unknown) {
-      assert.ok(
-        (err as Error).message.includes("Unauthorized") || (err as Error).message.includes("0x1778"),
-        `Expected Unauthorized, got: ${(err as Error).message}`,
-      )
-    }
-  })
-
-  // ── R17 ────────────────────────────────────────────────────────────────────
-  //
-  // Pass a treasury pubkey that doesn't match config.treasury.
-  // demo_vault's Withdraw constraint rejects it before the CPI.
-
-  it("R17: wrong treasury in Enforce accounts is rejected", async () => {
-    const fakeTreasury = Keypair.generate().publicKey
-    try {
-      await withdrawTx({
-        amount: 1 * SOL, policy: "trana.limit", privKey: p256PrivKey,
-        withProof: true, overrideTreasury: fakeTreasury,
-      })
-      assert.fail("Expected constraint error for wrong treasury")
-    } catch (err: unknown) {
-      assert.ok(err instanceof Error, "should fail with an error")
-      assert.ok((err as Error).message.length > 0, "error should have a message")
-    }
-  })
-
   // ── Shared constant for tests using enforce as its own protected instruction ─
 
-  // enforce discriminator — used to compute paramsHash when enforce is its own protected instruction
   const ENFORCE_DISC = sha256(Buffer.from("global:enforce")).slice(0, 8)
 
-  // Build and send an `enforce(policy)` transaction where enforce is its own
-  // protected instruction. Optionally includes secp256r1 + record_proof.
   async function enforceSelf(opts: {
     policyArg:    Record<string, unknown>
     policyString: string
-    policyBytes:  Buffer   // Borsh(policy variant) — used to compute paramsHash
+    policyBytes:  Buffer
     withProof:    boolean
     privKey?:     Uint8Array
     useNonce?:    number
@@ -682,13 +652,11 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const nonce  = opts.useNonce ?? registryNonce
     const expiry = opts.overrideExpiry ?? Math.floor(Date.now() / 1000) + 300
 
+    // enforce accounts: registry, owner, instructions
     const regularAccounts = [
       registryPda,
       owner.publicKey,
       SYSVAR_INSTRUCTIONS_PUBKEY,
-      configPda,
-      treasuryPubkey,
-      SystemProgram.programId,
     ]
     const remainingPubkeys = (opts.remainingAccounts ?? []).map(a => a.pubkey)
     const accountsHash = sha256(Buffer.concat(
@@ -706,12 +674,9 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const enforceBuilder = trana.methods
       .enforce(policyArg)
       .accounts({
-        registry:      registryPda,
-        owner:         owner.publicKey,
-        instructions:  SYSVAR_INSTRUCTIONS_PUBKEY,
-        config:        configPda,
-        treasury:      treasuryPubkey,
-        systemProgram: SystemProgram.programId,
+        registry:     registryPda,
+        owner:        owner.publicKey,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
 
     if (opts.remainingAccounts?.length) {
@@ -735,20 +700,15 @@ describe("guard — secp256r1 passkey enforcement", () => {
   }
 
   // ── R22: Policy::NotBefore ─────────────────────────────────────────────────
-  //
-  // Passkey required UNTIL slot is reached. While current_slot < slot, every call
-  // needs explicit approval. Once the slot passes, the guard lets calls through freely.
-  // Use case: new feature requiring manual sign-off during its rollout window.
 
   it("R22: Policy::NotBefore fires for far-future slot, no proof → MissingProof", async () => {
-    const farFutureSlot = new BN("18446744073709551615") // u64::MAX — condition always fires
+    const farFutureSlot = new BN("18446744073709551615")
     const enforceIx = await trana.methods
       .enforce({ notBefore: { slot: farFutureSlot } })
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -769,21 +729,19 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const enforceIx = await trana.methods
       .enforce({ notBefore: { slot: new BN(0) } })
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
     tx.add(enforceIx)
-    // Slot 0 already reached → condition does NOT fire → no proof needed
     await sendAndConfirmTransaction(conn, tx, [owner])
   })
 
   it("R22c: Policy::NotBefore fires for far-future slot, with proof → Success", async () => {
-    const farFutureSlot = new BN("18446744073709551615") // u64::MAX
+    const farFutureSlot = new BN("18446744073709551615")
     await enforceSelf({
       policyArg:    { notBefore: { slot: farFutureSlot } },
       policyString: "trana.not_before",
@@ -794,20 +752,14 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   // ── R23: Policy::NotAfter ──────────────────────────────────────────────────
-  //
-  // Passkey required AFTER slot passes. Before the slot, calls are free.
-  // Once current_slot > slot, every call needs explicit approval.
-  // Use case: emergency freeze that auto-activates at a specific slot without
-  // anyone needing to call a pause function.
 
   it("R23: Policy::NotAfter fires for slot 0 (already elapsed, no proof) → MissingProof", async () => {
     const enforceIx = await trana.methods
       .enforce({ notAfter: { slot: new BN(0) } })
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -825,14 +777,13 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   it("R23b: Policy::NotAfter passes for far-future slot (no proof needed)", async () => {
-    const farFutureSlot = new BN("18446744073709551615") // u64::MAX — condition never fires
+    const farFutureSlot = new BN("18446744073709551615")
     const enforceIx = await trana.methods
       .enforce({ notAfter: { slot: farFutureSlot } })
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
@@ -852,19 +803,10 @@ describe("guard — secp256r1 passkey enforcement", () => {
   })
 
   // ── R18: Limit policy below threshold ─────────────────────────────────────
-  //
-  // Policy::Limit is a no-op when the guarded value < limit.
-  // enforce() returns Ok(()) without requiring any proof instructions.
-  // This verifies the conditional path: enforce CPI is called but passes through.
-  //
-  // Uses vault deposit (< 1 SOL threshold) — enforce is always called by the
-  // vault but doesn't require a proof when the condition doesn't fire.
 
   it("R18: Policy::Limit does not fire below threshold — no proof required", async () => {
-    const depositAmount = 0.5 * SOL   // below 1 SOL LARGE_LIMIT
+    const depositAmount = 0.5 * SOL
 
-    // No secp256r1 or record_proof instructions — just the deposit.
-    // If Limit fired, this would throw MissingProof.
     await vault.methods
       .deposit(new BN(depositAmount))
       .accounts({
@@ -874,21 +816,14 @@ describe("guard — secp256r1 passkey enforcement", () => {
         guardProgram:      trana.programId,
         tranaRegistry:     registryPda,
         tranaInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        tranaConfig:       configPda,
-        tranaTreasury:     treasuryPubkey,
       })
       .signers([owner]).rpc()
 
-    // Nonce must not change — no proof was consumed
     const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
     assert.equal(reg.nonce.toNumber(), registryNonce, "nonce must not change when policy does not fire")
   })
 
   // ── R19: Re-registration preserves nonce ───────────────────────────────────
-  //
-  // register_two_fa is idempotent: calling it again updates the key but must
-  // NOT reset the nonce. A reset would allow replay of any previously consumed
-  // proof, breaking the replay-protection guarantee.
 
   it("R19: re-registration updates pubkey without resetting nonce", async () => {
     const newKey    = p256.utils.randomSecretKey()
@@ -901,7 +836,13 @@ describe("guard — secp256r1 passkey enforcement", () => {
         Buffer.from(newPubKey),
         Buffer.from("new-cred-id"),
       )
-      .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
       .signers([owner]).rpc()
 
     const reg = await trana.account.twoFactorRegistry.fetch(registryPda)
@@ -915,7 +856,13 @@ describe("guard — secp256r1 passkey enforcement", () => {
         Buffer.from(p256PubKey),
         Buffer.from("test-cred"),
       )
-      .accounts({ registry: registryPda, owner: owner.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({
+        registry:      registryPda,
+        owner:         owner.publicKey,
+        systemProgram: SystemProgram.programId,
+        config:        configPda,
+        treasury:      treasuryPubkey,
+      })
       .signers([owner]).rpc()
 
     const regRestored = await trana.account.twoFactorRegistry.fetch(registryPda)
@@ -925,24 +872,18 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
   // ── R24: ComputeBudget prefix ──────────────────────────────────────────────
   //
-  // Real-world txs commonly prepend ComputeBudget instructions.
-  // Guard uses load_current_index_checked → N is relative, so secp256r1 at N-2
-  // and record_proof at N-1 are still correct regardless of how many instructions
-  // precede the triplet.
-  //
   // tx layout: [ComputeBudget(0), secp256r1(1), record_proof(2), enforce(3)]
-  //   enforce is at N=3 → N-1=2 (record_proof ✓) → N-2=1 (secp256r1 ✓)
+  //   enforce at N=3 → N-1=2 (record_proof ✓) → N-2=1 (secp256r1 ✓)
 
   it("R24: ComputeBudget prepended — secp256r1 still found at N-2", async () => {
     const policyArg    = { require: {} }
     const policyString = "trana.require"
-    const policyBytes  = Buffer.from([0])   // Borsh: Require variant = 0, no fields
+    const policyBytes  = Buffer.from([0])
     const nonce        = registryNonce
     const expiry       = Math.floor(Date.now() / 1000) + 300
 
     const accountsList = [
       registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
-      configPda, treasuryPubkey, SystemProgram.programId,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -954,10 +895,9 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
     const enforceIx = await trana.methods.enforce(policyArg)
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
 
@@ -977,15 +917,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
   // ── R25: Two protected instructions in one tx ──────────────────────────────
   //
-  // Each protected instruction needs its own secp256r1 + record_proof pair.
-  // The N-2 rule handles this correctly because N is relative for each instruction.
-  //
   // tx layout: [secp_A(0), proof_A(1), enforce_A(2), secp_B(3), proof_B(4), enforce_B(5)]
-  //   enforce_A at N=2 → N-1=1 (proof_A ✓) → N-2=0 (secp_A ✓)
-  //   enforce_B at N=5 → N-1=4 (proof_B ✓) → N-2=3 (secp_B ✓)
-  //
-  // Proof B must be signed with nonce+1 — A consumes nonce N on-chain before B runs.
-  // Both proofs are signed client-side before the tx is submitted.
 
   it("R25: two protected instructions in one tx — each triplet succeeds independently (nonce +2)", async () => {
     const policyArg    = { require: {} }
@@ -997,7 +929,6 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
     const accountsList = [
       registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
-      configPda, treasuryPubkey, SystemProgram.programId,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -1016,20 +947,17 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
     const enforceIx = await trana.methods.enforce(policyArg)
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
 
     const { blockhash } = await conn.getLatestBlockhash("confirmed")
     const tx = new Transaction({ recentBlockhash: blockhash, feePayer: owner.publicKey })
-    // Triplet A — indices 0, 1, 2
     tx.add(buildSecp256r1Ix(p256PubKey, proofA.sig, proofA.rawMsg))
     tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, proofA.authData, proofA.clientDataJSON))
     tx.add(enforceIx)
-    // Triplet B — indices 3, 4, 5
     tx.add(buildSecp256r1Ix(p256PubKey, proofB.sig, proofB.rawMsg))
     tx.add(buildRecordProofIx(trana.programId, 1, expiry, "localnet", policyString, proofB.authData, proofB.clientDataJSON))
     tx.add(enforceIx)
@@ -1043,15 +971,10 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
   // ── R26: V0 transaction with address lookup table ──────────────────────────
   //
-  // Solana's instructions sysvar resolves ALT accounts to their full pubkeys
-  // before exposing them to programs. So accounts_hash computed on-chain (from
-  // sysvar) must equal accounts_hash computed client-side (from resolved pubkeys).
-  //
-  // This test puts three enforce accounts into an ALT and verifies the intent
-  // hash still matches after ALT resolution — confirming V0 txs are supported.
+  // enforce only needs registry in the ALT now (owner is a signer, instructions
+  // is a sysvar — neither benefits from ALT compression).
 
   it("R26: V0 transaction with address lookup table — ALT accounts resolve correctly in sysvar", async () => {
-    // Create and populate the ALT
     const currentSlot = await conn.getSlot("finalized")
     const [createLutIx, lutAddress] = AddressLookupTableProgram.createLookupTable({
       authority:   owner.publicKey,
@@ -1062,14 +985,13 @@ describe("guard — secp256r1 passkey enforcement", () => {
       payer:       owner.publicKey,
       authority:   owner.publicKey,
       lookupTable: lutAddress,
-      addresses:   [registryPda, configPda, treasuryPubkey],
+      addresses:   [registryPda],
     })
     const { blockhash: setupBlockhash } = await conn.getLatestBlockhash("confirmed")
     const setupTx = new Transaction({ recentBlockhash: setupBlockhash, feePayer: owner.publicKey })
     setupTx.add(createLutIx, extendLutIx)
     await sendAndConfirmTransaction(conn, setupTx, [owner])
 
-    // ALTs need a slot to warm up before use
     await sleep(1500)
 
     const lutInfo = await conn.getAddressLookupTable(lutAddress)
@@ -1081,10 +1003,8 @@ describe("guard — secp256r1 passkey enforcement", () => {
     const nonce        = registryNonce
     const expiry       = Math.floor(Date.now() / 1000) + 300
 
-    // accountsHash uses fully-resolved pubkeys — same as what the sysvar will expose
     const accountsList = [
       registryPda, owner.publicKey, SYSVAR_INSTRUCTIONS_PUBKEY,
-      configPda, treasuryPubkey, SystemProgram.programId,
     ]
     const accountsHash = sha256(Buffer.concat(accountsList.map(pk => pk.toBuffer())))
     const paramsHash   = sha256(policyBytes)
@@ -1096,10 +1016,9 @@ describe("guard — secp256r1 passkey enforcement", () => {
 
     const enforceIx = await trana.methods.enforce(policyArg)
       .accounts({
-        registry: registryPda, owner: owner.publicKey,
+        registry:     registryPda,
+        owner:        owner.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: configPda, treasury: treasuryPubkey,
-        systemProgram: SystemProgram.programId,
       })
       .instruction()
 
