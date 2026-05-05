@@ -47,19 +47,20 @@ impl TwoFactorRegistry {
 /// Global fee configuration.
 /// Seeds: `[b"config"]`
 ///
-/// Stores the per-enforcement fee and the treasury destination.
-/// Both are publicly readable — any auditor can verify the exact fee
-/// without reading source code. Changes require a signed transaction
-/// from the authority, so the full history is on-chain.
+/// Stores registration fees and the treasury destination.
+/// Publicly readable — any auditor can verify exact fees without reading source.
+/// Changes require a signed transaction from authority, full history on-chain.
 #[account]
 #[derive(InitSpace)]
 pub struct TranaConfig {
-    /// Who can call update_config / withdraw_fees.
+    /// Who can call update_config.
     pub authority:    Pubkey,
-    /// Where enforcement fees are sent.
+    /// Where registration fees are sent.
     pub treasury:     Pubkey,
-    /// Lamports charged per successful proof verification.
-    pub fee_lamports: u64,
+    /// Lamports charged for a first-time passkey registration.
+    pub register_fee: u64,
+    /// Lamports charged for a key recovery (re-registration).
+    pub recovery_fee: u64,
 }
 
 // ── Account contexts ──────────────────────────────────────────────────────────
@@ -79,6 +80,17 @@ pub struct RegisterTwoFa<'info> {
     pub owner: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
+    /// Global fee config — determines which fee to charge.
+    #[account(seeds = [b"config"], bump)]
+    pub config: Account<'info, TranaConfig>,
+
+    /// CHECK: treasury — receives the registration or recovery fee.
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
+    )]
+    pub treasury: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -101,27 +113,11 @@ pub struct Enforce<'info> {
     pub registry: Account<'info, TwoFactorRegistry>,
 
     /// The wallet whose registered passkey must authorize this action.
-    /// Must be mut so the fee can be deducted from its lamport balance.
-    #[account(mut)]
     pub owner: Signer<'info>,
 
     /// CHECK: Solana Instructions sysvar
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
-
-    /// Global fee config — determines fee amount and treasury destination.
-    #[account(seeds = [b"config"], bump)]
-    pub config: Account<'info, TranaConfig>,
-
-    /// Treasury PDA — receives the enforcement fee.
-    /// CHECK: address validated against config.treasury
-    #[account(
-        mut,
-        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
-    )]
-    pub treasury: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
 }
 
 /// One-time initialization of the global fee config.
@@ -142,7 +138,7 @@ pub struct InitConfig<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Update fee amount or treasury address.
+/// Update registration/recovery fees or treasury address.
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
     #[account(
@@ -154,29 +150,5 @@ pub struct UpdateConfig<'info> {
     pub config: Account<'info, TranaConfig>,
 
     pub authority: Signer<'info>,
-}
-
-/// Withdraw accumulated fees from the treasury PDA to any destination.
-#[derive(Accounts)]
-pub struct WithdrawFees<'info> {
-    #[account(
-        seeds = [b"config"],
-        bump,
-        has_one = authority @ GuardError::Unauthorized,
-    )]
-    pub config: Account<'info, TranaConfig>,
-
-    pub authority: Signer<'info>,
-
-    /// CHECK: treasury PDA — validated against config
-    #[account(
-        mut,
-        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
-    )]
-    pub treasury: UncheckedAccount<'info>,
-
-    /// CHECK: any destination the authority chooses
-    #[account(mut)]
-    pub destination: UncheckedAccount<'info>,
 }
 

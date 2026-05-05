@@ -94,46 +94,41 @@ pub mod trana {
 
     /// One-time initialization of the global fee config PDA.
     /// Called once by the Trana team after deployment.
-    /// Fee amount and treasury are publicly readable by anyone on-chain.
+    /// Fees and treasury are publicly readable by anyone on-chain.
     pub fn init_config(
         ctx:          Context<InitConfig>,
-        fee_lamports: u64,
+        register_fee: u64,
+        recovery_fee: u64,
         treasury:     Pubkey,
     ) -> Result<()> {
-        let cfg          = &mut ctx.accounts.config;
-        cfg.authority    = ctx.accounts.authority.key();
-        cfg.treasury     = treasury;
-        cfg.fee_lamports = fee_lamports;
-        msg!("TRANA config | fee={} lamports | treasury={}", fee_lamports, treasury);
+        let cfg           = &mut ctx.accounts.config;
+        cfg.authority     = ctx.accounts.authority.key();
+        cfg.treasury      = treasury;
+        cfg.register_fee  = register_fee;
+        cfg.recovery_fee  = recovery_fee;
+        msg!(
+            "TRANA config | register_fee={} | recovery_fee={} | treasury={}",
+            register_fee, recovery_fee, treasury,
+        );
         Ok(())
     }
 
-    /// Update fee amount or treasury address.
+    /// Update registration/recovery fees or treasury address.
     /// Requires the config authority to sign — full audit trail on-chain.
     pub fn update_config(
         ctx:          Context<UpdateConfig>,
-        fee_lamports: u64,
+        register_fee: u64,
+        recovery_fee: u64,
         treasury:     Pubkey,
     ) -> Result<()> {
-        let cfg          = &mut ctx.accounts.config;
-        cfg.fee_lamports = fee_lamports;
-        cfg.treasury     = treasury;
-        msg!("TRANA config updated | fee={} lamports | treasury={}", fee_lamports, treasury);
-        Ok(())
-    }
-
-    /// Withdraw accumulated fees from the treasury PDA to any destination.
-    /// Only the config authority can call this.
-    pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
-        let treasury_info = ctx.accounts.treasury.to_account_info();
-        let dest_info     = ctx.accounts.destination.to_account_info();
-        require!(
-            amount <= **treasury_info.try_borrow_lamports()?,
-            GuardError::InsufficientFunds
+        let cfg           = &mut ctx.accounts.config;
+        cfg.register_fee  = register_fee;
+        cfg.recovery_fee  = recovery_fee;
+        cfg.treasury      = treasury;
+        msg!(
+            "TRANA config updated | register_fee={} | recovery_fee={} | treasury={}",
+            register_fee, recovery_fee, treasury,
         );
-        **treasury_info.try_borrow_mut_lamports()? -= amount;
-        **dest_info.try_borrow_mut_lamports()?     += amount;
-        msg!("TRANA fees withdrawn | amount={} | destination={}", amount, ctx.accounts.destination.key());
         Ok(())
     }
 
@@ -141,6 +136,7 @@ pub mod trana {
 
     /// Register a P-256 passkey in the caller's onchain registry PDA.
     /// Idempotent — re-registering updates the key without resetting the nonce.
+    /// Charges register_fee on first registration, recovery_fee on subsequent ones.
     pub fn register_two_fa(
         ctx: Context<RegisterTwoFa>,
         key_kind: KeyKind,
@@ -155,6 +151,25 @@ pub mod trana {
             credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
             GuardError::InvalidProof
         );
+        // Detect new vs recovery before mutating state
+        let is_new = ctx.accounts.registry.pubkey_bytes.is_empty();
+        let fee    = if is_new {
+            ctx.accounts.config.register_fee
+        } else {
+            ctx.accounts.config.recovery_fee
+        };
+        if fee > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.owner.to_account_info(),
+                        to:   ctx.accounts.treasury.to_account_info(),
+                    },
+                ),
+                fee,
+            )?;
+        }
         let r           = &mut ctx.accounts.registry;
         r.owner         = ctx.accounts.owner.key();
         r.key_kind      = key_kind;
@@ -162,6 +177,10 @@ pub mod trana {
         r.credential_id = credential_id;
         r.enabled       = true;
         // Preserve nonce — re-registration must not reset replay protection
+        msg!(
+            "TRANA register | owner={} | is_new={} | fee={}",
+            r.owner, is_new, fee,
+        );
         Ok(())
     }
 
@@ -200,28 +219,20 @@ pub mod trana {
         let registry  = &mut ctx.accounts.registry;
         let pid       = ctx.program_id;
 
-        let fee = verify::FeeAccounts {
-            fee_lamports:   ctx.accounts.config.fee_lamports,
-            payer:          ctx.accounts.owner.as_ref(),
-            treasury:       ctx.accounts.treasury.as_ref(),
-            system_program: ctx.accounts.system_program.as_ref(),
-        };
-
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy=trana.require | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require", &fee)
+                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require")
             }
 
             Policy::NotBefore { slot } => {
                 let current_slot = Clock::get()?.slot;
                 if current_slot < slot {
-                    // Passkey required until `slot` is reached. After that, free.
                     msg!(
                         "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before", &fee)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before")?;
                 }
                 Ok(())
             }
@@ -229,12 +240,11 @@ pub mod trana {
             Policy::NotAfter { slot } => {
                 let current_slot = Clock::get()?.slot;
                 if current_slot > slot {
-                    // Passkey required after `slot` has passed. Before it, free.
                     msg!(
                         "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
                         current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after", &fee)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after")?;
                 }
                 Ok(())
             }
@@ -246,7 +256,7 @@ pub mod trana {
                         "TRANA require | policy=trana.limit | amount={} | limit={} | owner={}",
                         amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit", &fee)?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit")?;
                 }
                 Ok(())
             }

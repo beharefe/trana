@@ -7,18 +7,6 @@ use crate::error::GuardError;
 use crate::events::ProofVerified;
 use crate::state::{ProofData, TwoFactorRegistry};
 
-// ── Fee context ───────────────────────────────────────────────────────────────
-
-/// Accounts needed to collect the enforcement fee.
-/// Passed from enforce() into run_verification so the fee transfer is
-/// atomic with the proof — if verification fails, the fee reverts too.
-pub struct FeeAccounts<'a, 'info> {
-    pub fee_lamports:  u64,
-    pub payer:         &'a AccountInfo<'info>,
-    pub treasury:      &'a AccountInfo<'info>,
-    pub system_program: &'a AccountInfo<'info>,
-}
-
 const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
 const INTENT_DOMAIN:        &str = "trana:v1";
 
@@ -49,7 +37,6 @@ pub fn verify_with_policy<'info>(
     owner:            &Pubkey,
     guard_program_id: &Pubkey,
     expected_policy:  &str,
-    fee:              &FeeAccounts<'_, 'info>,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
@@ -60,7 +47,7 @@ pub fn verify_with_policy<'info>(
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
     require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy, fee)
+    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
 }
 
 // ── Shared verification pipeline ─────────────────────────────────────────────
@@ -83,7 +70,6 @@ fn run_verification<'info>(
     current_idx:      u16,
     proof:            ProofData,
     policy:           &str,
-    fee:              &FeeAccounts<'_, 'info>,
 ) -> Result<()> {
     // ── 1. Protected instruction ──────────────────────────────────────────────
     let protected_ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
@@ -175,23 +161,7 @@ fn run_verification<'info>(
         .checked_add(1)
         .ok_or(GuardError::NonceOverflow)?;
 
-    // ── 8. Collect enforcement fee ────────────────────────────────────────────
-    // Transferred atomically with the proof — reverts if anything above failed.
-    // Fee is 0 only during the bootstrap window before init_config is called.
-    if fee.fee_lamports > 0 {
-        anchor_lang::system_program::transfer(
-            CpiContext::new(
-                fee.system_program.clone(),
-                anchor_lang::system_program::Transfer {
-                    from: fee.payer.clone(),
-                    to:   fee.treasury.clone(),
-                },
-            ),
-            fee.fee_lamports,
-        )?;
-    }
-
-    // ── 9. Emit audit event ───────────────────────────────────────────────────
+    // ── 8. Emit audit event ───────────────────────────────────────────────────
     msg!(
         "TRANA enforce | policy={} | target={} | nonce={}",
         policy,

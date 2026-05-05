@@ -31,8 +31,4 @@ pub enum GuardError {
 
     #[msg("Treasury account does not match config.treasury")]
     InvalidTreasury,
-
-    #[msg("Withdrawal amount exceeds treasury balance")]
-    InsufficientFunds,
-
 }

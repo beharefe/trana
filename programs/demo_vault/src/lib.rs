@@ -19,19 +19,16 @@ declare_id!("2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP");
 //  the policy by reading Trana's source — they don't need to audit this vault.
 //
 //  Policies used:
-//    Policy::Always      — emergency_freeze and set_opt_in mode
-//    Policy::Admin       — emergency freeze / unfreeze
-//    Policy::Limit       — withdrawals >= LARGE_LIMIT (guard reads amount)
-//    Policy::Velocity    — cumulative withdrawals exceed VELOCITY_LIMIT
-//    Policy::RapidDrain  — withdrawal shortly after a large deposit
+//    Policy::Require  — always require passkey (opt_in, rapid_drain, velocity)
+//    Policy::Limit    — require passkey when withdrawal >= LARGE_LIMIT
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const LARGE_LIMIT:            u64 = 1_000_000_000; // 1 SOL
-pub const RAPID_WINDOW:           i64 = 300;            // 5 minutes
+pub const LARGE_LIMIT:             u64 = 1_000_000_000; // 1 SOL
+pub const RAPID_WINDOW:            i64 = 300;            // 5 minutes
 pub const RAPID_DEPOSIT_THRESHOLD: u64 = 5_000_000_000; // 5 SOL
-pub const VELOCITY_WINDOW:        i64 = 60;             // 1 minute
-pub const VELOCITY_LIMIT:     u64 = 2_000_000_000;  // 2 SOL
+pub const VELOCITY_WINDOW:         i64 = 60;             // 1 minute
+pub const VELOCITY_LIMIT:          u64 = 2_000_000_000;  // 2 SOL
 
 // withdraw() serializes: amount: u64 — first param after discriminator
 const WITHDRAW_AMOUNT_OFFSET: u8 = 0;
@@ -58,14 +55,14 @@ pub mod demo_vault {
         Ok(())
     }
 
-    // ── Emergency freeze — Policy::Admin ──────────────────────────────────────
+    // ── Emergency freeze — Policy::Require ────────────────────────────────────
     //
-    // trana::cpi::enforce(ctx, Policy::Admin) is the entire trust story here.
-    // Any user auditing this vault can see: "freeze requires trana.admin",
-    // then read trana's source to verify what trana.admin does.
+    // trana::cpi::enforce(ctx, Policy::Require) is the entire trust story here.
+    // Any user auditing this vault can see: "freeze requires trana.require",
+    // then read trana's source to verify what trana.require does.
 
     pub fn emergency_freeze(ctx: Context<EmergencyFreeze>, freeze: bool) -> Result<()> {
-        trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Admin)?;
+        trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Require)?;
         ctx.accounts.vault.frozen = freeze;
         emit!(FreezeEvent { owner: ctx.accounts.owner.key(), frozen: freeze });
         Ok(())
@@ -83,7 +80,7 @@ pub mod demo_vault {
             Policy::Limit { param_offset: 0, limit: LARGE_LIMIT },
         )?;
 
-        // Track deposit time for rapid_drain policy on future withdrawals
+        // Track deposit time for rapid_drain detection on future withdrawals
         if amount >= LARGE_LIMIT {
             let vault                       = &mut ctx.accounts.vault;
             vault.last_large_deposit_at     = Clock::get()?.unix_timestamp;
@@ -117,7 +114,7 @@ pub mod demo_vault {
     // program — audited once, trusted everywhere.
     //
     // Priority: opt_in > rapid_drain > velocity > limit
-    // (The enforce() CPIs are ordered; first one that fires ends the chain.)
+    // Conditions that fully override each other are collapsed into Policy::Require.
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0,                           VaultError::ZeroAmount);
@@ -126,37 +123,15 @@ pub mod demo_vault {
 
         let now = Clock::get()?.unix_timestamp;
 
-        // Pre-evaluate all conditions; call enforce() at most once.
-        // Zero CPI overhead for withdrawals that don't trigger any policy.
-        // The guard re-validates the same condition inside enforce() so the
-        // vault cannot skip enforcement by lying about the state here.
         let rapid_drain_fires =
             ctx.accounts.vault.last_large_deposit_amount >= RAPID_DEPOSIT_THRESHOLD
             && now.saturating_sub(ctx.accounts.vault.last_large_deposit_at) < RAPID_WINDOW;
         let velocity_fires =
             ctx.accounts.vault.velocity_withdrawn.saturating_add(amount) > VELOCITY_LIMIT;
 
-        if ctx.accounts.vault.opt_in {
-            trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Always)?;
-        } else if rapid_drain_fires {
-            trana::cpi::enforce(
-                ctx.accounts.trana_cpi_ctx(),
-                Policy::RapidDrain {
-                    last_deposit_at:     ctx.accounts.vault.last_large_deposit_at,
-                    last_deposit_amount: ctx.accounts.vault.last_large_deposit_amount,
-                    deposit_threshold:   RAPID_DEPOSIT_THRESHOLD,
-                    window_secs:         RAPID_WINDOW,
-                },
-            )?;
-        } else if velocity_fires {
-            trana::cpi::enforce(
-                ctx.accounts.trana_cpi_ctx(),
-                Policy::Velocity {
-                    param_offset:      WITHDRAW_AMOUNT_OFFSET,
-                    already_withdrawn: ctx.accounts.vault.velocity_withdrawn,
-                    limit:             VELOCITY_LIMIT,
-                },
-            )?;
+        if ctx.accounts.vault.opt_in || rapid_drain_fires || velocity_fires {
+            // Always require passkey for opt_in / rapid_drain / velocity conditions
+            trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Require)?;
         } else if amount >= LARGE_LIMIT {
             trana::cpi::enforce(
                 ctx.accounts.trana_cpi_ctx(),
@@ -236,12 +211,6 @@ pub struct EmergencyFreeze<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
-    /// CHECK: treasury PDA validated inside trana
-    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
-    pub trana_treasury: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -263,11 +232,6 @@ pub struct Deposit<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
-    /// CHECK: treasury PDA validated inside trana
-    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
-    pub trana_treasury: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -291,11 +255,6 @@ pub struct Withdraw<'info> {
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
-    #[account(seeds = [b"config"], bump, seeds::program = guard_program.key())]
-    pub trana_config: Account<'info, trana::TranaConfig>,
-    /// CHECK: treasury PDA validated inside trana
-    #[account(mut, constraint = trana_treasury.key() == trana_config.treasury)]
-    pub trana_treasury: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -304,12 +263,9 @@ pub struct Withdraw<'info> {
 impl<'info> EmergencyFreeze<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:       self.trana_registry.to_account_info(),
-            owner:          self.owner.to_account_info(),
-            instructions:   self.trana_instructions.to_account_info(),
-            config:         self.trana_config.to_account_info(),
-            treasury:       self.trana_treasury.to_account_info(),
-            system_program: self.system_program.to_account_info(),
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
         })
     }
 }
@@ -317,12 +273,9 @@ impl<'info> EmergencyFreeze<'info> {
 impl<'info> Deposit<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:       self.trana_registry.to_account_info(),
-            owner:          self.owner.to_account_info(),
-            instructions:   self.trana_instructions.to_account_info(),
-            config:         self.trana_config.to_account_info(),
-            treasury:       self.trana_treasury.to_account_info(),
-            system_program: self.system_program.to_account_info(),
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
         })
     }
 }
@@ -330,12 +283,9 @@ impl<'info> Deposit<'info> {
 impl<'info> Withdraw<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(self.guard_program.to_account_info(), Enforce {
-            registry:       self.trana_registry.to_account_info(),
-            owner:          self.owner.to_account_info(),
-            instructions:   self.trana_instructions.to_account_info(),
-            config:         self.trana_config.to_account_info(),
-            treasury:       self.trana_treasury.to_account_info(),
-            system_program: self.system_program.to_account_info(),
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
         })
     }
 }
