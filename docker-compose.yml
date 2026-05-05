@@ -9,7 +9,7 @@ services:
       dockerfile: docker/Dockerfile.web
     ports:
       - "3000:3000"
-    command: sh -c "cd /workspace/apps/web && pnpm next dev -H 0.0.0.0"
+    command: sh -c "cd /workspace/apps/web && npx next dev -H 0.0.0.0"
     env_file:
       - .env.docker        # server-side only vars (SOLANA_RPC)
     extra_hosts:

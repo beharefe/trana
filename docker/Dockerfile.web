@@ -1,14 +1,12 @@
 FROM node:22-alpine
 
-RUN corepack enable && corepack prepare pnpm@10 --activate
-
 WORKDIR /workspace
 
 # Install dependencies (workspace-aware, layer-cached)
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY package.json package-lock.json ./
 COPY packages/sdk/package.json ./packages/sdk/
 COPY apps/web/package.json      ./apps/web/
-RUN pnpm install
+RUN npm ci
 
 # Copy source (hot-reload dirs are overridden by bind mounts at runtime)
 COPY packages/sdk ./packages/sdk
@@ -16,4 +14,4 @@ COPY apps/web     ./apps/web
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "cd /workspace/apps/web && pnpm next dev -H 0.0.0.0"]
+CMD ["sh", "-c", "cd /workspace/apps/web && npx next dev -H 0.0.0.0"]
