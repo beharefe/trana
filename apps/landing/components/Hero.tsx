@@ -242,12 +242,11 @@ export function Hero() {
             Onchain security primitive · Solana
           </span>
           <h1 className="font-serif text-[clamp(38px,5vw,72px)] leading-[0.98] tracking-[-0.035em] mt-5 mb-4 max-w-[18ch] text-balance text-ink">
-            Execution requires approval.{" "}
-            <em>A valid signature is not enough.</em>
+            Stolen keys can't drain{" "}
+            <em>guarded accounts.</em>
           </h1>
           <p className="text-[clamp(16px,1.3vw,19px)] text-muted leading-[1.45] max-w-[46ch] tracking-[-0.005em] text-pretty">
-            Trana gates privileged transactions with a passkey. The check runs
-            inside the program, not at the frontend. One CPI call.
+            Secure your program with one CPI call.
           </p>
         </div>
 
