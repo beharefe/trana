@@ -14,7 +14,7 @@ trana       = { version = "0.1", features = ["cpi"] }
 
 ## 2. Add Trana accounts
 
-Add a `trana_cpi_ctx()` helper on your accounts struct — the enforce call becomes a single line everywhere you use it.
+Add a `trana_cpi_ctx()` helper on your accounts struct so the enforce call is one line everywhere you use it.
 
 ```rust
 use trana::cpi::accounts::Enforce;
@@ -116,7 +116,7 @@ await authorizeAndSend({
 })
 ```
 
-The SDK handles simulation, first-time registration, the review modal, the biometric prompt, and proof construction. Your program code doesn't change.
+The SDK handles everything on the client side: simulation, first-time registration, the review modal, the biometric prompt, and proof construction. Your program code stays the same.
 
 ---
 

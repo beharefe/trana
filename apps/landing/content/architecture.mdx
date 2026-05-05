@@ -1,6 +1,6 @@
 # Architecture
 
-Trana is three cooperating layers. The Solana runtime enforces atomicity — all three execute in a single transaction or none of them do.
+Trana has three layers. The Solana runtime ties them together — all three execute in a single transaction or none of them do.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -26,13 +26,13 @@ Trana is three cooperating layers. The Solana runtime enforces atomicity — all
 
 ### programs/guard — the authorization primitive
 
-One deployed program, three instructions:
+One deployed program. Three instructions.
 
-**`register_two_fa`** — writes a P-256 public key and credential ID into a PDA. Seeds: `["2fa", wallet_pubkey]`. Idempotent; re-registering updates the key and preserves the nonce.
+`register_two_fa` writes a P-256 public key and credential ID into a PDA (`["2fa", wallet_pubkey]`). Re-registering updates the key and preserves the nonce.
 
-**`record_proof`** — pure data carrier. Holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in instruction data. No accounts modified.
+`record_proof` is a data carrier. It holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in instruction data and modifies no accounts.
 
-**`enforce`** — called by your program via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against the registry pubkey, checks the intent hash, increments the nonce. If anything fails, the whole transaction reverts.
+`enforce` is called by your program via CPI. It reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against the registry pubkey, checks the intent hash, and increments the nonce. If anything fails, the whole transaction reverts.
 
 ### packages/sdk — TypeScript client
 
@@ -113,10 +113,9 @@ SHA-256(
 )
 ```
 
-Replay is prevented by:
-- **nonce** — incremented on-chain after every valid approval
-- **expiryUnix** — proof rejected past this timestamp
-- **exact field binding** — changing any account, param, or cluster invalidates the hash
+Three things prevent replay: the nonce (incremented on-chain after every approval), the expiry timestamp (proof rejected if `clock.unix_timestamp >= expiry`), and exact field binding (changing any account, parameter, or cluster produces a different hash and fails verification).
+
+The expected cluster (`"mainnet-beta"`, `"devnet"`, `"localnet"`) is a compile-time constant baked into the program binary via Cargo feature flags — not stored in a mutable config account. A proof signed for devnet will fail with `ClusterMismatch` when submitted to a mainnet binary, even if both binaries share the same program ID.
 
 ---
 

@@ -104,17 +104,29 @@ use trana::cpi::accounts::Enforce;
 use trana::program::Trana;
 use trana::Policy;
 
+// Add a helper to your accounts struct — the enforce call becomes one line
+impl<'info> Withdraw<'info> {
+    pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
+        CpiContext::new(self.guard_program.to_account_info(), Enforce {
+            registry:     self.trana_registry.to_account_info(),
+            owner:        self.owner.to_account_info(),
+            instructions: self.trana_instructions.to_account_info(),
+        })
+    }
+}
+
 pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-    trana::cpi::enforce(
-        CpiContext::new(ctx.accounts.guard_program.to_account_info(), Enforce {
-            registry:     ctx.accounts.trana_registry.to_account_info(),
-            owner:        ctx.accounts.owner.to_account_info(),
-            instructions: ctx.accounts.trana_instructions.to_account_info(),
-        }),
-        Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
-    )?;
+    trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
+    // your logic here
     Ok(())
 }
+```
+
+**Build flags (baked into binary at compile time):**
+```sh
+cargo build-sbf -- --features mainnet   # proof.cluster must be "mainnet-beta"
+cargo build-sbf -- --features devnet    # proof.cluster must be "devnet"
+cargo build-sbf                         # default: localnet (for tests)
 ```
 
 ---

@@ -1,6 +1,6 @@
 # Integration
 
-Full reference for adding Trana to a Solana Anchor program.
+Reference for adding Trana to a Solana Anchor program.
 
 ---
 
@@ -121,12 +121,12 @@ ix[N-1]: trana::record_proof     WebAuthn data carrier
 ix[N]:   your instruction        calls trana::cpi::enforce() via CPI
 ```
 
-Rules:
+A few things worth knowing:
 
-- **ComputeBudget** can be prepended — it shifts all indices up and the guard adjusts.
-- **Multiple protected instructions** work in one transaction. Each needs its own `(secp256r1, record_proof, protected)` triplet, with proofs signed at consecutive nonces.
-- **V0 transactions and lookup tables** work. The Instructions sysvar exposes fully-resolved pubkeys, so account hashes computed client-side match on-chain.
-- The triplet must be contiguous — no instructions between the three.
+- A `ComputeBudget` instruction can be prepended — it shifts all indices up and the guard adjusts automatically.
+- Multiple protected instructions work in one transaction. Each needs its own `(secp256r1, record_proof, protected)` triplet, with proofs signed at consecutive nonces.
+- V0 transactions with lookup tables work. The Instructions sysvar exposes fully-resolved pubkeys, so account hashes computed client-side match on-chain.
+- The three instructions in each triplet must be contiguous with nothing between them.
 
 `authorizeAndSend` handles triplet construction automatically.
 
@@ -172,7 +172,7 @@ await authorizeAndSend({
 })
 ```
 
-`instruction` is the anchor — the SDK derives intent from it and inserts the proof pair immediately before it in the final transaction. The instruction can appear anywhere in the transaction.
+`instruction` tells the SDK what you're authorizing. It derives the intent hash from it and inserts the `(secp256r1, record_proof)` pair immediately before it in the final transaction. The instruction can appear anywhere in the transaction.
 
 ### Low-level helpers
 
@@ -198,5 +198,6 @@ import {
 | `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
 | `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
 | `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
+| `ClusterMismatch` | `0x177a` | `proof.cluster` doesn't match the cluster baked into this binary |
 | `RegistryDisabled` | — | `trana_registry.enabled == false` — fails at account validation |
 | `PasskeyNotRegistered` | — | No registry PDA found — your constraint, not the guard's |
