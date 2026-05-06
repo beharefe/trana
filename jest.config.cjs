@@ -2,18 +2,11 @@
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
-  roots: ["<rootDir>"],
-  testMatch: ["<rootDir>/tests/**/*.ts"],
-  testTimeout: 1_000_000,
-  maxWorkers: 1,
-  moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
+  testTimeout: 300_000,
+  forceExit: true,
+  verbose: true,
   transform: {
-    "^.+\\.ts$": [
-      "ts-jest",
-      {
-        tsconfig: "tsconfig.test.json",
-      },
-    ],
+    "^.+\\.ts$": ["ts-jest", { tsconfig: "tsconfig.test.json" }],
     "^.+\\.js$": "babel-jest",
   },
   transformIgnorePatterns: ["/node_modules/(?!@noble/)"],

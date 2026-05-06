@@ -11,7 +11,7 @@
     "dev:web": "npm run dev --workspace=apps/web",
     "test": "npm run test --workspaces --if-present",
     "anchor:build": "anchor build",
-    "anchor:test": "anchor test",
+    "anchor:test": "anchor test --validator legacy",
     "anchor:deploy": "anchor deploy --provider.cluster devnet",
     "anchor:deploy:local": "anchor deploy"
   },

@@ -8,13 +8,13 @@ skip-lint = false
 trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 
 [programs.localnet]
-trana = "EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5"
+trana = "AskJJ6FKi7a8aXMHrBH9yzpws3EGt5hcuM5izrdXBmy9"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "npm exec -- jest --config jest.config.cjs --runInBand"
+test = "npx jest --runInBand"
 
 [hooks]

@@ -25,3 +25,6 @@ default  = ["localnet"]
 [dependencies]
 anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
 sha2 = "0.10"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
