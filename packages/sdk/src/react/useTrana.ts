@@ -8,7 +8,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js"
 
-// instanceof checks fail across pnpm workspace boundaries — duck-type instead.
+// instanceof checks fail across monorepo workspace boundaries — duck-type instead.
 function isLegacyTransaction(tx: Transaction | VersionedTransaction): tx is Transaction {
   return "instructions" in tx && Array.isArray((tx as Transaction).instructions)
 }

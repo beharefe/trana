@@ -8,7 +8,7 @@ Passkeys are mandatory in V1. Trana supports real WebAuthn passkeys by storing e
 
 To let integrators adopt without changing user wallets (Phantom, Backpack), the recommended demo uses a guarded vault pattern: users deposit assets into PDA-controlled vault token accounts, and withdrawals require both the user's wallet signature (first factor) and a passkey proof (second factor). PDA authority and CPI token transfers are standard Solana and Anchor patterns.
 
-Delivery assumptions are devnet-only, pnpm monorepo, and a Vercel-hosted Next.js demo. Route Handlers under `app/api/**/route.ts` provide the WebAuthn ceremony pages and endpoints, but are not trusted and hold no signing keys.
+Delivery assumptions are devnet-only, npm workspaces monorepo, and a Vercel-hosted Next.js demo. Route Handlers under `app/api/**/route.ts` provide the WebAuthn ceremony pages and endpoints, but are not trusted and hold no signing keys.
 
 ## Problem statement and threat model
 
@@ -339,4 +339,4 @@ Storing a passkey public key on chain is acceptable (it is a public verifier). S
 - Backpack signing: https://docs.backpack.app/deeplinks/provider-methods/signtransaction
 - Vercel functions: https://vercel.com/docs/functions/functions-api-reference
 - Next.js Route Handlers: https://nextjs.org/docs/app/getting-started/route-handlers
-- pnpm workspaces: https://pnpm.io/pnpm-workspace_yaml
+- npm workspaces: https://docs.npmjs.com/cli/using-npm/workspaces

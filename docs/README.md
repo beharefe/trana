@@ -59,7 +59,7 @@ anchor build
 anchor test
 
 # Run demo UI
-cd apps/web && pnpm dev
+cd apps/web && npm run dev
 ```
 
 ## Program IDs (devnet)

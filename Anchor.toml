@@ -17,6 +17,6 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "pnpm exec ts-mocha -p ./tsconfig.test.json -t 1000000 tests/**/*.ts"
+test = "npm exec -- jest --config jest.config.cjs --runInBand"
 
 [hooks]

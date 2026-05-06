@@ -4,7 +4,7 @@ import { findRegistryPda } from "./registry"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-// instanceof checks fail across pnpm workspace boundaries when the same package
+// instanceof checks fail across monorepo workspace boundaries when the same package
 // is installed in multiple node_modules. Duck-type instead.
 function isLegacyTransaction(tx: Transaction | VersionedTransaction): tx is Transaction {
   return "instructions" in tx && Array.isArray((tx as Transaction).instructions)

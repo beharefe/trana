@@ -206,7 +206,7 @@ describe("guard — secp256r1 passkey enforcement", () => {
   let treasuryPubkey: PublicKey   // receives registration fees
   let registryNonce = 0
 
-  before(async () => {
+  beforeAll(async () => {
     owner = Keypair.generate()
 
     const sig = await conn.requestAirdrop(owner.publicKey, 20 * SOL)

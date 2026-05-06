@@ -220,15 +220,14 @@ When the user clicks "Withdraw 1.5 SOL":
 sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli
 
-# Node.js 20+, pnpm
-npm install -g pnpm
+# Node.js 22+ (see repo engines)
 ```
 
 ### Build and deploy
 
 ```bash
 # Install deps
-pnpm install
+npm install
 
 # Build programs
 anchor build
@@ -249,7 +248,7 @@ cp target/idl/guard.json packages/sdk/src/guard.json
 
 ```bash
 cd apps/web
-pnpm dev
+npm run dev
 # open http://localhost:3000
 ```
 

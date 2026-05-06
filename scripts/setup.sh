@@ -34,9 +34,9 @@ if [ ! -f "$HOME/.config/solana/id.json" ]; then
 fi
 echo "Wallet: $(solana address)"
 
-# ── pnpm deps ─────────────────────────────────────────────────────────────────
-echo "Installing pnpm dependencies..."
-pnpm install
+# ── npm deps ──────────────────────────────────────────────────────────────────
+echo "Installing npm dependencies..."
+npm install
 
 echo ""
 echo "=== Setup complete ==="
@@ -45,4 +45,4 @@ echo "  1. Fill in apps/web/.env.local (copy from .env.example)"
 echo "  2. Run: anchor build  — get program ID"
 echo "  3. Update Anchor.toml [programs.devnet].guard with the program ID"
 echo "  4. Run: anchor deploy --provider.cluster devnet"
-echo "  5. Run: pnpm dev:web"
+echo "  5. Run: npm run dev:web"
