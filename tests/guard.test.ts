@@ -1,4 +1,5 @@
 import * as anchor from "@coral-xyz/anchor"
+import { TransactionInstruction, SystemProgram, Keypair } from "@solana/web3.js"
 import {
   getProgram,
   registryPda,
@@ -8,6 +9,30 @@ import {
   generateTestPasskey,
   SOL,
 } from "./helpers/setup"
+import { sendV0 } from "./helpers/transactions"
+import { buildProofInstructions } from "./helpers/proof"
+
+function expectAnchorError(err: unknown, code: number): void {
+  const msg = err instanceof Error ? err.message : String(err)
+  expect(msg).toMatch(new RegExp(`"Custom":${code}`))
+}
+
+async function buildEnforceIx(program: ReturnType<typeof getProgram>, owner: Keypair) {
+  return program.methods
+    .enforce({ require: {} })
+    .accounts({ owner: owner.publicKey })
+    .instruction()
+}
+
+async function enforceFixture() {
+  const program = getProgram()
+  const payer   = (program.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+  const { treasury } = await ensureConfig(program, payer)
+  const { owner }    = await setupWallet(program)
+  const passkey      = generateTestPasskey()
+  await registerPasskey(program, owner, passkey, treasury)
+  return { program, owner, passkey, treasury }
+}
 
 describe("trana", () => {
   anchor.setProvider(anchor.AnchorProvider.env())
@@ -76,21 +101,201 @@ describe("trana", () => {
   })
 
   describe("enforce", () => {
-    it.skip("enforce_with_valid_proof", async () => {})
-    it.skip("enforce_missing_proof", async () => {})
-    it.skip("enforce_wrong_signer", async () => {})
-    it.skip("enforce_expired_proof", async () => {})
-    it.skip("enforce_replayed_nonce", async () => {})
-    it.skip("enforce_wrong_nonce", async () => {})
-    it.skip("enforce_wrong_program_id", async () => {})
-    it.skip("enforce_wrong_policy_id", async () => {})
-    it.skip("enforce_wrong_instruction_discriminator", async () => {})
-    it.skip("enforce_wrong_accounts_hash", async () => {})
-    it.skip("enforce_wrong_params_hash", async () => {})
-    it.skip("enforce_wrong_cluster", async () => {})
-    it.skip("enforce_tampered_payload", async () => {})
-    it.skip("enforce_tampered_client_data_json", async () => {})
-    it.skip("enforce_tampered_authenticator_data", async () => {})
+    it("enforce_with_valid_proof", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const data = await program.account.twoFactorRegistry.fetch(registryPda(owner.publicKey, program.programId))
+      expect((data.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("enforce_missing_proof", async () => {
+      const { program, owner } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+
+      await expect(
+        sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6000/)
+    })
+
+    it("enforce_wrong_signer", async () => {
+      const { program, owner } = await enforceFixture()
+      const wrongPasskey = generateTestPasskey()
+      const enforceIx    = await buildEnforceIx(program, owner)
+      const proof        = buildProofInstructions(wrongPasskey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6003/)
+    })
+
+    it("enforce_expired_proof", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const pastExpiry = Math.floor(Date.now() / 1000) - 10
+      const proof      = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, undefined, pastExpiry)
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6001/)
+    })
+
+    it("enforce_replayed_nonce", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      // nonce is now 1 on-chain; replaying the proof signed with nonce=0 fails
+      const enforceIx2 = await buildEnforceIx(program, owner)
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx2], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_nonce", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 999n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_program_id", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx    = await buildEnforceIx(program, owner)
+      const wrongProgram = SystemProgram.programId
+      const proof        = buildProofInstructions(passkey, enforceIx, wrongProgram, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_policy_id", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.wrong_policy")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6007/)
+    })
+
+    it("enforce_wrong_instruction_discriminator", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      // Sign a proof for a fake instruction with zeroed discriminator
+      const fakeIx = new TransactionInstruction({
+        programId: enforceIx.programId,
+        keys: enforceIx.keys,
+        data: Buffer.concat([Buffer.alloc(8), Buffer.from(enforceIx.data.slice(8))]),
+      })
+      const proof = buildProofInstructions(passkey, fakeIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_accounts_hash", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      // Sign for a version with an extra account — accounts hash differs
+      const fakeIx = new TransactionInstruction({
+        programId: enforceIx.programId,
+        keys: [...enforceIx.keys, { pubkey: Keypair.generate().publicKey, isSigner: false, isWritable: false }],
+        data: enforceIx.data,
+      })
+      const proof = buildProofInstructions(passkey, fakeIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_params_hash", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      // Sign for an instruction whose params bytes are different from the real one
+      const fakeIx = new TransactionInstruction({
+        programId: enforceIx.programId,
+        keys: enforceIx.keys,
+        data: Buffer.concat([Buffer.from(enforceIx.data.slice(0, 8)), Buffer.from([0xff, 0xff, 0xff, 0xff])]),
+      })
+      const proof = buildProofInstructions(passkey, fakeIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_wrong_cluster", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", "devnet")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6010/)
+    })
+
+    it("enforce_tampered_payload", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Flip the expiry field in record_proof to the past (bytes 9–16 after discriminator)
+      const tamperedData = Buffer.from(proof.recordProofIx.data)
+      new DataView(tamperedData.buffer, tamperedData.byteOffset).setBigInt64(9, 1n, true)
+      const tamperedRecordProofIx = new TransactionInstruction({ ...proof.recordProofIx, data: tamperedData })
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, tamperedRecordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6001/)
+    })
+
+    it("enforce_tampered_client_data_json", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Find clientDataJSON in the record_proof data and flip one byte
+      const tamperedData  = Buffer.from(proof.recordProofIx.data)
+      const jsonMarker    = Buffer.from('{"type":"webauthn.get"')
+      const jsonOffset    = tamperedData.indexOf(jsonMarker)
+      expect(jsonOffset).toBeGreaterThan(0)
+      tamperedData[jsonOffset + 10] ^= 0x01
+      const tamperedRecordProofIx = new TransactionInstruction({ ...proof.recordProofIx, data: tamperedData })
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, tamperedRecordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("enforce_tampered_authenticator_data", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // authData is 37 bytes and its length prefix is [37,0,0,0]; flip a byte in its content
+      const tamperedData = Buffer.from(proof.recordProofIx.data)
+      const authDataLen  = Buffer.from([37, 0, 0, 0])
+      const lenOffset    = tamperedData.indexOf(authDataLen)
+      expect(lenOffset).toBeGreaterThan(0)
+      tamperedData[lenOffset + 4] ^= 0x01  // flip first byte of authData content
+      const tamperedRecordProofIx = new TransactionInstruction({ ...proof.recordProofIx, data: tamperedData })
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, tamperedRecordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("secp256r1 instruction", () => {

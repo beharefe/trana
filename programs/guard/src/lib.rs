@@ -9,7 +9,7 @@ pub use error::GuardError;
 pub use events::ProofVerified;
 pub use state::*;
 
-declare_id!("EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5");
+declare_id!("AskJJ6FKi7a8aXMHrBH9yzpws3EGt5hcuM5izrdXBmy9");
 
 // ── Compile-time cluster binding ──────────────────────────────────────────────
 //
