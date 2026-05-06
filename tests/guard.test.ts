@@ -1,18 +1,76 @@
 import * as anchor from "@coral-xyz/anchor"
+import {
+  getProgram,
+  registryPda,
+  ensureConfig,
+  setupWallet,
+  registerPasskey,
+  generateTestPasskey,
+  SOL,
+} from "./helpers/setup"
 
 describe("trana", () => {
   anchor.setProvider(anchor.AnchorProvider.env())
 
   it("Is initialized!", async () => {
-    // Add your test here.
-    const program = anchor.workspace.Trana
+    const program = getProgram()
     console.log("Program id:", program.programId.toString())
   })
 
   describe("registry", () => {
-    it.skip("initialize_registry", async () => {})
-    it.skip("register_passkey", async () => {})
-    it.skip("update_passkey", async () => {})
+    it("initialize_registry", async () => {
+      const program = getProgram()
+      const payer    = (program.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const { treasury } = await ensureConfig(program, payer)
+      const { owner }    = await setupWallet(program)
+      const passkey      = generateTestPasskey()
+
+      await registerPasskey(program, owner, passkey, treasury)
+
+      const pda  = registryPda(owner.publicKey, program.programId)
+      const data = await program.account.twoFactorRegistry.fetch(pda)
+
+      expect(data.owner.toBase58()).toBe(owner.publicKey.toBase58())
+      expect(Buffer.from(data.pubkeyBytes).equals(Buffer.from(passkey.pubkey))).toBe(true)
+      expect(data.enabled).toBe(true)
+      expect((data.nonce as anchor.BN).toNumber()).toBe(0)
+    })
+
+    it("register_passkey", async () => {
+      const program = getProgram()
+      const payer    = (program.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const { treasury, registerFee } = await ensureConfig(program, payer)
+      const { owner }  = await setupWallet(program)
+      const passkey    = generateTestPasskey()
+
+      const treasuryBefore = await program.provider.connection.getBalance(treasury)
+      await registerPasskey(program, owner, passkey, treasury)
+      const treasuryAfter = await program.provider.connection.getBalance(treasury)
+
+      expect(treasuryAfter - treasuryBefore).toBe(registerFee)
+    })
+
+    it("update_passkey", async () => {
+      const program = getProgram()
+      const payer    = (program.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const { treasury } = await ensureConfig(program, payer)
+      const { owner }    = await setupWallet(program)
+      const passkey1     = generateTestPasskey()
+      const passkey2     = generateTestPasskey()
+
+      await registerPasskey(program, owner, passkey1, treasury)
+
+      const pda      = registryPda(owner.publicKey, program.programId)
+      const before   = await program.account.twoFactorRegistry.fetch(pda)
+      const nonceBefore = (before.nonce as anchor.BN).toNumber()
+
+      await registerPasskey(program, owner, passkey2, treasury)
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect(Buffer.from(after.pubkeyBytes).equals(Buffer.from(passkey2.pubkey))).toBe(true)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(nonceBefore)
+    })
+
     it.skip("disable_registry", async () => {})
     it.skip("enable_registry", async () => {})
   })

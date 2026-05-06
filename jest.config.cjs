@@ -10,4 +10,7 @@ module.exports = {
     "^.+\\.js$": "babel-jest",
   },
   transformIgnorePatterns: ["/node_modules/(?!@noble/)"],
+  moduleNameMapper: {
+    "^@noble/curves/nist$": "<rootDir>/node_modules/@noble/curves/nist.js",
+  },
 }
