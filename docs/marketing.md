@@ -58,7 +58,7 @@ Note: consumer-facing copy can say "passkey" (Touch ID / Face ID) since that is 
 ### Add a code snippet in the hero section
 Developers scan for `::` on landing pages. Even one line signals "this is for me":
 ```rust
-guard::cpi::enforce(ctx, Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 })?;
+trana::cpi::enforce(ctx, Policy::Threshold { param_offset: 0, threshold: 1_000_000_000 })?;
 ```
 
 ### Add a "How is this different from multisig?" section
@@ -389,7 +389,7 @@ No orphan pages. Every page has at least 2 inbound internal links before publish
 
 ### For Solana developers
 - Three accounts. One CPI call. That's the entire integration.
-- The SDK handles WebAuthn, intent hash construction, the secp256r1 instruction, and blockhash retry. You write `guard::cpi::enforce(ctx, policy)?` and you're done.
+- The SDK handles WebAuthn, intent hash construction, the secp256r1 instruction, and blockhash retry. You write `trana::cpi::enforce(ctx, policy)?` and you're done.
 - Works with any FIDO2 device using P-256: passkeys (Touch ID, Face ID), YubiKey, Google Titan, Windows Hello.
 - Works with any Anchor program. No changes to your account structure.
 

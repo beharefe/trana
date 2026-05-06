@@ -13,7 +13,7 @@ import type { Connection, PublicKey, Transaction } from "@solana/web3.js"
 
 /**
  * Which policy rule triggered enforcement.
- * Matches the Rust `Policy` enum in the guard program.
+ * Matches the Rust `Policy` enum in the Trana Guard program.
  */
 export type TranaPolicy =
   | { type: "AdminAction" }
@@ -50,7 +50,7 @@ export interface TranaPayload {
  * A secp256r1 (P-256) passkey proof ready to be attached to a transaction.
  *
  * The secp256r1 precompile instruction will be prepended at index 0.
- * The guard program verifies pubkey matches the registry PDA.
+ * Trana Guard verifies pubkey matches the registry PDA.
  */
 export interface Secp256r1Proof {
   /** 64-byte compact P-256 signature (r ‖ s) */

@@ -113,14 +113,14 @@ export function buildWebAuthnMessage(
 // ── record_proof instruction builder ─────────────────────────────────────────
 
 /**
- * Build the `guard::record_proof` data-carrier instruction.
+ * Build the `trana::record_proof` data-carrier instruction.
  *
  * The SDK inserts this (and a secp256r1 ix) automatically before the protected
  * instruction so protocol programs never need to handle proof data directly.
  *
- * Transaction shape the guard expects:
+ * Transaction shape Trana Guard expects:
  *   ix[N-2]: secp256r1 precompile  (native P-256 sig verify)
- *   ix[N-1]: guard::record_proof   (this instruction, data carrier)
+ *   ix[N-1]: trana::record_proof   (this instruction, data carrier)
  *   ix[N]:   protected instruction (calls enforce() or is registry_vault_withdraw)
  *
  * Payload layout (after 8-byte Anchor discriminator):
@@ -132,7 +132,7 @@ export function buildWebAuthnMessage(
  *   client_data_json   u32-LE length + bytes
  */
 export function buildRecordProofIx(
-  guardProgramId:    PublicKey,
+  tranaGuardProgramId: PublicKey,
   authenticatorData: Uint8Array,
   clientDataJSON:    Uint8Array,
   expiryUnix:        number,
@@ -162,7 +162,7 @@ export function buildRecordProofIx(
   const SYSVAR_INSTRUCTIONS = new PublicKey("Sysvar1nstructions1111111111111111111111111")
 
   return new TransactionInstruction({
-    programId: guardProgramId,
+    programId: tranaGuardProgramId,
     keys:      [{ pubkey: SYSVAR_INSTRUCTIONS, isSigner: false, isWritable: false }],
     data,
   })

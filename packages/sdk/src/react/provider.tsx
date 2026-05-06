@@ -89,13 +89,13 @@ export function TranaProvider({ children, config }: TranaProviderProps) {
   useEffect(() => {
     if (!publicKey) { setRegistry(null); return }
 
-    fetchRegistry(connection, publicKey, config.guardProgramId).then(setRegistry)
+    fetchRegistry(connection, publicKey, config.tranaGuardProgramId).then(setRegistry)
 
-    const pda   = findRegistryPda(publicKey, config.guardProgramId)
+    const pda   = findRegistryPda(publicKey, config.tranaGuardProgramId)
     const subId = subscribeRegistry(connection, pda, setRegistry)
 
     return () => { connection.removeAccountChangeListener(subId) }
-  }, [publicKey?.toBase58(), connection, config.guardProgramId.toBase58()])
+  }, [publicKey?.toBase58(), connection, config.tranaGuardProgramId.toBase58()])
 
   // ── Trigger helpers (called by useTrana) ──────────────────────────────────
 

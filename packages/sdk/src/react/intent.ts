@@ -56,7 +56,7 @@ export type TranaIntent = {
   readonly domain:                   "trana:v1"
   readonly cluster:                  string            // "mainnet-beta" | "devnet" | "localnet"
   readonly wallet:                   string            // base58 — the authorizing wallet
-  readonly guardProgramId:           string            // base58 — Trana guard program
+  readonly tranaGuardProgramId:      string            // base58 — Trana Guard program
   readonly targetProgramId:          string            // base58 — the guarded instruction's program
   readonly policyId:                 string            // e.g. "AdminAction" | "HighValueTransfer"
   readonly instructionDiscriminator: string            // hex-encoded 8 bytes
@@ -82,11 +82,11 @@ const EMPTY_HASH = Buffer.from(sha256Bytes(new Uint8Array(0))).toString("hex")
  * before the WebAuthn ceremony begins.
  */
 export function buildIntent(
-  wallet:         PublicKey,
-  guardProgramId: PublicKey,
-  input:          IntentInput,
-  nonce:          bigint,
-  config:         { policy: string; cluster?: string; expiryTtlSec?: number }
+  wallet:              PublicKey,
+  tranaGuardProgramId: PublicKey,
+  input:               IntentInput,
+  nonce:               bigint,
+  config:              { policy: string; cluster?: string; expiryTtlSec?: number }
 ): TranaIntent {
   const targetProgramId = typeof input.targetProgramId === "string"
     ? input.targetProgramId
@@ -118,7 +118,7 @@ export function buildIntent(
     domain:                   "trana:v1" as const,
     cluster:                  config.cluster ?? "mainnet-beta",
     wallet:                   wallet.toBase58(),
-    guardProgramId:           guardProgramId.toBase58(),
+    tranaGuardProgramId:      tranaGuardProgramId.toBase58(),
     targetProgramId,
     policyId:                 input.policy ?? config.policy,
     instructionDiscriminator: discriminatorHex,
@@ -143,7 +143,7 @@ export function buildIntent(
  *   domain (u16-LE length + UTF-8 bytes)
  *   cluster (u16-LE length + UTF-8 bytes)
  *   wallet (32 bytes, decoded from base58)
- *   guardProgramId (32 bytes)
+ *   tranaGuardProgramId (32 bytes)
  *   targetProgramId (32 bytes)
  *   policyId (u16-LE length + UTF-8 bytes)
  *   instructionDiscriminator (8 bytes, hex-decoded)
@@ -163,7 +163,7 @@ export function hashIntent(intent: TranaIntent): Uint8Array {
   const policy  = enc.encode(intent.policyId)
 
   const walletBytes     = new PublicKey(intent.wallet).toBytes()
-  const guardBytes      = new PublicKey(intent.guardProgramId).toBytes()
+  const tranaGuardBytes = new PublicKey(intent.tranaGuardProgramId).toBytes()
   const targetBytes     = new PublicKey(intent.targetProgramId).toBytes()
   const discrimBytes    = Buffer.from(intent.instructionDiscriminator, "hex")
   const accountsBytes   = Buffer.from(intent.accountsHash, "hex")
@@ -185,7 +185,7 @@ export function hashIntent(intent: TranaIntent): Uint8Array {
     lenBuf(domain.length),  Buffer.from(domain),
     lenBuf(cluster.length), Buffer.from(cluster),
     walletBytes,
-    guardBytes,
+    tranaGuardBytes,
     targetBytes,
     lenBuf(policy.length),  Buffer.from(policy),
     discrimBytes,

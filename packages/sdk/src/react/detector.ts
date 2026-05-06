@@ -75,7 +75,7 @@ export async function detectEnforcement(
   tx:             Transaction | VersionedTransaction,
   connection:     Connection,
   walletPubkey:   PublicKey,
-  guardProgramId: PublicKey,
+  tranaGuardProgramId: PublicKey,
   fallbackPolicy: string,
 ): Promise<DetectionResult> {
   // Stage 1: proof already present → nothing to do
@@ -107,7 +107,7 @@ export async function detectEnforcement(
   // Falls back to the configured policy if the log isn't present.
   const policy = parsePolicyFromLogs(logs) ?? fallbackPolicy
 
-  const pda       = findRegistryPda(walletPubkey, guardProgramId)
+  const pda       = findRegistryPda(walletPubkey, tranaGuardProgramId)
   const pdaInfo   = await connection.getAccountInfo(pda)
   const hasRegistry = pdaInfo !== null && pdaInfo.data.length > 8
 

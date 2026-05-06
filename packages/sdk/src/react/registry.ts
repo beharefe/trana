@@ -17,16 +17,16 @@ export type RegistryState = {
 // ── PDA derivation ────────────────────────────────────────────────────────────
 
 /**
- * Derive the registry PDA for a given wallet + guard program.
+ * Derive the registry PDA for a given wallet + Trana Guard program.
  * Seeds: [b"2fa", walletPubkey]
  */
 export function findRegistryPda(
   walletPubkey:   PublicKey,
-  guardProgramId: PublicKey
+  tranaGuardProgramId: PublicKey
 ): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [REGISTRY_SEED, walletPubkey.toBuffer()],
-    guardProgramId
+    tranaGuardProgramId
   )
   return pda
 }
@@ -86,9 +86,9 @@ function parseRegistryAccount(data: Buffer): RegistryState {
 export async function fetchRegistry(
   connection:     Connection,
   walletPubkey:   PublicKey,
-  guardProgramId: PublicKey
+  tranaGuardProgramId: PublicKey
 ): Promise<RegistryState | null> {
-  const pda = findRegistryPda(walletPubkey, guardProgramId)
+  const pda = findRegistryPda(walletPubkey, tranaGuardProgramId)
   const info = await connection.getAccountInfo(pda)
   if (!info || !info.data || info.data.length < 46) return null
   return parseRegistryAccount(Buffer.from(info.data))

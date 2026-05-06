@@ -36,7 +36,7 @@ const EXPECTED_CLUSTER: &str = "localnet";
 // Defined at the crate root so Anchor's #[program] macro can resolve it as
 // `crate::Policy` without going through a re-export chain.
 
-/// Standard authorization policies. Pass one of these to `guard::cpi::enforce()`.
+/// Standard authorization policies. Pass one of these to `trana::cpi::enforce()`.
 ///
 /// Condition evaluation and passkey checks both happen inside this program —
 /// audited once, trusted everywhere.
@@ -79,10 +79,10 @@ pub enum Policy {
 //
 //  Pass a Policy variant to the single enforce() CPI call:
 //
-//    guard::cpi::enforce(ctx, Policy::Require)?
-//    guard::cpi::enforce(ctx, Policy::Limit    { param_offset: 0, limit: 1_000_000_000 })?
-//    guard::cpi::enforce(ctx, Policy::NotBefore { slot })?
-//    guard::cpi::enforce(ctx, Policy::NotAfter  { slot })?
+//    trana::cpi::enforce(ctx, Policy::Require)?
+//    trana::cpi::enforce(ctx, Policy::Limit    { param_offset: 0, limit: 1_000_000_000 })?
+//    trana::cpi::enforce(ctx, Policy::NotBefore { slot })?
+//    trana::cpi::enforce(ctx, Policy::NotAfter  { slot })?
 //
 //  ── Standard policy strings (hardcoded inside this program, cannot be spoofed) ──
 //
@@ -94,8 +94,8 @@ pub enum Policy {
 //  ── Transaction shape (required by the SDK) ───────────────────────────────
 //
 //    ix[N-2]: secp256r1 precompile      — native P-256 sig verify (SIMD-0075)
-//    ix[N-1]: guard::record_proof       — carries WebAuthn binding data
-//    ix[N]:   your protected instruction — calls guard::cpi::enforce()
+//    ix[N-1]: trana::record_proof       — carries WebAuthn binding data
+//    ix[N]:   your protected instruction — calls trana::cpi::enforce()
 //
 //  ── Module layout ─────────────────────────────────────────────────────────
 //

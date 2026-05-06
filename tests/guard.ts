@@ -132,7 +132,7 @@ function computeIntentHash(
   domain:          string,
   cluster:         string,
   wallet:          PublicKey,
-  guardProgramId:  PublicKey,
+  tranaGuardProgramId: PublicKey,
   targetProgramId: PublicKey,
   policy:          string,
   discriminator:   Buffer,
@@ -149,7 +149,7 @@ function computeIntentHash(
     Buffer.from([1]),
     u16le(d.length),  d,
     u16le(cl.length), cl,
-    wallet.toBuffer(), guardProgramId.toBuffer(), targetProgramId.toBuffer(),
+    wallet.toBuffer(), tranaGuardProgramId.toBuffer(), targetProgramId.toBuffer(),
     u16le(p.length),  p,
     discriminator, accountsHash, paramsHash,
     u64le(nonce), i64le(expiry),
@@ -187,7 +187,7 @@ function borshU64Policy(variantIndex: number, value: bigint): Buffer {
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe("guard — secp256r1 passkey enforcement", () => {
+describe("trana_guard — secp256r1 passkey enforcement", () => {
   const provider = AnchorProvider.env()
   setProvider(provider)
 

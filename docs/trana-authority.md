@@ -124,7 +124,7 @@ program_data        the program's data account
 buffer              the uploaded .so buffer
 spill               rent reclaim destination
 bpf_loader          BPFLoaderUpgradeab1e...
-guard_program       trana_guard program
+trana_guard_program Trana Guard (`trana`) program
 trana_registry      [b"2fa", owner] PDA
 trana_instructions  Instructions sysvar
 ```

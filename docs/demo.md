@@ -39,11 +39,11 @@ pub struct VaultState {
 **`init_vault`** — Creates the VaultState PDA. Call once per user.
 
 **`deposit(amount: u64)`** — Transfers SOL from user to vault PDA.
-- If `amount >= LARGE_THRESHOLD` (1 SOL): calls `guard::cpi::enforce()` (large deposit protection, records deposit timestamp for rapid-drain detection).
+- If `amount >= LARGE_THRESHOLD` (1 SOL): calls `trana::cpi::enforce()` (large deposit protection, records deposit timestamp for rapid-drain detection).
 - Otherwise: no passkey required.
 
 **`withdraw(amount: u64)`** — Transfers SOL from vault PDA to destination.
-- Evaluates policy. If any policy matches: calls `guard::cpi::enforce()`.
+- Evaluates policy. If any policy matches: calls `trana::cpi::enforce()`.
 - Otherwise: transfers directly.
 
 **`set_opt_in(enabled: bool)`** — Toggle opt-in mode. When true, ALL withdrawals require a passkey regardless of amount.
@@ -87,12 +87,12 @@ The total Trana-specific code in demo_vault:
 
 ```rust
 // accounts (3 lines)
-pub guard_program:      Program<'info, Guard>,
-pub trana_registry:     Account<'info, guard::TwoFactorRegistry>,
-pub trana_instructions: UncheckedAccount<'info>,
+pub trana_guard_program: Program<'info, Trana>,
+pub trana_registry:      Account<'info, trana::TwoFactorRegistry>,
+pub trana_instructions:  UncheckedAccount<'info>,
 
 // enforcement (1 line)
-guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+trana::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
 
 // CPI context helper (copy-paste, 10 lines)
 pub fn trana_cpi_ctx(&self) -> CpiContext<...> { ... }
@@ -106,7 +106,7 @@ Everything else is normal vault logic. The Trana integration is additive — it 
 
 **Stack:** Next.js 16, React 19, TypeScript, Tailwind CSS, Solana wallet-adapter.
 
-**RPC:** Devnet by default (`NEXT_PUBLIC_SOLANA_RPC` env var).
+**RPC:** Devnet by default (`NEXT_PUBLIC_SOLANA_RPC`). Trana Guard program id: `NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID`.
 
 ### Components
 
@@ -193,7 +193,7 @@ When the user clicks "Withdraw 1.5 SOL":
    - record_proof: version check only
    - demo_vault::withdraw:
        → evaluatePolicy → returns "transfer.large"
-       → guard::cpi::enforce()
+       → trana::cpi::enforce()
            → verify_via_sysvar()
                → reads record_proof from ix[1]
                → reads withdraw from ix[2]
@@ -294,7 +294,7 @@ When building your own integration:
 - The three-account pattern for Trana accounts
 - The `trana_cpi_ctx()` helper impl block
 - The `evaluate_policy()` pure function pattern
-- The `if policy.is_some() { guard::cpi::enforce() }` call site
+- The `if policy.is_some() { trana::cpi::enforce() }` call site
 - The account constraints (seeds, constraint = enabled)
 
 **Do not copy:**

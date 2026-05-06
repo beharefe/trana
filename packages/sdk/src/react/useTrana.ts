@@ -125,7 +125,7 @@ export function useTrana() {
       probeTx,
       conn,
       publicKey,
-      ctx.config.guardProgramId,
+      ctx.config.tranaGuardProgramId,
       ctx.config.policy,
     )
 
@@ -137,13 +137,13 @@ export function useTrana() {
     }
 
     // ── 3. Ensure registry exists (lazy registration) ─────────────────────────
-    let registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
+    let registry = await fetchRegistry(conn, publicKey, ctx.config.tranaGuardProgramId)
     if (!registry || detection.reason === "no-registry") {
       const previewInput = await resolveIntentInput()
       const raw = previewInput.params ? decodeParamsU64(previewInput.params) : null
       const amountSol = raw !== null ? (Number(raw) / 1e9).toFixed(4) : undefined
       await ctx._triggerRegistration({ label: previewInput.label, amountSol, policy: detection.policy })
-      registry = await fetchRegistry(conn, publicKey, ctx.config.guardProgramId)
+      registry = await fetchRegistry(conn, publicKey, ctx.config.tranaGuardProgramId)
       if (!registry) throw new Error("Trana: registry not found after registration")
     }
 
@@ -154,7 +154,7 @@ export function useTrana() {
     const intentInput = await resolveIntentInput()
     const intent = buildIntent(
       publicKey,
-      ctx.config.guardProgramId,
+      ctx.config.tranaGuardProgramId,
       { ...intentInput, policy: detection.policy },
       registry.nonce,
       {
@@ -178,7 +178,7 @@ export function useTrana() {
     const webAuthnMsg = buildWebAuthnMessage(approval.authenticatorData, approval.clientDataJSON)
     const secp256r1Ix = buildSecp256r1Ix(registry.pubkey, approval.sig, webAuthnMsg)
     const recordProofIx = buildRecordProofIx(
-      ctx.config.guardProgramId,
+      ctx.config.tranaGuardProgramId,
       approval.authenticatorData,
       approval.clientDataJSON,
       intent.expiryUnix,

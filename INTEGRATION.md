@@ -53,12 +53,12 @@ pub struct Withdraw<'info> {
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    pub guard_program: Program<'info, Trana>,
+    pub trana_guard_program: Program<'info, Trana>,
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
         bump,
-        seeds::program = guard_program.key(),
+        seeds::program = trana_guard_program.key(),
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
@@ -69,7 +69,7 @@ pub struct Withdraw<'info> {
 
 impl<'info> Withdraw<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
-        CpiContext::new(self.guard_program.to_account_info(), Enforce {
+        CpiContext::new(self.trana_guard_program.to_account_info(), Enforce {
             registry:     self.trana_registry.to_account_info(),
             owner:        self.owner.to_account_info(),
             instructions: self.trana_instructions.to_account_info(),
@@ -154,9 +154,12 @@ For manual registration:
 
 ```typescript
 import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/guard-sdk"
+import { PublicKey } from "@solana/web3.js"
+
+const TRANA_GUARD_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)
 
 // Wrap your app once
-<TranaProvider config={{ guardProgramId: GUARD_PROGRAM_ID, policy: "trana.limit" }}>
+<TranaProvider config={{ tranaGuardProgramId: TRANA_GUARD_PROGRAM_ID, policy: "trana.limit" }}>
   <App />
   <TranaModal />
 </TranaProvider>

@@ -56,7 +56,7 @@ const s = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const GUARD_ERRORS: Record<string, string> = {
+const TRANA_GUARD_ERRORS: Record<string, string> = {
   ProofExpired:     "Took too long — please try again",
   PayloadMismatch:  "Something changed — please try again",
   WrongSigner:      "Wrong device — use the one you registered with",
@@ -66,7 +66,7 @@ const GUARD_ERRORS: Record<string, string> = {
 }
 
 function humanizeError(msg: string) {
-  for (const [code, text] of Object.entries(GUARD_ERRORS)) {
+  for (const [code, text] of Object.entries(TRANA_GUARD_ERRORS)) {
     if (msg.includes(code)) return { text, recoverable: true }
   }
   if (msg === "Cancelled") return { text: "Cancelled", recoverable: false }
@@ -130,20 +130,20 @@ function Steps({ current }: { current: 1 | 2 }) {
 const REGISTER_DISC = Buffer.from([0xd0, 0x77, 0x84, 0xf6, 0xfb, 0xec, 0x77, 0x36])
 
 function buildRegisterIx(
-  walletPubkey:   PublicKey,
-  guardProgramId: PublicKey,
-  pubkey:         Uint8Array,
-  credentialId:   Uint8Array,
-  configPda:      PublicKey,
-  treasury:       PublicKey,
+  walletPubkey:        PublicKey,
+  tranaGuardProgramId: PublicKey,
+  pubkey:              Uint8Array,
+  credentialId:        Uint8Array,
+  configPda:           PublicKey,
+  treasury:            PublicKey,
 ): TransactionInstruction {
   const [registryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("2fa"), walletPubkey.toBuffer()],
-    guardProgramId,
+    tranaGuardProgramId,
   )
   const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); new DataView(b.buffer, b.byteOffset, 4).setUint32(0, n, true); return b }
   return new TransactionInstruction({
-    programId: guardProgramId,
+    programId: tranaGuardProgramId,
     keys: [
       { pubkey: registryPda,             isSigner: false, isWritable: true  },
       { pubkey: walletPubkey,            isSigner: true,  isWritable: true  },
@@ -195,14 +195,14 @@ function RegistrationModal() {
       // TranaConfig layout (after 8-byte discriminator):
       //   authority [32], treasury [32], register_fee [8], recovery_fee [8]
       const [configPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("config")], config.guardProgramId,
+        [Buffer.from("config")], config.tranaGuardProgramId,
       )
       const configAccount = await connection.getAccountInfo(configPda)
       if (!configAccount) throw new Error("Trana config not initialized — contact support")
       const treasury = new PublicKey(configAccount.data.slice(40, 72))
 
       const { credentialId, pubkey } = await doRegistration(config.rpId)
-      const registerIx = buildRegisterIx(publicKey, config.guardProgramId, pubkey, credentialId, configPda, treasury)
+      const registerIx = buildRegisterIx(publicKey, config.tranaGuardProgramId, pubkey, credentialId, configPda, treasury)
       const { blockhash } = await connection.getLatestBlockhash("confirmed")
       const tx = new Transaction({ recentBlockhash: blockhash, feePayer: publicKey })
       tx.add(registerIx)

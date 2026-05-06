@@ -35,7 +35,7 @@ pub fn verify_with_policy<'info>(
     ix_sysvar:        &AccountInfo<'info>,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
-    guard_program_id: &Pubkey,
+    trana_guard_program_id: &Pubkey,
     expected_policy:  &str,
     expected_cluster: &str,
 ) -> Result<()> {
@@ -51,7 +51,7 @@ pub fn verify_with_policy<'info>(
     require!(proof.cluster == expected_cluster, GuardError::ClusterMismatch);
     require!(proof.policy  == expected_policy,  GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, guard_program_id, current_idx, proof, &policy)
+    run_verification(ix_sysvar, registry, owner, trana_guard_program_id, current_idx, proof, &policy)
 }
 
 // ── Shared verification pipeline ─────────────────────────────────────────────
@@ -70,7 +70,7 @@ fn run_verification<'info>(
     ix_sysvar:        &AccountInfo<'info>,
     registry:         &mut TwoFactorRegistry,
     owner:            &Pubkey,
-    guard_program_id: &Pubkey,
+    trana_guard_program_id: &Pubkey,
     current_idx:      u16,
     proof:            ProofData,
     policy:           &str,
@@ -101,7 +101,7 @@ fn run_verification<'info>(
         INTENT_DOMAIN,
         &proof.cluster,
         owner,
-        guard_program_id,
+        trana_guard_program_id,
         &target_program_id,
         policy,
         &discriminator,
@@ -210,7 +210,7 @@ fn load_proof_from_preceding_ix(
 //   version (u8 = 1)
 //   domain  (u16-LE + UTF-8)
 //   cluster (u16-LE + UTF-8)
-//   wallet (32), guardProgramId (32), targetProgramId (32)
+//   wallet (32), tranaGuardProgramId (32), targetProgramId (32)
 //   policy  (u16-LE + UTF-8)
 //   discriminator (8), accountsHash (32), paramsHash (32)
 //   nonce (u64 LE, 8), expiry (i64 LE, 8)
@@ -219,7 +219,7 @@ fn compute_intent_hash(
     domain:            &str,
     cluster:           &str,
     wallet:            &Pubkey,
-    guard_program_id:  &Pubkey,
+    trana_guard_program_id:  &Pubkey,
     target_program_id: &Pubkey,
     policy_id:         &str,
     discriminator:     &[u8; 8],
@@ -242,7 +242,7 @@ fn compute_intent_hash(
     buf.extend_from_slice(&(domain_b.len()  as u16).to_le_bytes()); buf.extend_from_slice(domain_b);
     buf.extend_from_slice(&(cluster_b.len() as u16).to_le_bytes()); buf.extend_from_slice(cluster_b);
     buf.extend_from_slice(wallet.as_ref());
-    buf.extend_from_slice(guard_program_id.as_ref());
+    buf.extend_from_slice(trana_guard_program_id.as_ref());
     buf.extend_from_slice(target_program_id.as_ref());
     buf.extend_from_slice(&(policy_b.len()  as u16).to_le_bytes()); buf.extend_from_slice(policy_b);
     buf.extend_from_slice(discriminator);

@@ -42,17 +42,17 @@ pkill -f "solana-test-validator" 2>/dev/null || true
 sleep 1
 
 # ── Build programs ─────────────────────────────────────────────────────────────
-GUARD_SO="target/deploy/trana.so"
+TRANA_GUARD_SO="target/deploy/trana.so"
 VAULT_SO="target/deploy/demo_vault.so"
 
-if [ "$FORCE_BUILD" -eq 1 ] || [ ! -f "$GUARD_SO" ] || [ ! -f "$VAULT_SO" ]; then
+if [ "$FORCE_BUILD" -eq 1 ] || [ ! -f "$TRANA_GUARD_SO" ] || [ ! -f "$VAULT_SO" ]; then
   log "Building Anchor programs..."
   anchor build
 else
   log "Programs already built — skipping (use --build to force)"
 fi
 
-[ -f "$GUARD_SO" ] || die "trana.so not found after build"
+[ -f "$TRANA_GUARD_SO" ] || die "trana.so not found after build"
 [ -f "$VAULT_SO" ] || die "demo_vault.so not found after build"
 
 # ── Start localnet validator ───────────────────────────────────────────────────
@@ -93,10 +93,10 @@ deploy_program() {
   echo "$(solana-keygen pubkey "target/deploy/${name}-keypair.json")"
 }
 
-GUARD_ID=$(deploy_program trana)
-VAULT_ID=$(deploy_program demo_vault)
-log "guard     → $GUARD_ID"
-log "demo_vault → $VAULT_ID"
+TRANA_GUARD_PROGRAM_ID=$(deploy_program trana)
+DEMO_VAULT_PROGRAM_ID=$(deploy_program demo_vault)
+log "trana_guard program → $TRANA_GUARD_PROGRAM_ID"
+log "demo_vault          → $DEMO_VAULT_PROGRAM_ID"
 
 # ── Initialize guard fee config (required once per validator ledger) ───────────
 WALLET_KEYPAIR="$(solana config get keypair | awk '{print $3}')"
@@ -104,7 +104,7 @@ TREASURY_ADDR=$(solana address --keypair "$WALLET_KEYPAIR")
 log "Initializing trana fee config (fee=0, treasury=$TREASURY_ADDR)..."
 ANCHOR_PROVIDER_URL=http://localhost:8899 \
 ANCHOR_WALLET="$WALLET_KEYPAIR" \
-  node scripts/init-config.mjs "$GUARD_ID" "$TREASURY_ADDR" \
+  node scripts/init-config.mjs "$TRANA_GUARD_PROGRAM_ID" "$TREASURY_ADDR" \
   && log "Fee config initialized" \
   || log "WARN: fee config init failed — deposit/withdraw will fail until init_config is called"
 
@@ -113,12 +113,12 @@ ANCHOR_WALLET="$WALLET_KEYPAIR" \
 # .env.local — read by Next.js natively, baked into client bundle at dev startup
 cat > apps/web/.env.local <<EOF
 NEXT_PUBLIC_SOLANA_RPC=http://localhost:8899
-NEXT_PUBLIC_GUARD_PROGRAM_ID=$GUARD_ID
-NEXT_PUBLIC_PROGRAM_ID=$VAULT_ID
+NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID=$TRANA_GUARD_PROGRAM_ID
+NEXT_PUBLIC_DEMO_VAULT_PROGRAM_ID=$DEMO_VAULT_PROGRAM_ID
 NEXT_PUBLIC_RP_ID=localhost
 RP_ORIGIN=http://localhost:3000
 RP_NAME=Trana Guard Demo
-NEXT_PUBLIC_GUARD_THRESHOLD_SOL=20
+NEXT_PUBLIC_TRANA_GUARD_THRESHOLD_SOL=20
 EOF
 
 # .env.docker — container-level vars (server-side RPC, non-public)

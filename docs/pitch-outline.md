@@ -77,11 +77,11 @@ Enforced by the Solana runtime. Not by a server. Not by a UI check.
 
 ```
 [N-2]  secp256r1 precompile   ← P-256 sig verify (SIMD-0075)
-[N-1]  guard::record_proof    ← carries WebAuthn binding data
-[N]    your_program::action   → calls guard::cpi::enforce()
+[N-1]  trana::record_proof    ← carries WebAuthn binding data
+[N]    your_program::action   → calls trana::cpi::enforce()
 ```
 
-**What guard::enforce() verifies:**
+**What trana::enforce() verifies:**
 1. secp256r1 is present at ix[N-2] ← correct key, correct sig
 2. Sig challenge = SHA-256(policy|program|accounts|params|nonce|expiry)
 3. Nonce consumed → replay impossible
@@ -96,12 +96,12 @@ Enforced by the Solana runtime. Not by a server. Not by a UI check.
 
 ```rust
 // 3 extra accounts
-pub guard_program:      Program<'info, Guard>,
-pub trana_registry:     Account<'info, TwoFactorRegistry>,
-pub trana_instructions: UncheckedAccount<'info>,
+pub trana_guard_program: Program<'info, Trana>,
+pub trana_registry:      Account<'info, TwoFactorRegistry>,
+pub trana_instructions:  UncheckedAccount<'info>,
 
 // 1 CPI call when your policy triggers
-guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+trana::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
 ```
 
 That's it. The SDK prepends secp256r1 + record_proof automatically.

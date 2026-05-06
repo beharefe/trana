@@ -4,8 +4,8 @@ import type { TranaIntent } from "./intent"
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export type TranaConfig = {
-  /** The deployed Trana guard program ID. */
-  guardProgramId: PublicKey
+  /** The deployed Trana Guard program ID (on-chain `trana` program). */
+  tranaGuardProgramId: PublicKey
   /**
    * Policy label passed to the onchain enforce() call.
    * Must match what the calling program expects.

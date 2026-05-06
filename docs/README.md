@@ -19,7 +19,7 @@ Trana Guard is an onchain authorization primitive for Solana. It gives any progr
 ## The Single Guarantee
 
 ```
-Any instruction that calls guard::cpi::enforce() cannot execute
+Any instruction that calls trana::cpi::enforce() cannot execute
 unless the wallet's registered passkey signed a hash that exactly
 describes this transaction — same program, same accounts, same
 parameters, same nonce, not expired.
@@ -66,5 +66,5 @@ cd apps/web && npm run dev
 
 | Program | Address |
 |---|---|
-| `guard` | `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6` |
+| `trana` (Trana Guard) | `572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6` |
 | `demo_vault` | `Cm2jPgn1ipUAFarS7DpF2Y1X1HofKZgDKLmH65DtCNrZ` |

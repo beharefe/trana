@@ -19,8 +19,8 @@ Trana Guard is structured as three cooperating layers:
 │  Solana Runtime                                     │
 │                                                     │
 │  ix[N-2]  secp256r1 precompile  (SIMD-0075)        │
-│  ix[N-1]  guard::record_proof   (data carrier)      │
-│  ix[N]    your_program::action  → guard::enforce()  │
+│  ix[N-1]  trana::record_proof   (data carrier)      │
+│  ix[N]    your_program::action  → trana::enforce()  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -74,7 +74,7 @@ User device                   SDK                        Solana
            │
 3.         ├─ buildIntent()
            │    version=1, domain="trana:v1", cluster,
-           │    wallet, guardProgramId, targetProgramId,
+           │    wallet, tranaGuardProgramId, targetProgramId,
            │    policy, discriminator, accountsHash, paramsHash,
            │    nonce, expiryUnix
            │
@@ -104,7 +104,7 @@ User device                   SDK                        Solana
 
                                         Runtime executes ix[N]:
                                           your_program::action()
-                                            └─ guard::cpi::enforce()
+                                            └─ trana::cpi::enforce()
                                                  │
 14.                                              └─ verify_via_sysvar()
 ```
@@ -130,7 +130,7 @@ User device                   SDK                        Solana
 
   Step 4:  intent_hash = compute_intent_hash(
              "trana:v1", proof.cluster,
-             owner, guard_program_id, target_program_id,
+             owner, trana_guard_program_id, target_program_id,
              proof.policy, discriminator,
              accounts_hash, params_hash,
              registry.nonce, proof.expiry
@@ -220,7 +220,7 @@ The SDK assembles transactions in this exact order:
 
 ```
 ix[0]:     secp256r1 precompile   (mandatory, always first when proof present)
-ix[1]:     guard::record_proof    (mandatory, always second when proof present)
+ix[1]:     trana::record_proof    (mandatory, always second when proof present)
 ix[2..N]:  your instruction(s)    (developer's transaction)
 ```
 
@@ -259,7 +259,7 @@ The `react/` directory is browser-only. The `testing.ts` module is Node.js only.
 │                         Browser                                    │
 │                                                                    │
 │  wallet.publicKey ──┐                                              │
-│  guardProgramId   ──┤                                              │
+│  tranaGuardProgramId ──┤                                           │
 │  targetProgramId  ──┤                                              │
 │  policy           ──┤                                              │
 │  accounts         ──┼──► buildIntent() ──► hashIntent()           │
@@ -296,7 +296,7 @@ The `react/` directory is browser-only. The `testing.ts` module is Node.js only.
               │ secp256r1: verifies sig      │
               │ record_proof: noop           │
               │ your_program::action()       │
-              │   └► guard::cpi::enforce()   │
+              │   └► trana::cpi::enforce()   │
               │       └► verify_via_sysvar() │
               │           reads ix[0],[1],[2]│
               │           from Instructions  │

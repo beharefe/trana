@@ -12,7 +12,7 @@ Here is the full integration cost for a Solana program author:
 
 **1. Add three accounts to your instruction struct:**
 ```rust
-pub guard_program:     Program<'info, Guard>,
+pub trana_guard_program: Program<'info, Guard>,
 pub trana_registry:    Account<'info, guard::TwoFactorRegistry>,
 pub trana_instructions: UncheckedAccount<'info>,
 ```
@@ -20,7 +20,7 @@ pub trana_instructions: UncheckedAccount<'info>,
 **2. Add one CPI call when your policy triggers:**
 ```rust
 if policy_requires_passkey {
-    guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+    trana::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
 }
 ```
 
@@ -29,7 +29,7 @@ if policy_requires_passkey {
 impl<'info> YourAccounts<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(
-            self.guard_program.to_account_info(),
+            self.trana_guard_program.to_account_info(),
             Enforce {
                 registry:     self.trana_registry.to_account_info(),
                 owner:        self.owner.to_account_info(),
@@ -75,13 +75,13 @@ pub struct YourProtectedAction<'info> {
     pub owner: Signer<'info>,
 
     // --- Trana (3 accounts) ---
-    pub guard_program: Program<'info, Guard>,
+    pub trana_guard_program: Program<'info, Guard>,
 
     #[account(
         mut,
         seeds  = [b"2fa", owner.key().as_ref()],
         bump,
-        seeds::program = guard_program.key(),
+        seeds::program = trana_guard_program.key(),
         constraint = trana_registry.enabled @ YourError::PasskeyNotRegistered,
     )]
     pub trana_registry: Account<'info, guard::TwoFactorRegistry>,
@@ -105,7 +105,7 @@ fn requires_passkey(amount: u64, user_opt_in: bool) -> bool {
 ```rust
 pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> Result<()> {
     if requires_passkey(amount, ctx.accounts.your_state.opt_in) {
-        guard::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
+        trana::cpi::enforce(ctx.accounts.trana_cpi_ctx())?;
     }
 
     // ... your normal logic
@@ -119,7 +119,7 @@ pub fn your_protected_action(ctx: Context<YourProtectedAction>, amount: u64) -> 
 impl<'info> YourProtectedAction<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
         CpiContext::new(
-            self.guard_program.to_account_info(),
+            self.trana_guard_program.to_account_info(),
             Enforce {
                 registry:     self.trana_registry.to_account_info(),
                 owner:        self.owner.to_account_info(),
@@ -160,13 +160,14 @@ Wrap your app with `TranaProvider`, then call `authorizeAndSend()`. The SDK hand
 import { TranaProvider, TranaModal } from "@trana-guard/sdk"
 import { PublicKey } from "@solana/web3.js"
 
-const GUARD_PROGRAM_ID = new PublicKey("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6")
+const TRANA_GUARD_PROGRAM_ID = new PublicKey("572t8Ctxx1nrHgxJZ1EHSNZTLcMH4oxV1R6g2pRAqba6")
+// or: new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)
 
 export default function Layout({ children }) {
   return (
     <SolanaProviders>
       <TranaProvider config={{
-        guardProgramId: GUARD_PROGRAM_ID,
+        tranaGuardProgramId: TRANA_GUARD_PROGRAM_ID,
         policy: "transfer.large",
         expiryTtlSec: 120,
       }}>
@@ -191,7 +192,7 @@ function WithdrawButton({ amount, vault, recipient }) {
       buildIntent: () => ({
         targetProgramId: YOUR_PROGRAM_ID,
         instructionDiscriminator: WITHDRAW_DISCRIMINATOR,
-        accounts: [vault, wallet.publicKey, recipient, GUARD_ID, registryPda, SYSVAR_INSTRUCTIONS_PUBKEY],
+        accounts: [vault, wallet.publicKey, recipient, TRANA_GUARD_PROGRAM_ID, registryPda, SYSVAR_INSTRUCTIONS_PUBKEY],
         params: amountToU64LE(amount),
       }),
       buildTransaction: async ({ recentBlockhash }) => {
@@ -216,7 +217,7 @@ The `buildTransaction` callback receives a fresh `recentBlockhash` fetched after
 4. Shows passkey prompt (native browser WebAuthn)
 5. Converts DER → compact, normalizes low-S
 6. Builds `secp256r1` instruction
-7. Builds `guard::record_proof` instruction
+7. Builds `trana::record_proof` instruction
 8. Prepends both before your transaction's instructions
 9. Signs (via wallet) and sends
 
@@ -356,7 +357,7 @@ async function registerPasskey(connection, wallet) {
 
 The `accounts` array in `buildIntent` must exactly match the order of accounts in your protected instruction. This is used to compute `accounts_hash = SHA-256(concat(all pubkeys))`.
 
-For a `withdraw` instruction with accounts: `[vault, owner, destination, guard_program, registry, instructions_sysvar]`, the intent must receive them in that exact order.
+For a `withdraw` instruction with accounts: `[vault, owner, destination, trana_guard_program, registry, instructions_sysvar]`, the intent must receive them in that exact order.
 
 Check your IDL for the canonical account order.
 
@@ -405,7 +406,7 @@ For any protocol team adding Trana:
 - [ ] Add three accounts to relevant instruction structs
 - [ ] Implement `trana_cpi_ctx()` helper on each Account struct
 - [ ] Define policy function (pure, testable)
-- [ ] Call `guard::cpi::enforce(cpi_ctx)?` when policy returns Some
+- [ ] Call `trana::cpi::enforce(cpi_ctx)?` when policy returns Some
 - [ ] Write unit tests for policy evaluation (no chain needed)
 - [ ] Write integration tests with the full transaction shape
 

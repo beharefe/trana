@@ -107,7 +107,7 @@ use trana::Policy;
 // Add a helper to your accounts struct — the enforce call becomes one line
 impl<'info> Withdraw<'info> {
     pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
-        CpiContext::new(self.guard_program.to_account_info(), Enforce {
+        CpiContext::new(self.trana_guard_program.to_account_info(), Enforce {
             registry:     self.trana_registry.to_account_info(),
             owner:        self.owner.to_account_info(),
             instructions: self.trana_instructions.to_account_info(),

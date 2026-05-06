@@ -136,7 +136,7 @@ Error: `GuardError::PayloadMismatch`.
 ### Attack 9: Malicious guard program
 A protocol integrates against a fake guard program that always returns success.
 
-**Failure point:** This is not Trana's attack surface — this is the protocol's responsibility to integrate against the correct program ID. The demo vault has `guard_program` hardcoded to the real address. Any protocol integrating Trana should similarly pin the guard program ID.
+**Failure point:** This is not Trana's attack surface — this is the protocol's responsibility to integrate against the correct program ID. The demo vault has `trana_guard_program` pinned to the real Trana Guard address. Any protocol integrating Trana should similarly pin `NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID` (or the equivalent in their stack).
 
 Mitigation: Verification of the guard program's deployed bytecode hash against the audited version.
 

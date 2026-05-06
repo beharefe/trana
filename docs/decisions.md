@@ -96,7 +96,7 @@ Every field prevents a specific attack:
 | `nonce` | Replaying an old proof (nonce consumed on use) |
 | `expiryUnix` | Using a proof hours/days later |
 | `cluster` | Using a devnet-approved proof on mainnet |
-| `guardProgramId` | Using a proof from a different (possibly malicious) guard |
+| `tranaGuardProgramId` | Using a proof from a different (possibly malicious) Trana Guard deployment |
 | `wallet` | Using another user's proof for your transaction |
 
 Omitting any of these creates an attack vector. The intent hash is conservative by design.
@@ -162,11 +162,11 @@ Failure to normalize produces a `WrongSigner` or silent failure from the precomp
 
 ## ADR-010: Single CPI Call as the Entire Integration
 
-**Decision:** External programs integrate with exactly one CPI call: `guard::cpi::enforce(cpi_ctx)?`.
+**Decision:** External programs integrate with exactly one CPI call: `trana::cpi::enforce(cpi_ctx)?`.
 
 **Why this matters:**
 The alternative is having the external program do its own sysvar reads, deserializations, and hash computations. This is error-prone, hard to audit, and creates N implementations of the same logic.
 
 With the single CPI call, the guard program owns all verification. The external program only decides *when* to call it. That decision (the policy) is application logic — exactly what the external program should own.
 
-**The three extra accounts** (`guard_program`, `trana_registry`, `trana_instructions`) are the overhead. That's the full integration cost — three accounts and one function call.
+**The three extra accounts** (`trana_guard_program`, `trana_registry`, `trana_instructions`) are the overhead. That's the full integration cost — three accounts and one function call.

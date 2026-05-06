@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * One-time init_config for the Trana guard program.
- * Usage: node scripts/init-config.mjs <guardProgramId> <treasuryAddr>
+ * One-time init_config for the Trana Guard program.
+ * Usage: node scripts/init-config.mjs <tranaGuardProgramId> <treasuryAddr>
  * Env:   ANCHOR_PROVIDER_URL, ANCHOR_WALLET
  */
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js"
 import { readFileSync } from "fs"
 
-const [,, guardId, treasury] = process.argv
-if (!guardId || !treasury) {
-  console.error("Usage: init-config.mjs <guardProgramId> <treasuryAddr>")
+const [,, tranaGuardId, treasury] = process.argv
+if (!tranaGuardId || !treasury) {
+  console.error("Usage: init-config.mjs <tranaGuardProgramId> <treasuryAddr>")
   process.exit(1)
 }
 
@@ -21,11 +21,11 @@ const connection = new Connection(rpc, "confirmed")
 const secret     = JSON.parse(readFileSync(walletPath, "utf8"))
 const payer      = Keypair.fromSecretKey(Uint8Array.from(secret))
 
-const guardProgramId = new PublicKey(guardId)
+const tranaGuardProgramId = new PublicKey(tranaGuardId)
 const treasuryPubkey = new PublicKey(treasury)
 
 // Check if config PDA already exists
-const [configPda] = PublicKey.findProgramAddressSync([Buffer.from("config")], guardProgramId)
+const [configPda] = PublicKey.findProgramAddressSync([Buffer.from("config")], tranaGuardProgramId)
 const existing = await connection.getAccountInfo(configPda)
 if (existing) {
   console.log("Fee config already initialized at", configPda.toBase58())
@@ -47,7 +47,7 @@ const data = Buffer.concat([
 ])
 
 const ix = new TransactionInstruction({
-  programId: guardProgramId,
+  programId: tranaGuardProgramId,
   keys: [
     { pubkey: configPda,               isSigner: false, isWritable: true  },
     { pubkey: payer.publicKey,         isSigner: true,  isWritable: true  },

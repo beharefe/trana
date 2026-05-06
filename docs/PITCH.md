@@ -77,7 +77,7 @@ That second factor can be:
 From a protocol's perspective — they add one line:
 
 ```rust
-guard::cpi::enforce(...)
+trana::cpi::enforce(...)
 ```
 
 That's it.

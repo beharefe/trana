@@ -113,7 +113,7 @@ function HeroFlow() {
         anime({ targets: blockGlow, opacity: 1, duration: 400, easing: "linear" })
         anime({ targets: xPath,    opacity: 1, duration: 250, easing: "linear" })
         await anime({ targets: pill, translateX: hitX, duration: 380, easing: "cubicBezier(.5,1.6,.4,1)" }).finished
-        status.textContent = "GUARD · TRIGGERED"
+        status.textContent = "TRANA GUARD · TRIGGERED"
         if (stopped) break
         await anime({ targets: pill, translateX: backX, duration: 340, easing: "cubicBezier(.2,.8,.2,1)" }).finished
         await anime({ targets: {}, duration: 420, easing: "linear" }).finished
