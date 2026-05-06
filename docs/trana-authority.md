@@ -286,7 +286,7 @@ trana         = { path = "../guard", features = ["cpi"] }
 ```
 
 ### Size estimate
-~200 lines of Rust. Structurally identical to `demo_vault` — the CPI pattern is proven. The only new surface is the PDA-signed CPIs to BPF Loader and SPL Token.
+~200 lines of Rust. Same CPI pattern as a typical integrator (Trana Guard + registry + sysvar) — the CPI pattern is proven. The only new surface is the PDA-signed CPIs to BPF Loader and SPL Token.
 
 ---
 

@@ -5,11 +5,9 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-demo_vault = "RuY1hQfDuxojWEioSsQy81ByaK6LhB1UvKhDGygWxnW"
 trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
 
 [programs.localnet]
-demo_vault = "2YThkFQ69x4vPSZc1UtmPp8aDCGY6XKK8NEvcFpKHmBP"
 trana = "EWvLnEnw7d5xXJvCcS1Px4zpZ1KGZKB8weGUjL47y4e5"
 
 [provider]

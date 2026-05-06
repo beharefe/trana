@@ -135,7 +135,6 @@ cargo build-sbf                         # default: localnet (for tests)
 
 ```
 programs/guard/      Anchor program — authorization primitive
-programs/demo_vault/ Reference integration (deposit/withdraw vault)
 packages/sdk/        @tranaprotocol/guard-sdk — TypeScript/React client
 apps/landing/        Docs site and landing page
 apps/web/            Demo UI

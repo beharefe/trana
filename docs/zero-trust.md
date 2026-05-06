@@ -60,7 +60,7 @@ This is the key property: **private key compromise alone cannot drain a Trana-pr
 ## Attack Scenarios and Why They Fail
 
 ### Attack 1: Raw transaction without proof
-Attacker constructs and submits a `demo_vault::withdraw` without `secp256r1` and `record_proof` instructions.
+Attacker constructs and submits a protected instruction (for example a withdraw) without `secp256r1` and `record_proof` instructions.
 
 **Failure point:** `verify_via_sysvar` requires `current_idx >= 2` and checks that `ix[current_idx - 2]` is the secp256r1 precompile. If either is missing, `MissingProof` is returned and the transaction reverts.
 
@@ -136,7 +136,7 @@ Error: `GuardError::PayloadMismatch`.
 ### Attack 9: Malicious guard program
 A protocol integrates against a fake guard program that always returns success.
 
-**Failure point:** This is not Trana's attack surface — this is the protocol's responsibility to integrate against the correct program ID. The demo vault has `trana_guard_program` pinned to the real Trana Guard address. Any protocol integrating Trana should similarly pin `NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID` (or the equivalent in their stack).
+**Failure point:** This is not Trana's attack surface — this is the protocol's responsibility to integrate against the correct program ID. Pin `trana_guard_program` to the real Trana Guard deployment and use `NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID` (or the equivalent in your stack) on the client.
 
 Mitigation: Verification of the guard program's deployed bytecode hash against the audited version.
 

@@ -14,5 +14,7 @@ module.exports = {
         tsconfig: "tsconfig.test.json",
       },
     ],
+    "^.+\\.js$": "babel-jest",
   },
+  transformIgnorePatterns: ["/node_modules/(?!@noble/)"],
 }

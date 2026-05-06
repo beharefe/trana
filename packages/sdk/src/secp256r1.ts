@@ -121,7 +121,7 @@ export function buildWebAuthnMessage(
  * Transaction shape Trana Guard expects:
  *   ix[N-2]: secp256r1 precompile  (native P-256 sig verify)
  *   ix[N-1]: trana::record_proof   (this instruction, data carrier)
- *   ix[N]:   protected instruction (calls enforce() or is registry_vault_withdraw)
+ *   ix[N]:   protected instruction (typically ends with trana::cpi::enforce)
  *
  * Payload layout (after 8-byte Anchor discriminator):
  *   version            u8

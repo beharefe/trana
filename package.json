@@ -16,12 +16,15 @@
     "anchor:deploy:local": "anchor deploy"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.5",
     "@coral-xyz/anchor": "^0.32.0",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@solana/web3.js": "1.98.4",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.0.0",
+    "babel-jest": "^30.3.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
     "tweetnacl": "^1.0.3",

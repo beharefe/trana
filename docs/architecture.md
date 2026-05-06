@@ -43,11 +43,7 @@ A pure data carrier. Carries WebAuthn binding bytes (authenticatorData, clientDa
 **`enforce`**
 Called by external programs via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature, checks the intent hash, increments the nonce. If any check fails, the entire transaction is reverted.
 
-### 2. `programs/demo_vault` — The Integration Reference
-
-Not a product. A complete, working example showing how to integrate Trana into your program. Contains three real policies. Copy the pattern, not the vault.
-
-### 3. `packages/sdk` — TypeScript Client
+### 2. `packages/sdk` — TypeScript Client
 
 Browser-first. No Node.js backend required. Key modules:
 

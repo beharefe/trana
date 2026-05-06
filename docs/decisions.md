@@ -53,7 +53,7 @@ An earlier iteration had vault operations inside the guard program. This was wro
 1. It couples audit scope. Auditing "the authorization primitive" should be independent of "the specific DeFi logic".
 2. It prevents reuse. A DAO wanting to guard admin proposals doesn't want vault code.
 
-The guard program is now ~380 lines. The demo vault is separate. This is the correct separation.
+The guard program is now ~380 lines. Integration logic lives in each integrator’s program. This is the correct separation.
 
 **Immutability goal:**
 Once guard is audited and deployed on mainnet, it should not change. Protocols building on it need the guarantee that the program they integrated against today is the program that runs tomorrow. Upgrade authority will be burned after audit.
@@ -74,7 +74,7 @@ Once guard is audited and deployed on mainnet, it should not change. Protocols b
 
 3. **Atomic position binding.** The secp256r1 precompile MUST be at `current_idx - 2` and `record_proof` MUST be at `current_idx - 1`. This is enforced by index arithmetic on the sysvar. You cannot insert a proof for a different instruction and have it validate another.
 
-**The caveat:** `load_current_index_checked()` returns the top-level instruction index even during CPI. This is by design — it means the protected instruction at index N is correctly identified even when `enforce()` is called via CPI from inside `demo_vault::withdraw`. The Solana runtime maintains this invariant.
+**The caveat:** `load_current_index_checked()` returns the top-level instruction index even during CPI. This is by design — it means the protected instruction at index N is correctly identified even when `enforce()` is called via CPI from inside your program’s instruction (e.g. a withdraw handler). The Solana runtime maintains this invariant.
 
 ---
 

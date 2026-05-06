@@ -43,9 +43,8 @@ sleep 1
 
 # ── Build programs ─────────────────────────────────────────────────────────────
 TRANA_GUARD_SO="target/deploy/trana.so"
-VAULT_SO="target/deploy/demo_vault.so"
 
-if [ "$FORCE_BUILD" -eq 1 ] || [ ! -f "$TRANA_GUARD_SO" ] || [ ! -f "$VAULT_SO" ]; then
+if [ "$FORCE_BUILD" -eq 1 ] || [ ! -f "$TRANA_GUARD_SO" ]; then
   log "Building Anchor programs..."
   anchor build
 else
@@ -53,7 +52,6 @@ else
 fi
 
 [ -f "$TRANA_GUARD_SO" ] || die "trana.so not found after build"
-[ -f "$VAULT_SO" ] || die "demo_vault.so not found after build"
 
 # ── Start localnet validator ───────────────────────────────────────────────────
 RESET_FLAG=""
@@ -94,9 +92,7 @@ deploy_program() {
 }
 
 TRANA_GUARD_PROGRAM_ID=$(deploy_program trana)
-DEMO_VAULT_PROGRAM_ID=$(deploy_program demo_vault)
 log "trana_guard program → $TRANA_GUARD_PROGRAM_ID"
-log "demo_vault          → $DEMO_VAULT_PROGRAM_ID"
 
 # ── Initialize guard fee config (required once per validator ledger) ───────────
 WALLET_KEYPAIR="$(solana config get keypair | awk '{print $3}')"
@@ -106,7 +102,7 @@ ANCHOR_PROVIDER_URL=http://localhost:8899 \
 ANCHOR_WALLET="$WALLET_KEYPAIR" \
   node scripts/init-config.mjs "$TRANA_GUARD_PROGRAM_ID" "$TREASURY_ADDR" \
   && log "Fee config initialized" \
-  || log "WARN: fee config init failed — deposit/withdraw will fail until init_config is called"
+  || log "WARN: fee config init failed — registration may fail until init_config is called"
 
 # ── Write .env.docker ──────────────────────────────────────────────────────────
 # NEXT_PUBLIC_ vars are used in the browser (hits host's localhost:8899 directly)
@@ -114,7 +110,6 @@ ANCHOR_WALLET="$WALLET_KEYPAIR" \
 cat > apps/web/.env.local <<EOF
 NEXT_PUBLIC_SOLANA_RPC=http://localhost:8899
 NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID=$TRANA_GUARD_PROGRAM_ID
-NEXT_PUBLIC_DEMO_VAULT_PROGRAM_ID=$DEMO_VAULT_PROGRAM_ID
 NEXT_PUBLIC_RP_ID=localhost
 RP_ORIGIN=http://localhost:3000
 RP_NAME=Trana Guard Demo
