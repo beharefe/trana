@@ -150,6 +150,32 @@ describe("trana_authority", () => {
           .rpc()
       ).rejects.toThrow()
     })
+
+    it("register_same_owner_same_mint_token_mint_then_token_freeze_collides", async () => {
+      const { owner } = await setupGuardedOwner(tranaGuard)
+      const target    = Keypair.generate().publicKey
+
+      await authority.methods
+        .register({ tokenMint: {} })
+        .accounts({ owner: owner.publicKey, target })
+        .signers([owner])
+        .rpc()
+
+      // [AUTHORITY_SEED, owner, target] is the same PDA regardless of kind —
+      // second init on the same address fails
+      await expect(
+        authority.methods
+          .register({ tokenFreeze: {} })
+          .accounts({ owner: owner.publicKey, target })
+          .signers([owner])
+          .rpc()
+      ).rejects.toThrow()
+    })
+
+    it.todo("register_duplicate_same_owner_target_fails")
+    it.todo("register_same_target_different_owner_succeeds")
+    it.todo("register_same_owner_same_mint_token_freeze_then_token_mint_collides")
+    it.todo("register_does_not_require_guard_proof")
   })
 
   // ── execute_mint ─────────────────────────────────────────────────────────────
@@ -305,6 +331,12 @@ describe("trana_authority", () => {
         buildAndSendProof(tranaGuard, ix, owner, passkey)
       ).rejects.toThrow(/"Custom":6000/)  // KindMismatch fires before guard (enforce CPI inside)
     })
+
+    it.todo("execute_mint_without_real_mint_authority_transfer_fails")
+    it.todo("execute_mint_wrong_destination_mint_fails")
+    it.todo("execute_mint_wrong_mint_for_record_fails")
+    it.todo("execute_mint_emits_mint_executed_event")
+    it.todo("execute_mint_changes_supply_and_destination_balance")
   })
 
   // ── execute_freeze / execute_thaw ─────────────────────────────────────────
@@ -430,6 +462,17 @@ describe("trana_authority", () => {
         sendV0(tranaGuard.provider.connection, [ix], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6000/)
     })
+
+    it.todo("execute_freeze_kind_mismatch_fails")
+    it.todo("execute_freeze_wrong_token_account_mint_fails")
+    it.todo("execute_freeze_emits_freeze_executed_event")
+    it.todo("execute_freeze_without_real_freeze_authority_transfer_fails")
+    it.todo("direct_freeze_with_old_admin_key_fails_after_transfer")
+    it.todo("execute_thaw_kind_mismatch_fails")
+    it.todo("execute_thaw_missing_proof_fails")
+    it.todo("execute_thaw_wrong_token_account_mint_fails")
+    it.todo("execute_thaw_emits_freeze_executed_event_with_frozen_false")
+    it.todo("direct_thaw_with_old_admin_key_fails_after_transfer")
   })
 
   // ── reclaim_authority ─────────────────────────────────────────────────────
@@ -571,6 +614,67 @@ describe("trana_authority", () => {
         sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, ix], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6003/)
     })
+
+    it("reclaim_failure_keeps_record_open", async () => {
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const conn    = tranaGuard.provider.connection
+      const payer   = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const payerKp = (payer as unknown as { payer: Keypair }).payer
+
+      const mintKp = Keypair.generate()
+      const mint   = await createMint(conn, payerKp, payer.publicKey, null, 9, mintKp)
+
+      await authority.methods
+        .register({ tokenMint: {} })
+        .accounts({ owner: owner.publicKey, target: mint })
+        .signers([owner])
+        .rpc()
+
+      const mintPda          = authorityRecordPda(owner.publicKey, mint, authority.programId)
+      const newAuthority     = Keypair.generate().publicKey
+      const dummyProgramData = Keypair.generate().publicKey
+      const registry         = registryPda(owner.publicKey, tranaGuard.programId)
+
+      // Intentionally do NOT transfer mint authority to the PDA
+      const ix = await authority.methods
+        .reclaimAuthority(newAuthority)
+        .accounts({
+          authorityRecord:   mintPda,
+          owner:             owner.publicKey,
+          target:            mint,
+          programData:       dummyProgramData,
+          newAuthorityInfo:  newAuthority,
+          bpfLoader:         new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          systemProgram:     SystemProgram.programId,
+        })
+        .instruction()
+
+      // token::set_authority fails because PDA doesn't hold the mint authority
+      await expect(
+        buildAndSendProof(tranaGuard, ix, owner, passkey, 0n)
+      ).rejects.toThrow()
+
+      // Tx reverted — record still open, authority unchanged
+      const rec = await authority.account.authorityRecord.fetch(mintPda)
+      expect(rec.owner.toBase58()).toBe(owner.publicKey.toBase58())
+      const mintInfo = await getMint(conn, mint)
+      expect(mintInfo.mintAuthority?.toBase58()).toBe(payer.publicKey.toBase58())
+    })
+
+    it.todo("reclaim_success_closes_record_and_refunds_owner")
+    it.todo("reclaim_after_close_fails")
+    it.todo("reclaim_freeze_authority_success_sets_new_freeze_authority")
+    it.todo("reclaim_token_kind_missing_proof_fails")
+    it.todo("reclaim_token_kind_invalid_proof_fails")
+    it.todo("reclaim_token_kind_keeps_authority_record_on_failure")
+    it.todo("reclaim_token_kind_with_non_mint_target_fails")
+    it.todo("reclaim_program_upgrade_with_non_program_target_fails")
+    it.todo("reclaim_program_upgrade_with_wrong_program_data_fails")
+    it.todo("reclaim_program_upgrade_new_authority_arg_and_account_mismatch_fails")
   })
 
   // ── isolation ────────────────────────────────────────────────────────────────
@@ -687,5 +791,152 @@ describe("trana_authority", () => {
       // The real execute_upgrade test requires a deployed BPF program + buffer —
       // tested via anchor test integration or the demo script
     })
+
+    it.todo("execute_upgrade_success_after_transferring_upgrade_authority_to_pda")
+    it.todo("execute_upgrade_kind_mismatch_fails")
+    it.todo("execute_upgrade_missing_proof_fails")
+    it.todo("execute_upgrade_without_real_upgrade_authority_transfer_fails")
+    it.todo("execute_upgrade_wrong_program_data_for_program_fails")
+    it.todo("execute_upgrade_invalid_buffer_account_fails")
+    it.todo("execute_upgrade_wrong_buffer_authority_fails")
+    it.todo("execute_upgrade_wrong_spill_account_fails")
+    it.todo("execute_upgrade_emits_upgrade_executed_event")
+    it.todo("execute_upgrade_drains_buffer_to_spill")
+    it.todo("execute_upgrade_updates_programdata_state")
+    it.todo("execute_upgrade_cannot_reuse_drained_buffer")
+    it.todo("direct_upgrade_with_old_key_fails_after_transfer")
+    it.todo("reclaim_program_upgrade_success_sets_new_upgrade_authority")
+    it.todo("reclaim_program_upgrade_missing_proof_fails")
+    it.todo("reclaim_program_upgrade_invalid_proof_fails")
+    it.todo("reclaim_program_upgrade_new_authority_arg_and_account_mismatch_fails")
+    it.todo("reclaim_program_upgrade_keeps_record_open_on_failure")
+    it.todo("reclaim_program_upgrade_then_old_pda_cannot_upgrade")
+    it.todo("reclaim_program_upgrade_then_new_authority_can_upgrade_directly")
+  })
+
+  // ── Token authority handoff ──────────────────────────────────────────────────
+
+  describe("token_authority_handoff", () => {
+    it("direct_mint_with_old_admin_key_fails_after_transfer", async () => {
+      const { owner } = await setupGuardedOwner(tranaGuard)
+      const conn      = tranaGuard.provider.connection
+      const payer     = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const payerKp   = (payer as unknown as { payer: Keypair }).payer
+
+      const mintKp = Keypair.generate()
+      const mint   = await createMint(conn, payerKp, payer.publicKey, null, 9, mintKp)
+
+      await authority.methods
+        .register({ tokenMint: {} })
+        .accounts({ owner: owner.publicKey, target: mint })
+        .signers([owner])
+        .rpc()
+
+      const mintPda    = authorityRecordPda(owner.publicKey, mint, authority.programId)
+      await setAuthority(conn, payerKp, mint, payerKp, AuthorityType.MintTokens, mintPda)
+
+      const destination = await createAccount(conn, payerKp, mint, payer.publicKey)
+
+      // Old admin (payerKp) can no longer mint directly — authority now lives in the PDA
+      await expect(
+        splMintTo(conn, payerKp, mint, destination, payerKp, 1_000)
+      ).rejects.toThrow()
+    })
+
+    it("pda_mint_fails_after_reclaim", async () => {
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const conn      = tranaGuard.provider.connection
+      const payer     = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const payerKp   = (payer as unknown as { payer: Keypair }).payer
+
+      const mintKp = Keypair.generate()
+      const mint   = await createMint(conn, payerKp, payer.publicKey, null, 9, mintKp)
+
+      await authority.methods
+        .register({ tokenMint: {} })
+        .accounts({ owner: owner.publicKey, target: mint })
+        .signers([owner])
+        .rpc()
+
+      const mintPda     = authorityRecordPda(owner.publicKey, mint, authority.programId)
+      await setAuthority(conn, payerKp, mint, payerKp, AuthorityType.MintTokens, mintPda)
+      const destination = await createAccount(conn, payerKp, mint, payer.publicKey)
+
+      // Reclaim → PDA closed, authority moved to newAuthority
+      const newAuthority     = Keypair.generate().publicKey
+      const dummyProgramData = Keypair.generate().publicKey
+      const registry         = registryPda(owner.publicKey, tranaGuard.programId)
+
+      const reclaimIx = await authority.methods
+        .reclaimAuthority(newAuthority)
+        .accounts({
+          authorityRecord:   mintPda,
+          owner:             owner.publicKey,
+          target:            mint,
+          programData:       dummyProgramData,
+          newAuthorityInfo:  newAuthority,
+          bpfLoader:         new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          systemProgram:     SystemProgram.programId,
+        })
+        .instruction()
+      await buildAndSendProof(tranaGuard, reclaimIx, owner, passkey, 0n)
+
+      // AuthorityRecord is closed; execute_mint with that PDA now fails
+      const mintIx = await authority.methods
+        .executeMint(new anchor.BN(1_000))
+        .accounts({
+          authorityRecord:   mintPda,
+          owner:             owner.publicKey,
+          mint,
+          destination,
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .instruction()
+
+      await expect(
+        buildAndSendProof(tranaGuard, mintIx, owner, passkey, 1n)
+      ).rejects.toThrow()
+    })
+
+    it.todo("direct_mint_with_new_authority_succeeds_after_reclaim")
+  })
+
+  // ── Account validation ───────────────────────────────────────────────────────
+
+  describe("account_validation", () => {
+    it.todo("execute_with_wrong_authority_record_pda_fails")
+    it.todo("execute_with_wrong_authority_record_bump_fails")
+    it.todo("execute_with_wrong_owner_for_record_fails")
+    it.todo("execute_with_wrong_target_for_record_fails")
+    it.todo("execute_with_wrong_trana_registry_pda_fails")
+    it.todo("execute_with_wrong_instructions_sysvar_fails")
+    it.todo("execute_upgrade_with_wrong_bpf_loader_account_fails")
+    it.todo("reclaim_success_closes_record_and_refunds_owner")
+    it.todo("reclaim_after_close_fails")
+    it.todo("reclaim_token_kind_with_non_mint_target_fails")
+    it.todo("reclaim_program_upgrade_with_non_program_target_fails")
+    it.todo("reclaim_program_upgrade_with_wrong_program_data_fails")
+    it.todo("reclaim_program_upgrade_new_authority_arg_and_account_mismatch_fails")
+  })
+
+  // ── Guard integration ────────────────────────────────────────────────────────
+
+  describe("guard_integration", () => {
+    it.todo("execute_any_missing_record_proof_ix_fails")
+    it.todo("execute_any_wrong_instruction_order_fails")
+    it.todo("execute_any_wrong_owner_registry_pair_fails")
+    it.todo("execute_any_expired_proof_fails")
+    it.todo("execute_any_replayed_proof_fails")
+    it.todo("execute_any_proof_bound_to_different_target_fails")
+    it.todo("execute_any_proof_bound_to_different_amount_or_accounts_fails")
+    it.todo("mint_route_compute_budget_regression")
+    it.todo("upgrade_route_compute_budget_regression")
   })
 })
