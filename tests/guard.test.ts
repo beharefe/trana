@@ -482,15 +482,17 @@ describe("trana", () => {
       const enforceIx = await buildEnforceIx(program, owner)
       const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
 
-      // Swap in a different policy after signing — params_hash changes, proof no longer matches
+      // Swap policy type after signing (slot=u64::MAX always requires proof).
+      // Policy::Require → Policy::NotBefore: different policy string in enforce handler
+      // so PolicyMismatch (6007) fires before the params hash check (6002).
       const tamperedEnforceIx = await program.methods
-        .enforce({ notBefore: { slot: new anchor.BN(0) } })
+        .enforce({ notBefore: { slot: new anchor.BN("18446744073709551615") } })
         .accounts({ owner: owner.publicKey })
         .instruction()
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, tamperedEnforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6002/)
+      ).rejects.toThrow(/"Custom":6007/)
     })
   })
 
