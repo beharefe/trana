@@ -124,16 +124,7 @@ Error: `GuardError::ProofExpired`.
 
 ---
 
-### Attack 8: Devnet proof on mainnet
-Attacker generates a valid proof on devnet (easy — free SOL, no real assets). Tries to replay on mainnet.
-
-**Failure point:** `cluster` is in the intent hash. `"devnet"` and `"mainnet-beta"` produce different intent hashes. The proof committed to "devnet" will not match on mainnet.
-
-Error: `GuardError::PayloadMismatch`.
-
----
-
-### Attack 9: Malicious guard program
+### Attack 8: Malicious guard program
 A protocol integrates against a fake guard program that always returns success.
 
 **Failure point:** This is not Trana's attack surface — this is the protocol's responsibility to integrate against the correct program ID. Pin `trana_guard_program` to the real Trana Guard deployment and use `NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID` (or the equivalent in your stack) on the client.
@@ -151,7 +142,6 @@ Mitigation: Verification of the guard program's deployed bytecode hash against t
 | Parameter tampering blocked | params_hash in intent |
 | Account substitution blocked | accounts_hash in intent |
 | Cross-program abuse blocked | targetProgramId in intent |
-| Cross-cluster abuse blocked | cluster in intent |
 | Expiry enforced | Solana clock + expiryUnix in intent |
 | Wrong signer rejected | pubkey check vs registry PDA |
 | Atomic with execution | Solana runtime (all-or-nothing tx) |

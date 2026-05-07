@@ -12,12 +12,6 @@ export type TranaConfig = {
    * e.g. "AdminAction" | "HighValueTransfer" | "VaultWithdraw" | "Always"
    */
   policy: string
-  /**
-   * Solana cluster — included in the intent hash for domain separation.
-   * Prevents a devnet proof being replayed on mainnet.
-   * Defaults to "mainnet-beta".
-   */
-  cluster?: string
   /** Approval expiry window in seconds. Defaults to 120. */
   expiryTtlSec?: number
   /** WebAuthn relying party ID. Defaults to window.location.hostname. */

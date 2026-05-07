@@ -37,7 +37,6 @@ pub fn verify_with_policy<'info>(
     owner:            &Pubkey,
     trana_guard_program_id: &Pubkey,
     expected_policy:  &str,
-    expected_cluster: &str,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
@@ -46,9 +45,6 @@ pub fn verify_with_policy<'info>(
         return Err(error!(GuardError::MissingProof));
     }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
-    // Explicit cluster check before hash computation — prevents cross-cluster replay
-    // (e.g. a mainnet proof submitted to a devnet deployment of the same program).
-    require!(proof.cluster == expected_cluster, GuardError::ClusterMismatch);
     require!(proof.policy  == expected_policy,  GuardError::PolicyMismatch);
     let policy = proof.policy.clone();
     run_verification(ix_sysvar, registry, owner, trana_guard_program_id, current_idx, proof, &policy)
@@ -99,7 +95,6 @@ fn run_verification<'info>(
     // ── 3. Intent hash ────────────────────────────────────────────────────────
     let intent_hash = compute_intent_hash(
         INTENT_DOMAIN,
-        &proof.cluster,
         owner,
         trana_guard_program_id,
         &target_program_id,
@@ -209,7 +204,6 @@ fn load_proof_from_preceding_ix(
 //
 //   version (u8 = 1)
 //   domain  (u16-LE + UTF-8)
-//   cluster (u16-LE + UTF-8)
 //   wallet (32), tranaGuardProgramId (32), targetProgramId (32)
 //   policy  (u16-LE + UTF-8)
 //   discriminator (8), accountsHash (32), paramsHash (32)
@@ -217,7 +211,6 @@ fn load_proof_from_preceding_ix(
 
 fn compute_intent_hash(
     domain:            &str,
-    cluster:           &str,
     wallet:            &Pubkey,
     trana_guard_program_id:  &Pubkey,
     target_program_id: &Pubkey,
@@ -229,18 +222,16 @@ fn compute_intent_hash(
     expiry:            i64,
 ) -> [u8; 32] {
     let domain_b  = domain.as_bytes();
-    let cluster_b = cluster.as_bytes();
     let policy_b  = policy_id.as_bytes();
 
     let mut buf = Vec::with_capacity(
-        1 + 2 + domain_b.len() + 2 + cluster_b.len()
+        1 + 2 + domain_b.len()
         + 32 + 32 + 32
         + 2 + policy_b.len() + 8 + 32 + 32 + 8 + 8,
     );
 
     buf.push(1u8);
     buf.extend_from_slice(&(domain_b.len()  as u16).to_le_bytes()); buf.extend_from_slice(domain_b);
-    buf.extend_from_slice(&(cluster_b.len() as u16).to_le_bytes()); buf.extend_from_slice(cluster_b);
     buf.extend_from_slice(wallet.as_ref());
     buf.extend_from_slice(trana_guard_program_id.as_ref());
     buf.extend_from_slice(target_program_id.as_ref());

@@ -126,7 +126,6 @@ export function buildWebAuthnMessage(
  * Payload layout (after 8-byte Anchor discriminator):
  *   version            u8
  *   expiry             i64 LE (Borsh)
- *   cluster            u32-LE length + UTF-8 bytes (Borsh String)
  *   policy             u32-LE length + UTF-8 bytes
  *   authenticator_data u32-LE length + bytes (Borsh Vec<u8>)
  *   client_data_json   u32-LE length + bytes
@@ -136,7 +135,6 @@ export function buildRecordProofIx(
   authenticatorData: Uint8Array,
   clientDataJSON:    Uint8Array,
   expiryUnix:        number,
-  cluster:           string,
   policy:            string,
 ): TransactionInstruction {
   // Anchor discriminator = SHA-256("global:record_proof")[0..8]
@@ -153,7 +151,6 @@ export function buildRecordProofIx(
     disc,
     Buffer.from([1]),          // version u8 = 1
     expiryBuf,                 // i64 LE
-    borshStr(cluster),
     borshStr(policy),
     borshBytes(authenticatorData),
     borshBytes(clientDataJSON),

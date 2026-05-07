@@ -189,11 +189,9 @@ The `enforce()` CPI has no fee. The fee amounts and treasury address live in the
 |---|---|---|
 | `MissingProof` | `0x1770` | No `record_proof` at `ix[N-1]` or no `secp256r1` at `ix[N-2]` |
 | `ProofExpired` | `0x1771` | `proof.expiry < clock.unix_timestamp` |
-| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
+| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, or nonce changed |
 | `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
 | `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
-| `ClusterMismatch` | `0x177a` | `proof.cluster` doesn't match the cluster baked into this binary |
-
 ---
 
 ## Program ID

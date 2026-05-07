@@ -1,14 +1,15 @@
 [toolchain]
+package_manager = "npm"
+
+[programs.localnet]
+trana = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
 
 [features]
 resolution = true
 skip-lint = false
 
-[programs.devnet]
-trana = "BmevGCa642U4Zs1462wN1QQ3N921dFUijW52ULtDpqhb"
-
-[programs.localnet]
-trana = "AskJJ6FKi7a8aXMHrBH9yzpws3EGt5hcuM5izrdXBmy9"
+[registry]
+url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
@@ -16,5 +17,3 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "npx jest --runInBand"
-
-[hooks]

@@ -136,7 +136,7 @@ describe("trana", () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
       const pastExpiry = Math.floor(Date.now() / 1000) - 10
-      const proof      = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, undefined, pastExpiry)
+      const proof      = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, pastExpiry)
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
@@ -234,16 +234,6 @@ describe("trana", () => {
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6002/)
-    })
-
-    it("enforce_wrong_cluster", async () => {
-      const { program, owner, passkey } = await enforceFixture()
-      const enforceIx = await buildEnforceIx(program, owner)
-      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", "devnet")
-
-      await expect(
-        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6010/)
     })
 
     it("enforce_tampered_payload", async () => {
@@ -404,7 +394,6 @@ describe("trana", () => {
 
   describe("cross-replay", () => {
     it.skip("cross_program_replay_invalid", async () => {})
-    it.skip("cross_cluster_replay_invalid", async () => {})
     it.skip("cross_policy_replay_invalid", async () => {})
   })
 

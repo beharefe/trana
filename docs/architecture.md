@@ -38,7 +38,7 @@ A single deployed program. Anyone integrates against it. It has exactly three in
 Writes a P-256 public key and WebAuthn credential ID into a PDA owned by the user's wallet. Seeds: `["2fa", wallet_pubkey]`. Idempotent — re-registering updates the key (useful for device rotation). Nonce is preserved across re-registration to prevent replay.
 
 **`record_proof`**
-A pure data carrier. Carries WebAuthn binding bytes (authenticatorData, clientDataJSON, expiry, policy, cluster) in its instruction data. Does nothing else. It exists so the protected instruction can read proof data from the Instructions sysvar without passing it as parameters.
+A pure data carrier. Carries WebAuthn binding bytes (authenticatorData, clientDataJSON, expiry, policy) in its instruction data. Does nothing else. It exists so the protected instruction can read proof data from the Instructions sysvar without passing it as parameters.
 
 **`enforce`**
 Called by external programs via CPI. Reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature, checks the intent hash, increments the nonce. If any check fails, the entire transaction is reverted.
@@ -69,7 +69,7 @@ User device                   SDK                        Solana
            │                  ◄────────── { pubkey, credentialId, nonce }
            │
 3.         ├─ buildIntent()
-           │    version=1, domain="trana:v1", cluster,
+           │    version=1, domain="trana:v1",
            │    wallet, tranaGuardProgramId, targetProgramId,
            │    policy, discriminator, accountsHash, paramsHash,
            │    nonce, expiryUnix
@@ -88,7 +88,7 @@ User device                   SDK                        Solana
 8.         ├─ buildSecp256r1Ix(pubkey, sig, eValue)     [ix[N-2]]
            │
 9.         ├─ buildRecordProofIx(authData, cdJSON,       [ix[N-1]]
-           │       expiry, cluster, policy)
+           │       expiry, policy)
            │
 10.        ├─ buildTransaction() → your_program::action  [ix[N]]
            │
@@ -114,7 +114,7 @@ User device                   SDK                        Solana
            require!(current_idx >= 2)               → MissingProof if ≤ 1
 
   Step 1:  proof = ix[current_idx - 1]              → record_proof data
-           Deserialize: version, expiry, cluster, policy, authData, cdJSON
+           Deserialize: version, expiry, policy, authData, cdJSON
 
   Step 2:  protected = ix[current_idx]              → your program's instruction
            target_program_id = protected.program_id
@@ -125,7 +125,7 @@ User device                   SDK                        Solana
   Step 3:  require!(clock.unix_timestamp < proof.expiry)  → ProofExpired
 
   Step 4:  intent_hash = compute_intent_hash(
-             "trana:v1", proof.cluster,
+             "trana:v1",
              owner, trana_guard_program_id, target_program_id,
              proof.policy, discriminator,
              accounts_hash, params_hash,
@@ -163,7 +163,6 @@ The intent hash is the cryptographic binding between the passkey signature and t
 SHA-256(
   u8(1)                          version
   u16LE(len) + "trana:v1"        domain
-  u16LE(len) + cluster           "devnet" | "mainnet-beta"
   32 bytes                       wallet pubkey
   32 bytes                       guard program ID
   32 bytes                       target program ID

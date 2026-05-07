@@ -32,6 +32,4 @@ pub enum GuardError {
     #[msg("Treasury account does not match config.treasury")]
     InvalidTreasury,
 
-    #[msg("Proof cluster does not match the expected cluster for this deployment")]
-    ClusterMismatch,
 }

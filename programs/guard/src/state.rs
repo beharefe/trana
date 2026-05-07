@@ -8,7 +8,6 @@ use crate::error::GuardError;
 pub struct ProofData {
     pub version:            u8,
     pub expiry:             i64,
-    pub cluster:            String,
     pub policy:             String,
     pub authenticator_data: Vec<u8>,
     pub client_data_json:   Vec<u8>,

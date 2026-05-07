@@ -54,7 +54,6 @@ export type IntentInput = {
 export type TranaIntent = {
   readonly version:                  1
   readonly domain:                   "trana:v1"
-  readonly cluster:                  string            // "mainnet-beta" | "devnet" | "localnet"
   readonly wallet:                   string            // base58 — the authorizing wallet
   readonly tranaGuardProgramId:      string            // base58 — Trana Guard program
   readonly targetProgramId:          string            // base58 — the guarded instruction's program
@@ -86,7 +85,7 @@ export function buildIntent(
   tranaGuardProgramId: PublicKey,
   input:               IntentInput,
   nonce:               bigint,
-  config:              { policy: string; cluster?: string; expiryTtlSec?: number }
+  config:              { policy: string; expiryTtlSec?: number }
 ): TranaIntent {
   const targetProgramId = typeof input.targetProgramId === "string"
     ? input.targetProgramId
@@ -116,7 +115,6 @@ export function buildIntent(
   return Object.freeze({
     version:                  1 as const,
     domain:                   "trana:v1" as const,
-    cluster:                  config.cluster ?? "mainnet-beta",
     wallet:                   wallet.toBase58(),
     tranaGuardProgramId:      tranaGuardProgramId.toBase58(),
     targetProgramId,
@@ -141,7 +139,6 @@ export function buildIntent(
  * Canonical binary encoding (deterministic, reproducible onchain):
  *   version (u8)
  *   domain (u16-LE length + UTF-8 bytes)
- *   cluster (u16-LE length + UTF-8 bytes)
  *   wallet (32 bytes, decoded from base58)
  *   tranaGuardProgramId (32 bytes)
  *   targetProgramId (32 bytes)
@@ -159,7 +156,6 @@ export function buildIntent(
 export function hashIntent(intent: TranaIntent): Uint8Array {
   const enc    = new TextEncoder()
   const domain  = enc.encode(intent.domain)
-  const cluster = enc.encode(intent.cluster)
   const policy  = enc.encode(intent.policyId)
 
   const walletBytes     = new PublicKey(intent.wallet).toBytes()
@@ -183,7 +179,6 @@ export function hashIntent(intent: TranaIntent): Uint8Array {
   const payload = Buffer.concat([
     Buffer.from([intent.version]),  // u8
     lenBuf(domain.length),  Buffer.from(domain),
-    lenBuf(cluster.length), Buffer.from(cluster),
     walletBytes,
     tranaGuardBytes,
     targetBytes,

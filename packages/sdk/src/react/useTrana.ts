@@ -159,7 +159,6 @@ export function useTrana() {
       registry.nonce,
       {
         policy:       detection.policy,
-        cluster:      ctx.config.cluster,
         expiryTtlSec: ctx.config.expiryTtlSec,
       }
     )
@@ -182,7 +181,6 @@ export function useTrana() {
       approval.authenticatorData,
       approval.clientDataJSON,
       intent.expiryUnix,
-      intent.cluster,
       intent.policyId,
     )
 

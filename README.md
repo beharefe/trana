@@ -35,7 +35,7 @@ via a single CPI call. No custody change. No trusted bridge. No server key.
    once. The public key is stored in a Trana registry PDA seeded by their wallet.
 
 2. **Authorization**: when a protected instruction is triggered, the SDK builds an
-   intent hash (SHA-256 over the exact accounts, params, nonce, and cluster). The
+   intent hash (SHA-256 over the exact accounts, params, nonce). The
    user's passkey signs this hash via a WebAuthn ceremony — entirely in the browser.
 
 3. **Enforcement**: the transaction carries three contiguous instructions: the
@@ -120,13 +120,6 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     // your logic here
     Ok(())
 }
-```
-
-**Build flags (baked into binary at compile time):**
-```sh
-cargo build-sbf -- --features mainnet   # proof.cluster must be "mainnet-beta"
-cargo build-sbf -- --features devnet    # proof.cluster must be "devnet"
-cargo build-sbf                         # default: localnet (for tests)
 ```
 
 ---

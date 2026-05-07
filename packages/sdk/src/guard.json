@@ -105,10 +105,6 @@
           "type": "i64"
         },
         {
-          "name": "_cluster",
-          "type": "string"
-        },
-        {
           "name": "_policy",
           "type": "string"
         },

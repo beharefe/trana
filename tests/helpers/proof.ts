@@ -31,22 +31,19 @@ export function buildProofInstructions(
   nonce:           bigint,
   policyId:        string,
   rpId            = "localhost",
-  overrideCluster?: string,
   overridePolicy?:  string,
   overrideExpiry?:  number,
 ): ProofInstructions {
   const input  = intentFromInstruction(protectedIx)
   const intent = buildIntent(ownerPubkey, programId, input, nonce, {
     policy:  policyId,
-    cluster: "localnet",
     expiryTtlSec: overrideExpiry !== undefined ? overrideExpiry - Math.floor(Date.now() / 1000) : 300,
   })
 
   const expiryUnix = overrideExpiry ?? intent.expiryUnix
-  const cluster    = overrideCluster ?? intent.cluster
   const policy     = overridePolicy  ?? intent.policyId
 
-  const challenge      = hashIntent({ ...intent, expiryUnix, cluster: overrideCluster ?? intent.cluster, policyId: overridePolicy ?? intent.policyId })
+  const challenge      = hashIntent({ ...intent, expiryUnix, policyId: overridePolicy ?? intent.policyId })
   const rpIdHash       = sha256Bytes(new TextEncoder().encode(rpId))
   const authData       = new Uint8Array(37)
   authData.set(rpIdHash, 0)
@@ -68,7 +65,7 @@ export function buildProofInstructions(
 
   return {
     secp256r1Ix:    buildSecp256r1Ix(handle.pubkey, sig, combined),
-    recordProofIx:  buildRecordProofIx(programId, authData, clientDataJSON, expiryUnix, cluster, policy),
+    recordProofIx:  buildRecordProofIx(programId, authData, clientDataJSON, expiryUnix, policy),
     authData,
     clientDataJSON,
     combined,

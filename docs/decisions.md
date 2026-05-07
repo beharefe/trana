@@ -80,7 +80,7 @@ Once guard is audited and deployed on mainnet, it should not change. Protocols b
 
 ## ADR-005: Intent Hash Includes Everything
 
-**Decision:** The intent hash commits to program ID, accounts, params, policy, nonce, expiry, cluster, and guard program.
+**Decision:** The intent hash commits to program ID, accounts, params, policy, nonce, expiry, and guard program.
 
 **Why so much?**
 
@@ -95,7 +95,6 @@ Every field prevents a specific attack:
 | `policy` | Using a "transfer.large" proof to satisfy "transfer.always" |
 | `nonce` | Replaying an old proof (nonce consumed on use) |
 | `expiryUnix` | Using a proof hours/days later |
-| `cluster` | Using a devnet-approved proof on mainnet |
 | `tranaGuardProgramId` | Using a proof from a different (possibly malicious) Trana Guard deployment |
 | `wallet` | Using another user's proof for your transaction |
 

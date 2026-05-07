@@ -267,7 +267,7 @@ async function protectedWithdraw(
       policy: "transfer.large",
     },
     registry.nonce,
-    { policy: "transfer.large", cluster: "devnet", expiryTtlSec: 120 },
+    { policy: "transfer.large", expiryTtlSec: 120 },
   )
 
   // 4. Compute challenge = hashIntent

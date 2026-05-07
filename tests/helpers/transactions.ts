@@ -7,32 +7,13 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js"
 
-const POLL_MS    = 400
-const TIMEOUT_MS = 60_000
-
-export async function confirmSignature(connection: Connection, signature: string): Promise<void> {
-  const deadline = Date.now() + TIMEOUT_MS
-  while (Date.now() < deadline) {
-    const { value: statuses } = await connection.getSignatureStatuses([signature], {
-      searchTransactionHistory: false,
-    })
-    const status = statuses[0]
-    if (status !== null) {
-      if (status.err) throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`)
-      return
-    }
-    await new Promise(resolve => setTimeout(resolve, POLL_MS))
-  }
-  throw new Error(`Signature confirmation timeout: ${signature}`)
-}
-
 export async function sendV0(
   connection:   Connection,
   instructions: TransactionInstruction[],
   feePayer:     PublicKey,
   signers:      Keypair[],
 ): Promise<string> {
-  const { blockhash } = await connection.getLatestBlockhash("confirmed")
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
   const message = new TransactionMessage({
     payerKey:        feePayer,
     recentBlockhash: blockhash,
@@ -42,9 +23,15 @@ export async function sendV0(
   tx.sign(signers)
   const signature = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: true,
-    maxRetries:    3,
+    maxRetries:    0,
   })
-  await confirmSignature(connection, signature)
+  const result = await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed",
+  )
+  if (result.value.err) {
+    throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`)
+  }
   return signature
 }
 
@@ -53,6 +40,12 @@ export async function airdrop(
   pubkey:     PublicKey,
   lamports:   number,
 ): Promise<void> {
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
   const signature = await connection.requestAirdrop(pubkey, lamports)
-  await confirmSignature(connection, signature)
+  const result = await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+  )
+  if (result.value.err) {
+    throw new Error(`Airdrop failed: ${JSON.stringify(result.value.err)}`)
+  }
 }
