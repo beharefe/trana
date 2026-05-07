@@ -595,9 +595,9 @@ describe("trana", () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
 
-      // Sign proof for an instruction pointing at System Program — target_program_id differs
-      const fakeIx = new TransactionInstruction({ programId: SystemProgram.programId, data: enforceIx.data, keys: enforceIx.keys })
-      const proof  = buildProofInstructions(passkey, fakeIx, program.programId, owner.publicKey, 0n, "trana.require")
+      // Sign proof with wrong trana_guard_program_id — record_proof still goes to trana
+      // (protectedIx.programId), but the guard ID in the challenge differs from ctx.program_id
+      const proof = buildProofInstructions(passkey, enforceIx, SystemProgram.programId, owner.publicKey, 0n, "trana.require")
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
@@ -608,12 +608,17 @@ describe("trana", () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
 
-      // record_proof carries "trana.require" but the signed challenge was hashed with "trana.not_before"
-      // policy string check passes; intent hash mismatch in challenge binding → 6002
-      const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", "trana.not_before")
+      // overridePolicy sets the policy in BOTH record_proof AND the signed challenge,
+      // so we can't use it here — policy check would fire first (6007).
+      // Instead: build two proofs differing only in policy string, then mix them.
+      // record_proof from proofA carries "trana.require" → policy check passes.
+      // secp256r1 from proofB was signed for "trana.not_before" combined →
+      // SHA256(secp256r1_msg) ≠ SHA256(record_proof combined) → 6002.
+      const proofRequire   = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+      const proofNotBefore = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.not_before")
 
       await expect(
-        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+        sendV0(program.provider.connection, [proofNotBefore.secp256r1Ix, proofRequire.recordProofIx, enforceIx], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6002/)
     })
   })
@@ -763,8 +768,34 @@ describe("trana", () => {
   describe("edge cases", () => {
     it.skip("enforce_with_zero_nonce", async () => {})
     it.skip("enforce_with_max_nonce", async () => {})
-    it.skip("enforce_with_empty_policy", async () => {})
-    it.skip("enforce_with_long_policy", async () => {})
-    it.skip("enforce_with_unicode_policy", async () => {})
+    it("enforce_with_empty_policy", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6007/)
+    })
+
+    it("enforce_with_long_policy", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx  = await buildEnforceIx(program, owner)
+      const proof      = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "x".repeat(200))
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6007/)
+    })
+
+    it("enforce_with_unicode_policy", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.требовать🔑")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6007/)
+    })
   })
 })
