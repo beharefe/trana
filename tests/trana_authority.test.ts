@@ -65,6 +65,10 @@ async function buildAndSendProof(
     owner.publicKey,
     nonce,
     "trana.require",
+    "localhost",
+    undefined,
+    undefined,
+    tranaGuard.programId,
   )
   return sendV0(
     tranaGuard.provider.connection,
@@ -257,7 +261,7 @@ describe("trana_authority", () => {
         })
         .instruction()
 
-      const proof = buildProofInstructions(wrongPasskey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require")
+      const proof = buildProofInstructions(wrongPasskey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, undefined, tranaGuard.programId)
       await expect(
         sendV0(tranaGuard.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, ix], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6003/)
@@ -449,8 +453,9 @@ describe("trana_authority", () => {
       const mintPda = authorityRecordPda(owner.publicKey, mint, authority.programId)
       await setAuthority(conn, payerKp, mint, payerKp, AuthorityType.MintTokens, mintPda)
 
-      const newAuthority = Keypair.generate().publicKey
-      const registry     = registryPda(owner.publicKey, tranaGuard.programId)
+      const newAuthority    = Keypair.generate().publicKey
+      const dummyProgramData = Keypair.generate().publicKey
+      const registry        = registryPda(owner.publicKey, tranaGuard.programId)
 
       const ix = await authority.methods
         .reclaimAuthority(newAuthority)
@@ -458,7 +463,7 @@ describe("trana_authority", () => {
           authorityRecord:  mintPda,
           owner:            owner.publicKey,
           target:           mint,
-          programData:      SystemProgram.programId,
+          programData:      dummyProgramData,
           newAuthorityInfo: newAuthority,
           bpfLoader:        new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
           tokenProgram:     TOKEN_PROGRAM_ID,
@@ -495,9 +500,10 @@ describe("trana_authority", () => {
         .signers([owner])
         .rpc()
 
-      const mintPda      = authorityRecordPda(owner.publicKey, mint, authority.programId)
-      const newAuthority = Keypair.generate().publicKey
-      const registry     = registryPda(owner.publicKey, tranaGuard.programId)
+      const mintPda          = authorityRecordPda(owner.publicKey, mint, authority.programId)
+      const newAuthority     = Keypair.generate().publicKey
+      const dummyProgramData = Keypair.generate().publicKey
+      const registry         = registryPda(owner.publicKey, tranaGuard.programId)
 
       const ix = await authority.methods
         .reclaimAuthority(newAuthority)
@@ -505,7 +511,7 @@ describe("trana_authority", () => {
           authorityRecord:  mintPda,
           owner:            owner.publicKey,
           target:           mint,
-          programData:      SystemProgram.programId,
+          programData:      dummyProgramData,
           newAuthorityInfo: newAuthority,
           bpfLoader:        new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
           tokenProgram:     TOKEN_PROGRAM_ID,
@@ -537,10 +543,11 @@ describe("trana_authority", () => {
         .signers([owner])
         .rpc()
 
-      const mintPda      = authorityRecordPda(owner.publicKey, mint, authority.programId)
-      const newAuthority = Keypair.generate().publicKey
-      const registry     = registryPda(owner.publicKey, tranaGuard.programId)
-      const wrongPasskey  = generateTestPasskey()
+      const mintPda          = authorityRecordPda(owner.publicKey, mint, authority.programId)
+      const newAuthority     = Keypair.generate().publicKey
+      const dummyProgramData = Keypair.generate().publicKey
+      const registry         = registryPda(owner.publicKey, tranaGuard.programId)
+      const wrongPasskey     = generateTestPasskey()
 
       const ix = await authority.methods
         .reclaimAuthority(newAuthority)
@@ -548,7 +555,7 @@ describe("trana_authority", () => {
           authorityRecord:  mintPda,
           owner:            owner.publicKey,
           target:           mint,
-          programData:      SystemProgram.programId,
+          programData:      dummyProgramData,
           newAuthorityInfo: newAuthority,
           bpfLoader:        new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
           tokenProgram:     TOKEN_PROGRAM_ID,
@@ -559,7 +566,7 @@ describe("trana_authority", () => {
         })
         .instruction()
 
-      const proof = buildProofInstructions(wrongPasskey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require")
+      const proof = buildProofInstructions(wrongPasskey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, undefined, tranaGuard.programId)
       await expect(
         sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, ix], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6003/)
