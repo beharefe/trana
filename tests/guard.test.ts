@@ -12,7 +12,7 @@ import {
 } from "./helpers/setup"
 import { sendV0 } from "./helpers/transactions"
 import { buildProofInstructions } from "./helpers/proof"
-import { buildSecp256r1Ix } from "../../packages/sdk/src/secp256r1"
+import { buildSecp256r1Ix } from "../packages/sdk/src/secp256r1"
 
 function expectAnchorError(err: unknown, code: number): void {
   const msg = err instanceof Error ? err.message : String(err)
