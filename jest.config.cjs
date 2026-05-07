@@ -5,6 +5,8 @@ module.exports = {
   testTimeout: 300_000,
   forceExit: true,
   verbose: true,
+  roots: ["<rootDir>/tests"],
+  testMatch: ["**/*.test.ts"],
   transform: {
     "^.+\\.ts$": ["ts-jest", { tsconfig: "tsconfig.test.json", diagnostics: false }],
     "^.+\\.js$": "babel-jest",

@@ -65,7 +65,9 @@ export function buildProofInstructions(
 
   return {
     secp256r1Ix:    buildSecp256r1Ix(handle.pubkey, sig, combined),
-    recordProofIx:  buildRecordProofIx(programId, authData, clientDataJSON, expiryUnix, policy),
+    // record_proof always goes to the real trana program; `programId` only
+    // affects the intent hash that the passkey signed (used in wrong-program tests).
+    recordProofIx:  buildRecordProofIx(protectedIx.programId, authData, clientDataJSON, expiryUnix, policy),
     authData,
     clientDataJSON,
     combined,
