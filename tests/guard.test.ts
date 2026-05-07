@@ -497,25 +497,175 @@ describe("trana", () => {
   })
 
   describe("proof expiry", () => {
-    it.skip("proof_expiry_boundary_valid", async () => {})
-    it.skip("proof_expiry_boundary_invalid", async () => {})
-    it.skip("future_expiry_valid", async () => {})
-    it.skip("stale_expiry_invalid", async () => {})
+    it("proof_expiry_boundary_valid", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const expiry    = Math.floor(Date.now() / 1000) + 10
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
+
+      const sig = await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      expect(sig).toBeTruthy()
+    })
+
+    it("proof_expiry_boundary_invalid", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const expiry    = Math.floor(Date.now() / 1000) - 1
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6001/)
+    })
+
+    it("future_expiry_valid", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const expiry    = Math.floor(Date.now() / 1000) + 3600
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
+
+      const sig = await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      expect(sig).toBeTruthy()
+    })
+
+    it("stale_expiry_invalid", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const expiry    = Math.floor(Date.now() / 1000) - 60
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6001/)
+    })
   })
 
   describe("payload hash", () => {
-    it.skip("payload_hash_matches_instruction", async () => {})
-    it.skip("payload_hash_mismatch_on_amount_change", async () => {})
-    it.skip("payload_hash_mismatch_on_account_change", async () => {})
-    it.skip("payload_hash_mismatch_on_program_change", async () => {})
-    it.skip("payload_hash_mismatch_on_policy_change", async () => {})
+    it("payload_hash_matches_instruction", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("payload_hash_mismatch_on_amount_change", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+
+      // Use Policy::Limit so params contain a tamper-able amount field
+      const enforceIx = await program.methods
+        .enforce({ limit: { paramOffset: 0, limit: new anchor.BN(1_000) } })
+        .accounts({ owner: owner.publicKey })
+        .instruction()
+      const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.limit")
+
+      // Tamper: change limit 1_000 → 2_000 in the encoded instruction
+      // Layout after Anchor disc (8B): variant(1B=3) + param_offset(1B=0) + limit(8B)
+      const tamperedData = Buffer.from(enforceIx.data)
+      new DataView(tamperedData.buffer, tamperedData.byteOffset + 10).setBigUint64(0, 2_000n, true)
+      const tamperedEnforceIx = new TransactionInstruction({ programId: enforceIx.programId, keys: enforceIx.keys, data: tamperedData })
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, tamperedEnforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("payload_hash_mismatch_on_account_change", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+
+      // Sign proof for a version with an extra account — accounts_hash differs from the real enforceIx
+      const enforceIxWithExtra = new TransactionInstruction({
+        programId: enforceIx.programId,
+        data:      enforceIx.data,
+        keys:      [...enforceIx.keys, { pubkey: Keypair.generate().publicKey, isSigner: false, isWritable: false }],
+      })
+      const proof = buildProofInstructions(passkey, enforceIxWithExtra, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("payload_hash_mismatch_on_program_change", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+
+      // Sign proof for an instruction pointing at System Program — target_program_id differs
+      const fakeIx = new TransactionInstruction({ programId: SystemProgram.programId, data: enforceIx.data, keys: enforceIx.keys })
+      const proof  = buildProofInstructions(passkey, fakeIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("payload_hash_mismatch_on_policy_change", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+
+      // record_proof carries "trana.require" but the signed challenge was hashed with "trana.not_before"
+      // policy string check passes; intent hash mismatch in challenge binding → 6002
+      const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", "trana.not_before")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("multi-instruction", () => {
-    it.skip("enforce_with_multiple_instructions", async () => {})
-    it.skip("enforce_with_nested_cpi", async () => {})
-    it.skip("enforce_with_compute_budget_ix", async () => {})
-    it.skip("enforce_with_priority_fee_ix", async () => {})
+    it("enforce_with_multiple_instructions", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Extra instruction after enforce — enforce is still at index 2, triple stays intact
+      const extraIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx, extraIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it.skip("enforce_with_nested_cpi", async () => {
+      // Requires a dedicated CPI-caller test program that invokes trana::enforce.
+      // The outer tx would be [secp256r1, recordProof, cpiCallerIx]; enforce sees
+      // current_idx=2 via sysvar::instructions, so secp_idx=0 and proof_idx=1 are correct.
+    })
+
+    it("enforce_with_compute_budget_ix", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // computeBudget at 0, secp256r1 at 1, recordProof at 2, enforce at 3 → secp_idx=1 ✓
+      const budgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+      await sendV0(program.provider.connection, [budgetIx, proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("enforce_with_priority_fee_ix", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // priority fee at 0, secp256r1 at 1, recordProof at 2, enforce at 3 → secp_idx=1 ✓
+      const priorityIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 })
+      await sendV0(program.provider.connection, [priorityIx, proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
   })
 
   describe("instruction introspection", () => {
