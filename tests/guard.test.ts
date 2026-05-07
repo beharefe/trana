@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor"
-import { TransactionInstruction, SystemProgram, Keypair } from "@solana/web3.js"
+import { ComputeBudgetProgram, TransactionInstruction, SystemProgram, Keypair } from "@solana/web3.js"
+import { p256 } from "@noble/curves/nist"
 import {
   getProgram,
   registryPda,
@@ -11,6 +12,7 @@ import {
 } from "./helpers/setup"
 import { sendV0 } from "./helpers/transactions"
 import { buildProofInstructions } from "./helpers/proof"
+import { buildSecp256r1Ix } from "../../packages/sdk/src/secp256r1"
 
 function expectAnchorError(err: unknown, code: number): void {
   const msg = err instanceof Error ? err.message : String(err)
@@ -289,11 +291,78 @@ describe("trana", () => {
   })
 
   describe("secp256r1 instruction", () => {
-    it.skip("secp256r1_instruction_missing", async () => {})
-    it.skip("secp256r1_instruction_wrong_index", async () => {})
-    it.skip("secp256r1_instruction_invalid_signature", async () => {})
-    it.skip("secp256r1_instruction_invalid_pubkey", async () => {})
-    it.skip("secp256r1_instruction_wrong_message", async () => {})
+    it("secp256r1_instruction_missing", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // No secp256r1Ix — enforce lands at index 1, current_idx < 2 fires
+      await expect(
+        sendV0(program.provider.connection, [proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6000/)
+    })
+
+    it("secp256r1_instruction_wrong_index", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // secp256r1 at index 0, but enforce is at index 3 → secp_idx=1 → ix[1] is ComputeBudget, not secp256r1
+      const paddingIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+      await expect(
+        sendV0(program.provider.connection,
+          [proof.secp256r1Ix, paddingIx, proof.recordProofIx, enforceIx],
+          owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6000/)
+    })
+
+    it("secp256r1_instruction_invalid_signature", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Zero-fill the 64-byte signature field (bytes 49–112) — precompile rejects (r,s)=(0,0)
+      const data = Buffer.from(proof.secp256r1Ix.data)
+      data.fill(0, 49, 113)
+      const invalidSigIx = new TransactionInstruction({ ...proof.secp256r1Ix, data })
+
+      await expect(
+        sendV0(program.provider.connection, [invalidSigIx, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow()
+    })
+
+    it("secp256r1_instruction_invalid_pubkey", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Replace 33-byte pubkey (bytes 16–48) with 0x02 prefix + 32×0xff — not a valid P-256 point
+      const data = Buffer.from(proof.secp256r1Ix.data)
+      data[16] = 0x02
+      data.fill(0xff, 17, 49)
+      const invalidPubkeyIx = new TransactionInstruction({ ...proof.secp256r1Ix, data })
+
+      await expect(
+        sendV0(program.provider.connection, [invalidPubkeyIx, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow()
+    })
+
+    it("secp256r1_instruction_wrong_message", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Sign a different combined message with the same passkey — precompile passes,
+      // but trana's SHA256(wrongCombined) ≠ expected e-value from record_proof → 6002
+      const wrongCombined = Uint8Array.from(proof.combined)
+      wrongCombined[0] ^= 0x01
+      const wrongSig         = p256.sign(wrongCombined, passkey.privKey)
+      const wrongSecp256r1Ix = buildSecp256r1Ix(passkey.pubkey, wrongSig, wrongCombined)
+
+      await expect(
+        sendV0(program.provider.connection, [wrongSecp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("record_proof", () => {
