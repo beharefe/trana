@@ -11,7 +11,7 @@ module.exports = {
     "^.+\\.ts$": ["ts-jest", { tsconfig: "tsconfig.test.json", diagnostics: false }],
     "^.+\\.js$": "babel-jest",
   },
-  transformIgnorePatterns: ["/node_modules/(?!@noble/)"],
+  transformIgnorePatterns: ["/node_modules/(?!@noble|@solana/spl-token/)"],
   moduleNameMapper: {
     "^@noble/curves/nist$": "<rootDir>/node_modules/@noble/curves/nist.js",
   },
