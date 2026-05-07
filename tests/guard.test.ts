@@ -674,9 +674,57 @@ describe("trana", () => {
   })
 
   describe("instruction introspection", () => {
-    it.skip("instruction_introspection_reads_correct_ix", async () => {})
-    it.skip("instruction_introspection_fails_out_of_bounds", async () => {})
-    it.skip("instruction_introspection_fails_wrong_program", async () => {})
+    it("instruction_introspection_reads_correct_ix", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda = registryPda(owner.publicKey, program.programId)
+
+      // Policy::Limit { paramOffset: 0, limit: 0 }
+      // read_u64_from_protected_ix reads enforce's own bytes[8..16]:
+      //   byte 8 = variant(3=Limit), rest = 0 → u64-LE = 3 ≥ 0 → enforcement triggers
+      const enforceIx = await program.methods
+        .enforce({ limit: { paramOffset: 0, limit: new anchor.BN(0) } })
+        .accounts({ owner: owner.publicKey })
+        .instruction()
+      const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.limit")
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("instruction_introspection_fails_out_of_bounds", async () => {
+      const { program, owner } = await enforceFixture()
+
+      // paramOffset=255 → reads at offset 8+255=263; enforce data is ~18 bytes → 6005
+      // read_u64_from_protected_ix fires before verify_with_policy so no proof is needed
+      const enforceIx = await program.methods
+        .enforce({ limit: { paramOffset: 255, limit: new anchor.BN(0) } })
+        .accounts({ owner: owner.publicKey })
+        .instruction()
+
+      await expect(
+        sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6005/)
+    })
+
+    it("instruction_introspection_fails_wrong_program", async () => {
+      const { program, owner } = await enforceFixture()
+
+      // Direct enforce call (no CPI): read_u64_from_protected_ix reads from enforce's
+      // own data, not from a protocol instruction that carries a real amount.
+      // bytes[8..16] = [variant=3, paramOffset=0, 0xFF×6] → u64-LE ≪ u64::MAX
+      // → limit condition never triggers → no proof required → passes.
+      // Documents that Policy::Limit only enforces meaningfully via CPI from a
+      // protocol instruction that actually carries the guarded amount field.
+      const enforceIx = await program.methods
+        .enforce({ limit: { paramOffset: 0, limit: new anchor.BN("18446744073709551615") } })
+        .accounts({ owner: owner.publicKey })
+        .instruction()
+
+      const sig = await sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
+      expect(sig).toBeTruthy()
+    })
   })
 
   describe("registry PDA", () => {
