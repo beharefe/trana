@@ -431,10 +431,67 @@ describe("trana", () => {
   })
 
   describe("nonce and replay", () => {
-    it.skip("nonce_increment_after_success", async () => {})
-    it.skip("nonce_not_incremented_on_failure", async () => {})
-    it.skip("replay_attack_same_tx", async () => {})
-    it.skip("replay_attack_modified_tx", async () => {})
+    it("nonce_increment_after_success", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      const before = await program.account.twoFactorRegistry.fetch(pda)
+      expect((before.nonce as anchor.BN).toNumber()).toBe(0)
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("nonce_not_incremented_on_failure", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const pda          = registryPda(owner.publicKey, program.programId)
+      const enforceIx    = await buildEnforceIx(program, owner)
+      const wrongPasskey = generateTestPasskey()
+      const proof        = buildProofInstructions(wrongPasskey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      const before = await program.account.twoFactorRegistry.fetch(pda)
+      const nonceBefore = (before.nonce as anchor.BN).toNumber()
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6003/)
+
+      const after = await program.account.twoFactorRegistry.fetch(pda)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(nonceBefore)
+    })
+
+    it("replay_attack_same_tx", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      // Identical proof + instruction bytes, fresh blockhash — nonce on-chain is now 1, proof was signed for 0
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("replay_attack_modified_tx", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Swap in a different policy after signing — params_hash changes, proof no longer matches
+      const tamperedEnforceIx = await program.methods
+        .enforce({ notBefore: { slot: new anchor.BN(0) } })
+        .accounts({ owner: owner.publicKey })
+        .instruction()
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, tamperedEnforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("proof expiry", () => {
