@@ -1,6 +1,6 @@
 import * as anchor from "@coral-xyz/anchor"
 import { Keypair, PublicKey } from "@solana/web3.js"
-import type { Trana } from "../../target/types/trana"
+import type { TranaGuard } from "../../target/types/trana_guard"
 import { airdrop, sendV0 } from "./transactions"
 import { generateTestPasskey } from "../../packages/sdk/src/testing"
 
@@ -9,8 +9,8 @@ export { generateTestPasskey }
 
 export const SOL = 1_000_000_000
 
-export function getProgram(): anchor.Program<Trana> {
-  return anchor.workspace.Trana as anchor.Program<Trana>
+export function getProgram(): anchor.Program<TranaGuard> {
+  return anchor.workspace.TranaGuard as anchor.Program<TranaGuard>
 }
 
 export function registryPda(owner: PublicKey, programId: PublicKey): PublicKey {
@@ -37,7 +37,7 @@ export type ConfigContext = {
 
 /** Initialize the config PDA if it doesn't exist, otherwise read existing values. */
 export async function ensureConfig(
-  program: anchor.Program<Trana>,
+  program: anchor.Program<TranaGuard>,
   payer:   anchor.Wallet,
 ): Promise<ConfigContext> {
   try {
@@ -63,7 +63,7 @@ export async function ensureConfig(
 
 /** Generate a funded wallet ready for testing. */
 export async function setupWallet(
-  program: anchor.Program<Trana>,
+  program: anchor.Program<TranaGuard>,
   lamports = 5 * SOL,
 ): Promise<{ owner: Keypair }> {
   const owner = Keypair.generate()
@@ -72,7 +72,7 @@ export async function setupWallet(
 }
 
 export async function registerPasskey(
-  program:  anchor.Program<Trana>,
+  program:  anchor.Program<TranaGuard>,
   owner:    Keypair,
   passkey:  { pubkey: Uint8Array; credentialId: Uint8Array },
   treasury: PublicKey,

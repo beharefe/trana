@@ -1,12 +1,12 @@
 [package]
-name = "trana"
+name = "trana_guard"
 version = "0.1.0"
-description = "Trana — Onchain passkey authorization primitive for Solana"
+description = "Trana Guard — Onchain passkey authorization primitive for Solana"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "trana"
+name = "trana_guard"
 
 [features]
 default = []
