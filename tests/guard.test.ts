@@ -916,7 +916,7 @@ describe("trana", () => {
       const events      = [...eventParser.parseLogs(txInfo!.meta!.logMessages!)]
 
       expect(events.length).toBe(1)
-      expect(events[0].name).toBe("ProofVerified")
+      expect(events[0].name).toBe("proofVerified")
       expect((events[0].data as any).owner.toBase58()).toBe(owner.publicKey.toBase58())
       expect((events[0].data as any).nonce.toString()).toBe("0")
     })
