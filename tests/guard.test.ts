@@ -366,11 +366,68 @@ describe("trana", () => {
   })
 
   describe("record_proof", () => {
-    it.skip("record_proof_missing", async () => {})
-    it.skip("record_proof_wrong_order", async () => {})
-    it.skip("record_proof_wrong_payload_hash", async () => {})
-    it.skip("record_proof_wrong_registry", async () => {})
-    it.skip("record_proof_wrong_owner", async () => {})
+    it("record_proof_missing", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // No record_proof: secp256r1 fills both ix[0] and ix[1]; ix[1] fails the discriminator check
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.secp256r1Ix, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6005/)
+    })
+
+    it("record_proof_wrong_order", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Swapped order: record_proof at ix[0], secp256r1 at ix[1] — secp256r1 fails the discriminator check at ix[N-1]
+      await expect(
+        sendV0(program.provider.connection, [proof.recordProofIx, proof.secp256r1Ix, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6005/)
+    })
+
+    it("record_proof_wrong_payload_hash", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proofA    = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n,   "trana.require")
+      const proofB    = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 999n, "trana.require")
+
+      // secp256r1 signed for nonce=0, record_proof carries nonce=999 challenge — SHA256 hash mismatch
+      await expect(
+        sendV0(program.provider.connection, [proofA.secp256r1Ix, proofB.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("record_proof_wrong_registry", async () => {
+      const { program, owner: owner1, passkey: passkey1, treasury } = await enforceFixture()
+      const { owner: owner2 } = await setupWallet(program)
+      const passkey2 = generateTestPasskey()
+      await registerPasskey(program, owner2, passkey2, treasury)
+
+      const enforceIx1 = await buildEnforceIx(program, owner1)
+      const proof      = buildProofInstructions(passkey1, enforceIx1, program.programId, owner1.publicKey, 0n, "trana.require")
+      const enforceIx2 = await buildEnforceIx(program, owner2)
+
+      // Proof is valid for owner1's registry; enforce is called with owner2's registry — intent hash differs
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx2], owner2.publicKey, [owner2])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("record_proof_wrong_owner", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx    = await buildEnforceIx(program, owner)
+      const differentOwner = Keypair.generate().publicKey
+
+      // Proof's intent was signed for a different wallet address — enforce sees owner.publicKey ≠ differentOwner
+      const proof = buildProofInstructions(passkey, enforceIx, program.programId, differentOwner, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("nonce and replay", () => {
