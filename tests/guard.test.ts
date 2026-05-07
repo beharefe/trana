@@ -638,7 +638,7 @@ describe("trana", () => {
       expect((after.nonce as anchor.BN).toNumber()).toBe(1)
     })
 
-    it.skip("enforce_with_nested_cpi", async () => {
+    it.skip("[Skipped because it requires a dedicated CPI-caller test program that invokes trana::enforce.] enforce_with_nested_cpi", async () => {
       // Requires a dedicated CPI-caller test program that invokes trana::enforce.
       // The outer tx would be [secp256r1, recordProof, cpiCallerIx]; enforce sees
       // current_idx=2 via sysvar::instructions, so secp_idx=0 and proof_idx=1 are correct.
@@ -728,20 +728,113 @@ describe("trana", () => {
   })
 
   describe("registry PDA", () => {
-    it.skip("registry_pda_derivation_valid", async () => {})
-    it.skip("registry_pda_derivation_invalid", async () => {})
-    it.skip("registry_owner_mismatch", async () => {})
+    it("registry_pda_derivation_valid", async () => {
+      const { program, owner } = await enforceFixture()
+      const pda  = registryPda(owner.publicKey, program.programId)
+      const data = await program.account.twoFactorRegistry.fetch(pda)
+      expect(data.owner.toBase58()).toBe(owner.publicKey.toBase58())
+      expect(data.enabled).toBe(true)
+    })
+
+    it("registry_pda_derivation_invalid", async () => {
+      const { program, owner: owner1 } = await enforceFixture()
+      const owner2 = Keypair.generate()
+
+      const pda1 = registryPda(owner1.publicKey, program.programId)
+      const pda2 = registryPda(owner2.publicKey, program.programId)
+      expect(pda1.toBase58()).not.toBe(pda2.toBase58())
+
+      // owner2 has no registry — fetching it throws
+      await expect(
+        program.account.twoFactorRegistry.fetch(pda2)
+      ).rejects.toThrow()
+    })
+
+    it("registry_owner_mismatch", async () => {
+      const { program, owner: owner1, passkey: passkey1, treasury } = await enforceFixture()
+      const { owner: owner2 } = await setupWallet(program)
+      await registerPasskey(program, owner2, generateTestPasskey(), treasury)
+
+      const enforceIx1 = await buildEnforceIx(program, owner1)
+      const proof      = buildProofInstructions(passkey1, enforceIx1, program.programId, owner1.publicKey, 0n, "trana.require")
+      const enforceIx2 = await buildEnforceIx(program, owner2)
+
+      // Proof signed for owner1's registry; enforce targets owner2's registry → intent hash mismatch
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx2], owner2.publicKey, [owner2])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("registry state", () => {
-    it.skip("disabled_registry_rejected", async () => {})
-    it.skip("uninitialized_registry_rejected", async () => {})
+    it.skip("disabled_registry_rejected", async () => {
+      // No disable_registry instruction exists yet — requires a future program change.
+      // The Enforce constraint `registry.enabled @ RegistryDisabled` (6004) would fire.
+    })
+
+    it("uninitialized_registry_rejected", async () => {
+      const program = getProgram()
+      const owner   = Keypair.generate()
+
+      // Registry PDA for this owner was never created — Anchor fails to load it
+      const enforceIx = await buildEnforceIx(program, owner)
+      await expect(
+        sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow()
+    })
   })
 
   describe("isolation", () => {
-    it.skip("multiple_registries_isolated", async () => {})
-    it.skip("multiple_users_isolated", async () => {})
-    it.skip("concurrent_nonce_usage", async () => {})
+    it("multiple_registries_isolated", async () => {
+      const { program, owner: owner1, passkey: passkey1, treasury } = await enforceFixture()
+      const { owner: owner2 } = await setupWallet(program)
+      await registerPasskey(program, owner2, generateTestPasskey(), treasury)
+
+      // owner1's proof submitted against owner2's enforce — wallet in intent differs → 6002
+      const enforceIx2 = await buildEnforceIx(program, owner2)
+      const proof      = buildProofInstructions(passkey1, enforceIx2, program.programId, owner1.publicKey, 0n, "trana.require")
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx2], owner2.publicKey, [owner2])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("multiple_users_isolated", async () => {
+      const { program, owner: owner1, passkey: passkey1, treasury } = await enforceFixture()
+      const pda1           = registryPda(owner1.publicKey, program.programId)
+      const { owner: owner2 } = await setupWallet(program)
+      const passkey2       = generateTestPasskey()
+      await registerPasskey(program, owner2, passkey2, treasury)
+      const pda2           = registryPda(owner2.publicKey, program.programId)
+
+      // Each owner enforces with their own valid proof — nonces increment independently
+      const enforceIx1 = await buildEnforceIx(program, owner1)
+      const proof1     = buildProofInstructions(passkey1, enforceIx1, program.programId, owner1.publicKey, 0n, "trana.require")
+      await sendV0(program.provider.connection, [proof1.secp256r1Ix, proof1.recordProofIx, enforceIx1], owner1.publicKey, [owner1])
+
+      const enforceIx2 = await buildEnforceIx(program, owner2)
+      const proof2     = buildProofInstructions(passkey2, enforceIx2, program.programId, owner2.publicKey, 0n, "trana.require")
+      await sendV0(program.provider.connection, [proof2.secp256r1Ix, proof2.recordProofIx, enforceIx2], owner2.publicKey, [owner2])
+
+      const data1 = await program.account.twoFactorRegistry.fetch(pda1)
+      const data2 = await program.account.twoFactorRegistry.fetch(pda2)
+      expect((data1.nonce as anchor.BN).toNumber()).toBe(1)
+      expect((data2.nonce as anchor.BN).toNumber()).toBe(1)
+    })
+
+    it("concurrent_nonce_usage", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // First submission consumes nonce=0
+      await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      // Second submission with the same nonce=0 proof → on-chain nonce is now 1 → 6002
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6002/)
+    })
   })
 
   describe("input validation", () => {
