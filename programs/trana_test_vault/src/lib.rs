@@ -3,12 +3,22 @@
 // trana_test_vault: passkey-gated SOL vault for devnet demos and end-to-end tests.
 //
 // The "aha moment" flow:
-//   1. owner calls initialize()         — creates vault PDA, registers passkey elsewhere
-//   2. anyone calls deposit()           — open to all; vault balance is publicly visible
-//   3. try calling withdraw() yourself  — fails without a valid secp256r1 proof
-//   4. owner + passkey calls withdraw() — succeeds; balance moves to destination
+//   1. owner calls initialize(label, policy)  — picks one of 4 guard policies
+//   2. anyone calls deposit()                 — open to all; balance is publicly visible
+//   3. try calling withdraw() yourself        — fails per the chosen policy
+//   4. owner + passkey calls withdraw()       — succeeds when policy conditions are met
 //
-// Transaction shape (same as every trana_guard consumer):
+// Four policy flavours (choose at create time):
+//
+//   Require               → passkey always required          policyId: "trana.require"
+//   Limit { lamports }    → free for small amounts,          policyId: "trana.limit"
+//                           passkey for withdrawals ≥ limit
+//   NotBefore { slot }    → passkey required until slot       policyId: "trana.not_before"
+//                           passes, then vault unlocks freely
+//   NotAfter  { slot }    → vault free until slot passes,    policyId: "trana.not_after"
+//                           then passkey required forever
+//
+// Transaction shape for gated withdrawals (same as every trana_guard consumer):
 //   ix[N-2]: secp256r1 precompile
 //   ix[N-1]: trana_guard::record_proof
 //   ix[N]:   trana_test_vault::withdraw | close_vault
@@ -35,23 +45,40 @@ declare_id!("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa");
 
 pub const VAULT_SEED: &[u8] = b"trana-vault";
 
+// ── Policy mapping ─────────────────────────────────────────────────────────────
+
+fn to_guard_policy(vp: &VaultPolicy) -> Policy {
+    match vp {
+        VaultPolicy::Require                     => Policy::Require,
+        VaultPolicy::Limit    { lamports }       => Policy::Limit { param_offset: 0, limit: *lamports },
+        VaultPolicy::NotBefore { slot }          => Policy::NotBefore { slot: *slot },
+        VaultPolicy::NotAfter  { slot }          => Policy::NotAfter  { slot: *slot },
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[program]
 pub mod trana_test_vault {
     use super::*;
 
     // ── Initialize ────────────────────────────────────────────────────────────
 
-    /// Create the vault PDA. No passkey required — wallet signature only.
-    /// After this, the owner must register a passkey via trana_guard::register_passkey.
-    pub fn initialize(ctx: Context<Initialize>, label: String) -> Result<()> {
+    /// Create the vault PDA and choose its withdrawal policy.
+    /// No passkey required — wallet signature only.
+    ///
+    /// After this, the owner must register a passkey via trana_guard.
+    pub fn initialize(ctx: Context<Initialize>, label: String, policy: VaultPolicy) -> Result<()> {
         require!(label.len() <= 32, VaultError::LabelTooLong);
 
-        let vault_key  = ctx.accounts.vault.key();
-        let owner_key  = ctx.accounts.owner.key();
-        let vault      = &mut ctx.accounts.vault;
-        vault.owner    = owner_key;
-        vault.bump     = ctx.bumps.vault;
-        vault.label    = label.clone();
+        let vault_key = ctx.accounts.vault.key();
+        let owner_key = ctx.accounts.owner.key();
+        let vault     = &mut ctx.accounts.vault;
+
+        vault.owner           = owner_key;
+        vault.bump            = ctx.bumps.vault;
+        vault.label           = label.clone();
+        vault.policy          = policy;
         vault.total_deposited = 0;
 
         emit!(VaultInitialized { vault: vault_key, owner: owner_key, label });
@@ -63,8 +90,9 @@ pub mod trana_test_vault {
     // ── Deposit ───────────────────────────────────────────────────────────────
 
     /// Deposit SOL into the vault. Open to anyone — no proof required.
-    /// This is intentional: the demo shows that anyone can fund the vault,
-    /// but only the passkey owner can drain it.
+    ///
+    /// This is intentional: anyone can fund the vault (great for demos where
+    /// audience members top it up), but only the passkey owner can drain it.
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
@@ -82,9 +110,8 @@ pub mod trana_test_vault {
             ],
         )?;
 
-        ctx.accounts.vault.total_deposited = ctx.accounts.vault
-            .total_deposited
-            .saturating_add(amount);
+        ctx.accounts.vault.total_deposited =
+            ctx.accounts.vault.total_deposited.saturating_add(amount);
 
         emit!(VaultDeposit {
             vault:     ctx.accounts.vault.key(),
@@ -98,9 +125,17 @@ pub mod trana_test_vault {
 
     // ── Withdraw ──────────────────────────────────────────────────────────────
 
-    /// Withdraw SOL from the vault. Requires a valid passkey proof.
-    /// This is the crux of the demo: the vault address is public, the balance
-    /// is visible, but without the passkey signature this instruction will fail.
+    /// Withdraw SOL from the vault, subject to the vault's policy.
+    ///
+    /// Policy behaviour:
+    ///   Require               → always needs secp256r1 + record_proof preamble
+    ///   Limit { lamports }    → free if amount < lamports; proof required if ≥ limit
+    ///   NotBefore { slot }    → proof required until slot passes; free after
+    ///   NotAfter  { slot }    → free until slot passes; proof required after
+    ///
+    /// Frontend: check vault.policy before building the transaction.
+    /// For Limit, add the proof triple only when amount ≥ vault.policy.lamports.
+    /// For NotBefore/NotAfter, add the proof triple according to current slot.
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
@@ -108,7 +143,8 @@ pub mod trana_test_vault {
         let rent     = Rent::get()?.minimum_balance(Vault::space());
         require!(lamports.saturating_sub(rent) >= amount, VaultError::InsufficientFunds);
 
-        // Passkey gate — reads secp256r1 + record_proof from ix sysvar
+        // Map vault-stored policy → trana_guard Policy and enforce
+        let guard_policy = to_guard_policy(&ctx.accounts.vault.policy);
         trana_guard::cpi::enforce(
             CpiContext::new(
                 ctx.accounts.trana_guard_program.to_account_info(),
@@ -118,7 +154,7 @@ pub mod trana_test_vault {
                     instructions: ctx.accounts.instructions.to_account_info(),
                 },
             ),
-            Policy::Require,
+            guard_policy,
         )?;
 
         // Transfer from PDA — direct lamport manipulation (PDA is program-owned)
@@ -141,10 +177,11 @@ pub mod trana_test_vault {
 
     // ── Close vault ───────────────────────────────────────────────────────────
 
-    /// Withdraw all remaining SOL and close the vault. Requires passkey proof.
-    /// The account is closed (rent returned to owner) via Anchor's `close` constraint.
+    /// Drain all remaining SOL and permanently close the vault.
+    ///
+    /// Always requires passkey (Policy::Require) regardless of the vault's
+    /// configured withdrawal policy — closing is irreversible.
     pub fn close_vault(ctx: Context<CloseVault>) -> Result<()> {
-        // Passkey gate
         trana_guard::cpi::enforce(
             CpiContext::new(
                 ctx.accounts.trana_guard_program.to_account_info(),
@@ -157,9 +194,9 @@ pub mod trana_test_vault {
             Policy::Require,
         )?;
 
-        // Move any excess SOL above rent to destination before Anchor closes the account
-        let rent    = Rent::get()?.minimum_balance(Vault::space());
-        let excess  = ctx.accounts.vault.to_account_info().lamports().saturating_sub(rent);
+        // Move all SOL above rent to destination before Anchor closes the account
+        let rent   = Rent::get()?.minimum_balance(Vault::space());
+        let excess = ctx.accounts.vault.to_account_info().lamports().saturating_sub(rent);
         if excess > 0 {
             **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= excess;
             **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += excess;
@@ -178,12 +215,12 @@ pub mod trana_test_vault {
 // ── Account contexts ───────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-#[instruction(label: String)]
+#[instruction(label: String, policy: VaultPolicy)]
 pub struct Initialize<'info> {
     #[account(
         init,
         payer  = owner,
-        space  = Vault::DISCRIMINATOR.len() + Vault::INIT_SPACE,
+        space  = Vault::space(),
         seeds  = [VAULT_SEED, owner.key().as_ref()],
         bump,
     )]
