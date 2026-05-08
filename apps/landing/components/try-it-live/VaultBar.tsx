@@ -46,7 +46,7 @@ function SeedPhraseModal({ onClose }: { onClose: () => void }) {
               key={i}
               className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/[0.08] bg-bg"
             >
-              <span className="font-mono text-[10px] text-faint w-4 shrink-0">{i + 1}</span>
+              <span className="font-mono text-[10px] text-faint w-4 shrink-0 select-none">{i + 1}</span>
               <span className="font-mono text-[12px] text-ink">{word}</span>
             </div>
           ))}
