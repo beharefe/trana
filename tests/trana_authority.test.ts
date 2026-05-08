@@ -1929,7 +1929,7 @@ describe("trana_authority", () => {
     it("execute_upgrade_success_after_transferring_upgrade_authority_to_pda", async () => {
       // Uses trana_test_vault's own .so — upgrading to the same binary is valid
       // for testing the mechanism. The CLI handles the ~290 write transactions.
-      const soPath = path.join(__dirname, "../../target/deploy/trana_test_vault.so")
+      const soPath = path.join(__dirname, "../target/deploy/trana_test_vault.so")
 
       const { conn, payerKp, owner, passkey, programId, programData, upgradePda, registry,
               advanceRestoreNonce, restore } = await upgradeFixture()
