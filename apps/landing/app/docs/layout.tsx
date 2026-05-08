@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { Footer, Layout, Navbar } from "nextra-theme-docs"
 import { getPageMap } from "nextra/page-map"
 import "nextra-theme-docs/style.css"
+import { TranaWordmark } from "@/components/Logo"
 
 export default async function DocsLayout({ children }: { children: ReactNode }) {
   const pageMap = await getPageMap("/docs")
@@ -10,7 +11,7 @@ export default async function DocsLayout({ children }: { children: ReactNode }) 
       nextThemes={{ forcedTheme: "dark" }}
       navbar={
         <Navbar
-          logo={<span style={{ fontWeight: 700, letterSpacing: "-0.02em" }}>Trana</span>}
+          logo={<TranaWordmark size="22px" />}
         />
       }
       pageMap={pageMap}
