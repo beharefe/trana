@@ -2,35 +2,41 @@
 @config "../tailwind.config.ts";
 
 :root {
-  --bg:       #08090b;
-  --bg-card:  #0d0e11;
-  --fg:       #f4f4f5;
-  --fg-muted: #a1a1aa;
-  --fg-faint: #71717a;
-  --border:   rgba(255,255,255,0.08);
-  --border-2: rgba(255,255,255,0.14);
-  --accent:   #7af0a8;
-  --coral:    #ff7a59;
-  --violet:   #b794ff;
-  --danger:   #ff5560;
-  --sky:      #7aa8ff;
-  --gold:     #f3d77a;
-  --code-bg:  #0f1013;
+  /* ── Brand palette ─────────────────────────────────────────── */
+  --ink:    #0a0a0b;   /* primary surface                         */
+  --bone:   #ebe8e0;   /* primary type                            */
+  --lime:   #c6ff3a;   /* accent · primary                        */
+  --plasma: #ff5b1f;   /* accent · alert                          */
+  --azure:  #5aa9ff;   /* accent · data                           */
 
-  /* Nextra docs theme — brand green accent, our dark bg */
-  --nextra-primary-hue: 144;
-  --nextra-primary-saturation: 80%;
-  --nextra-primary-lightness: 71%;
-  --nextra-bg: 8 9 11;
+  /* ── Tones ─────────────────────────────────────────────────── */
+  --bg:        var(--ink);
+  --bg-card:   #111114;
+  --fg:        var(--bone);
+  --fg-muted:  rgba(235,232,224,0.62);
+  --fg-faint:  rgba(235,232,224,0.38);
+  --border:    rgba(235,232,224,0.10);
+  --border-2:  rgba(235,232,224,0.18);
+
+  /* ── Legacy aliases (keep existing component classes working) ─ */
+  --accent:  var(--lime);
+  --coral:   var(--plasma);
+  --sky:     var(--azure);
+  --danger:  #ff3b4e;
+  --gold:    #f3d77a;
+  --violet:  #b794ff;
+  --code-bg: #0d0d10;
+
+  /* ── Nextra docs overrides ─────────────────────────────────── */
+  --nextra-primary-hue:        73;
+  --nextra-primary-saturation: 100%;
+  --nextra-primary-lightness:  62%;
+  --nextra-bg:                 10 10 11;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html {
-  scroll-behavior: smooth;
-}
+html { scroll-behavior: smooth; }
 
 body {
   background: var(--bg);
@@ -40,10 +46,10 @@ body {
 }
 
 ::selection {
-  background: rgba(122, 240, 168, 0.2);
-  color: #7af0a8;
+  background: rgba(198,255,58,0.18);
+  color: var(--lime);
 }
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(235,232,224,0.10); border-radius: 2px; }

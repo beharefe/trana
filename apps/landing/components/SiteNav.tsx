@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { TranaWordmark } from "./Logo"
 
 export function SiteNav() {
   const [scrolled, setScrolled] = useState(false)
@@ -23,11 +24,8 @@ export function SiteNav() {
           : "border-b border-transparent bg-gradient-to-b from-[#08090b]/75 to-transparent",
       ].join(" ")}
     >
-      <Link
-        href="/"
-        className="flex items-center gap-2.5 font-semibold text-[15px] tracking-[-0.01em] text-ink"
-      >
-        <span>Trana</span>
+      <Link href="/" className="flex items-center">
+        <TranaWordmark size="20px" />
       </Link>
 
       <div className="flex items-center gap-[26px] text-[13.5px] text-muted">

@@ -8,22 +8,30 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans:  ["var(--font-inter)", "system-ui", "sans-serif"],
-        serif: ["var(--font-serif)", "Georgia", "serif"],
+        sans:  ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+        // serif kept as alias so existing font-serif classes render in Space Grotesk
+        serif: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+        mono:  ["var(--font-jetbrains-mono)", "ui-monospace", "monospace"],
       },
       colors: {
-        bg:     "#08090b",
-        card:   "#0d0e11",
-        border: "rgba(255,255,255,0.08)",
-        ink:    "#f4f4f5",
-        muted:  "#a1a1aa",
-        faint:  "#71717a",
-        accent: "#7af0a8",
-        coral:  "#ff7a59",
-        violet: "#b794ff",
-        danger: "#ff5560",
-        sky:    "#7aa8ff",
+        bg:     "#0a0a0b",
+        card:   "#111114",
+        border: "rgba(235,232,224,0.10)",
+        ink:    "#ebe8e0",     // primary type · bone
+        muted:  "rgba(235,232,224,0.62)",
+        faint:  "rgba(235,232,224,0.38)",
+        // Semantic accent tokens (keep existing class names)
+        accent: "#c6ff3a",    // lime
+        coral:  "#ff5b1f",    // plasma
+        sky:    "#5aa9ff",    // azure
+        danger: "#ff3b4e",
         gold:   "#f3d77a",
+        violet: "#b794ff",
+        // Brand name tokens
+        lime:   "#c6ff3a",
+        plasma: "#ff5b1f",
+        azure:  "#5aa9ff",
+        bone:   "#ebe8e0",
       },
       spacing: {
         "18": "4.5rem",
