@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 
+#[cfg(feature = "devnet")]
 declare_id!("TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw");
+
+#[cfg(not(feature = "devnet"))]
+declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
 
 pub mod error;
 pub mod events;

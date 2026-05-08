@@ -33,8 +33,12 @@ keypairs only sign once to claim their addresses — they are not the payer.
 
 ## 1. Build
 
+The programs use a `devnet` cargo feature to switch `declare_id!` between
+localnet (for tests) and devnet (for deployment). Always build with the
+feature when deploying:
+
 ```bash
-NO_DNA=1 anchor build
+NO_DNA=1 anchor build -- --features devnet
 ```
 
 Confirm the program IDs match before deploying:
@@ -46,6 +50,9 @@ anchor keys list
 
 If the IDs don't match, your keypair files are wrong — stop and check before
 deploying.
+
+> **Tests use the localnet IDs.** Run `NO_DNA=1 anchor build` (no feature
+> flag) before running `anchor test`.
 
 ## 2. Deploy
 

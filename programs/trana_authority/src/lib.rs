@@ -18,7 +18,11 @@ use trana_guard::{
     Policy,
 };
 
+#[cfg(feature = "devnet")]
 declare_id!("TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN");
+
+#[cfg(not(feature = "devnet"))]
+declare_id!("KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE");
 
 // ── Seed prefix ────────────────────────────────────────────────────────────────
 

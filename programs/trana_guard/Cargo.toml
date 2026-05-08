@@ -10,6 +10,7 @@ name = "trana_guard"
 
 [features]
 default = []
+devnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
