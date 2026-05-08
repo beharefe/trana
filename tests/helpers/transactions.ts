@@ -14,7 +14,7 @@ export async function sendV0(
   feePayer:     PublicKey,
   signers:      Keypair[],
 ): Promise<string> {
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+  const { blockhash } = await connection.getLatestBlockhash("confirmed")
   const message = new TransactionMessage({
     payerKey:        feePayer,
     recentBlockhash: blockhash,
@@ -47,10 +47,10 @@ export async function sendV0(
     throw err
   }
 
-  const result = await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  )
+  // Use signature-based confirmation (WebSocket subscription) rather than the
+  // blockhash-expiry strategy. On a freshly started anchor test-validator the
+  // first few transactions can outlive a stale lastValidBlockHeight estimate.
+  const result = await connection.confirmTransaction(signature, "confirmed")
   if (result.value.err) {
     throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`)
   }
@@ -63,11 +63,7 @@ export async function airdrop(
   lamports:   number,
 ): Promise<void> {
   const signature = await connection.requestAirdrop(pubkey, lamports)
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
-  const result = await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  )
+  const result = await connection.confirmTransaction(signature, "confirmed")
   if (result.value.err) {
     throw new Error(`Airdrop failed: ${JSON.stringify(result.value.err)}`)
   }
