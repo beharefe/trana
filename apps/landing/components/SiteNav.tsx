@@ -1,69 +1,134 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { TranaWordmark } from "./Logo"
+
+const NAV_LINKS = [
+  { href: "#how",      label: "How it works" },
+  { href: "#policies", label: "Policies" },
+  { href: "#code",     label: "Integrate" },
+  { href: "#trust",    label: "Trust" },
+  { href: "/try",      label: "/try" },
+]
 
 export function SiteNav() {
-  const [scrolled, setScrolled] = useState(false)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    window.addEventListener("scroll", onScroll, { passive: true })
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [])
+  const [open, setOpen] = useState(false)
 
   return (
-    <nav
-      className={[
-        "fixed top-0 left-0 right-0 z-50",
-        "flex items-center justify-between px-7 py-[18px]",
-        "backdrop-blur-[14px] transition-[background,border-color] duration-200",
-        scrolled
-          ? "border-b border-white/[0.08] bg-[#08090b]/85"
-          : "border-b border-transparent bg-gradient-to-b from-[#08090b]/75 to-transparent",
-      ].join(" ")}
-    >
-      <Link href="/" className="flex items-center">
-        <TranaWordmark size="40px" />
-      </Link>
+    <>
+      <header
+        className="sticky top-0 z-30 border-b"
+        style={{ borderColor: "var(--rule)", background: "rgba(10,10,11,0.92)", backdropFilter: "blur(10px)" }}
+      >
+        <div className="sec-wrap flex items-center h-[60px]">
 
-      <div className="flex items-center gap-[26px] text-[13.5px] text-muted">
-        <Link href="#policies" className="hidden sm:block hover:text-ink transition-colors">
-          Policies
-        </Link>
-        <Link href="/docs/quickstart" className="hidden sm:block hover:text-ink transition-colors">
-          Docs
-        </Link>
-        <a
-          href="https://github.com/beharefe/trana-guard"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-ink transition-colors"
+          {/* Mark */}
+          <Link href="/" className="flex items-center gap-[10px] shrink-0 mr-8">
+            <NestedSquareMark />
+            <span className="font-serif text-[22px] leading-none tracking-[-0.01em]" style={{ color: "var(--bone)" }}>
+              trana
+            </span>
+          </Link>
+
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-center gap-[26px]">
+            {NAV_LINKS.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className="font-mono text-[11.5px] tracking-[0.14em] uppercase transition-colors"
+                style={{ color: "var(--bone-3)" }}
+                onMouseEnter={e => (e.currentTarget.style.color = "var(--bone)")}
+                onMouseLeave={e => (e.currentTarget.style.color = "var(--bone-3)")}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+
+          {/* Right side */}
+          <div className="ml-auto flex items-center gap-[10px]">
+            {/* Live pill */}
+            <span
+              className="hidden sm:inline-flex items-center gap-2 h-7 px-3 rounded-full font-mono text-[10.5px] tracking-[0.18em] uppercase"
+              style={{ color: "var(--lime)", border: "1px solid rgba(198,255,58,0.30)", background: "rgba(198,255,58,0.05)" }}
+            >
+              <span className="relative w-[6px] h-[6px] rounded-full bg-[var(--lime)] animate-pulse-dot" />
+              <span>Live · devnet</span>
+            </span>
+
+            {/* CTA — desktop only */}
+            <Link
+              href="/try"
+              className="hidden sm:flex items-center gap-2 h-8 px-[14px] font-mono text-[11px] tracking-[0.14em] uppercase transition-all"
+              style={{ color: "var(--bone-2)", border: "1px solid var(--rule-2)" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-3)"; (e.currentTarget as HTMLElement).style.color = "var(--bone)" }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-2)"; (e.currentTarget as HTMLElement).style.color = "var(--bone-2)" }}
+            >
+              <span>Open /try</span>
+              <span>→</span>
+            </Link>
+
+            {/* Hamburger */}
+            <button
+              onClick={() => setOpen(o => !o)}
+              className="md:hidden flex items-center justify-center w-8 h-8 cursor-pointer shrink-0"
+              style={{ border: "1px solid var(--rule-2)", color: "var(--bone-2)", background: "transparent" }}
+              aria-label={open ? "Close menu" : "Open menu"}
+            >
+              {open ? (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
+                  <path d="M1 1 11 11M11 1 1 11"/>
+                </svg>
+              ) : (
+                <svg width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
+                  <path d="M0 1h14M0 5h14M0 9h14"/>
+                </svg>
+              )}
+            </button>
+          </div>
+
+        </div>
+      </header>
+
+      {/* Mobile nav dropdown */}
+      {open && (
+        <div
+          className="md:hidden fixed inset-x-0 top-[60px] z-20 border-b"
+          style={{ background: "var(--ink-2)", borderColor: "var(--rule)" }}
         >
-          GitHub
-        </a>
-        <a
-          href="#waitlist"
-          className="flex items-center gap-1.5 px-[13px] py-[7px] rounded-full border border-white/[0.14] text-[13px] text-ink hover:bg-white/[0.06] hover:border-white/[0.28] transition-all"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_8px_#7af0a8]" />
-          Mainnet waitlist
-        </a>
-      </div>
-    </nav>
+          <nav className="sec-wrap flex flex-col py-3">
+            {NAV_LINKS.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 py-[13px] border-b font-mono text-[12px] tracking-[0.14em] uppercase"
+                style={{ borderColor: "var(--rule)", color: "var(--bone-2)" }}
+              >
+                <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: "var(--bone-5)" }} />
+                {label}
+              </Link>
+            ))}
+            <Link
+              href="/try"
+              onClick={() => setOpen(false)}
+              className="flex items-center justify-center gap-2 mt-4 mb-2 h-11 font-mono text-[12px] tracking-[0.14em] uppercase"
+              style={{ background: "var(--lime)", color: "var(--ink)" }}
+            >
+              Try on devnet →
+            </Link>
+          </nav>
+        </div>
+      )}
+    </>
   )
 }
 
-function BrandMark() {
+function NestedSquareMark() {
   return (
-    <div
-      className="relative w-[22px] h-[22px] rounded-[6px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)] shrink-0"
-      style={{
-        background: "conic-gradient(from 220deg at 50% 50%, #fff 0 25%, #18191c 25% 75%, #fff 75%)",
-      }}
-    >
-      <div className="absolute inset-[6px] rounded-[2px] bg-[#08090b]" />
-    </div>
+    <span className="relative inline-block w-[22px] h-[22px] shrink-0" style={{ border: "1.5px solid var(--bone)" }}>
+      <span className="absolute" style={{ inset: "4px", border: "1.5px solid var(--lime)" }} />
+    </span>
   )
 }

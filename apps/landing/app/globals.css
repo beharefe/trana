@@ -3,11 +3,22 @@
 
 :root {
   /* ── Brand palette ─────────────────────────────────────────── */
-  --ink:    #0a0a0b;   /* primary surface                         */
-  --bone:   #ebe8e0;   /* primary type                            */
-  --lime:   #c6ff3a;   /* accent · primary                        */
-  --plasma: #ff5b1f;   /* accent · alert                          */
-  --azure:  #5aa9ff;   /* accent · data                           */
+  --ink:    #0a0a0b;
+  --ink-2:  #101012;
+  --ink-3:  #16161a;
+  --ink-4:  #1c1c22;
+  --bone:   #ebe8e0;
+  --bone-2: #c8c5bd;
+  --bone-3: rgba(235,232,224,0.62);
+  --bone-4: rgba(235,232,224,0.42);
+  --bone-5: rgba(235,232,224,0.22);
+  --lime:   #c6ff3a;
+  --lime-soft: rgba(198,255,58,0.10);
+  --plasma: #ff5b1f;
+  --plasma-soft: rgba(255,91,31,0.10);
+  --azure:  #5aa9ff;
+  --azure-soft: rgba(90,169,255,0.10);
+  --amber:  #f5a623;
 
   /* ── Tones ─────────────────────────────────────────────────── */
   --bg:        var(--ink);
@@ -17,8 +28,11 @@
   --fg-faint:  rgba(235,232,224,0.38);
   --border:    rgba(235,232,224,0.10);
   --border-2:  rgba(235,232,224,0.18);
+  --rule:      rgba(235,232,224,0.10);
+  --rule-2:    rgba(235,232,224,0.18);
+  --rule-3:    rgba(235,232,224,0.30);
 
-  /* ── Legacy aliases (keep existing component classes working) ─ */
+  /* ── Legacy aliases ─────────────────────────────────────────── */
   --accent:  var(--lime);
   --coral:   var(--plasma);
   --sky:     var(--azure);
@@ -27,7 +41,7 @@
   --violet:  #b794ff;
   --code-bg: #0d0d10;
 
-  /* ── Nextra docs overrides ─────────────────────────────────── */
+  /* ── Nextra docs overrides ──────────────────────────────────── */
   --nextra-primary-hue:        73;
   --nextra-primary-saturation: 100%;
   --nextra-primary-lightness:  62%;
@@ -43,13 +57,163 @@ body {
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(198,255,58,0.04), transparent 60%),
+    radial-gradient(900px 700px at -10% 90%, rgba(90,169,255,0.03), transparent 60%);
 }
 
-::selection {
-  background: rgba(198,255,58,0.18);
-  color: var(--lime);
-}
+::selection { background: var(--lime); color: var(--ink); }
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: rgba(235,232,224,0.10); border-radius: 2px; }
+
+/* ── Keyframe animations ─────────────────────────────────────── */
+@keyframes guard-shake {
+  0%, 100% { transform: translate3d(0,0,0); }
+  15%      { transform: translate3d(-4px,0,0); }
+  35%      { transform: translate3d(4px,0,0); }
+  55%      { transform: translate3d(-3px,0,0); }
+  75%      { transform: translate3d(3px,0,0); }
+  90%      { transform: translate3d(-1px,0,0); }
+}
+@keyframes check-draw {
+  from { stroke-dashoffset: 16; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes glyph-flash {
+  from { box-shadow: 0 0 0 0 rgba(198,255,58,0.5); }
+  to   { box-shadow: 0 0 0 14px rgba(198,255,58,0); }
+}
+@keyframes dot-pulse-azure {
+  from { box-shadow: 0 0 0 0 rgba(90,169,255,0.55); }
+  to   { box-shadow: 0 0 0 7px rgba(90,169,255,0); }
+}
+@keyframes dot-pulse-amber {
+  from { box-shadow: 0 0 0 0 rgba(255,168,76,0.55); }
+  to   { box-shadow: 0 0 0 8px rgba(255,168,76,0); }
+}
+@keyframes prog-bar {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes ticker-slide {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes global-pulse {
+  0%   { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes dot-pulse-lime {
+  from { box-shadow: 0 0 0 0 rgba(198,255,58,0.55); }
+  to   { box-shadow: 0 0 0 7px rgba(198,255,58,0); }
+}
+
+/* ── Responsive layout helpers ──────────────────────────────── */
+
+/* Section gutter: tighter on mobile */
+.sec-wrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+@media (min-width: 640px)  { .sec-wrap { padding: 0 32px; } }
+@media (min-width: 1024px) { .sec-wrap { padding: 0 36px; } }
+
+/* Section header: 220px label col on md+, stacked on mobile */
+.sec-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+@media (min-width: 768px) {
+  .sec-header {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 32px;
+    align-items: end;
+    margin-bottom: 56px;
+  }
+  .sec-header .sec-lede { grid-column: 2; }
+}
+
+/* Hero 2-col: stacked on mobile, side-by-side on lg */
+.hero-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 36px;
+  padding: 48px 0;
+}
+@media (min-width: 1024px) {
+  .hero-layout {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 56px;
+    padding: 56px 0;
+    align-items: start;
+  }
+}
+
+/* Footer grid */
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (min-width: 768px) {
+  .footer-grid {
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    gap: 36px;
+  }
+}
+
+/* Stage grid: compact on mobile */
+.stage-grid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+@media (min-width: 480px) {
+  .stage-grid {
+    grid-template-columns: 80px minmax(0, 1fr) 110px;
+    gap: 18px;
+    padding: 16px;
+  }
+}
+
+/* ── Animation helper classes ───────────────────────────────── */
+.animate-guard-shake {
+  animation: guard-shake 600ms cubic-bezier(.36,.07,.19,.97) infinite;
+}
+.animate-check-draw path {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: check-draw 600ms cubic-bezier(.4,.0,.2,1) forwards;
+}
+.animate-glyph-flash {
+  animation: glyph-flash 420ms ease-out;
+}
+.animate-dot-azure {
+  animation: dot-pulse-azure 1.1s ease-out infinite;
+}
+.animate-dot-amber {
+  animation: dot-pulse-amber 0.8s ease-out infinite;
+}
+.animate-prog-bar {
+  animation: prog-bar 1.05s linear infinite;
+  transform-origin: left;
+}
+.animate-ticker {
+  animation: ticker-slide 22s linear infinite;
+}
+.animate-pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--lime);
+  animation: global-pulse 1.8s ease-out infinite;
+}

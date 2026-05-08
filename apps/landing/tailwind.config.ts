@@ -8,29 +8,28 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans:  ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans:  ["var(--font-sans)", "system-ui", "sans-serif"],
         serif: ["var(--font-serif)", "Georgia", "serif"],
-        mono:  ["ui-monospace", "SFMono-Regular", "monospace"],
+        mono:  ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {
         bg:     "#0a0a0b",
-        card:   "#111114",
+        card:   "#101012",
         border: "rgba(235,232,224,0.10)",
-        ink:    "#ebe8e0",     // primary type · bone
+        ink:    "#ebe8e0",
         muted:  "rgba(235,232,224,0.62)",
         faint:  "rgba(235,232,224,0.38)",
-        // Semantic accent tokens (keep existing class names)
-        accent: "#c6ff3a",    // lime
-        coral:  "#ff5b1f",    // plasma
-        sky:    "#5aa9ff",    // azure
+        accent: "#c6ff3a",
+        coral:  "#ff5b1f",
+        sky:    "#5aa9ff",
         danger: "#ff3b4e",
         gold:   "#f3d77a",
         violet: "#b794ff",
-        // Brand name tokens
         lime:   "#c6ff3a",
         plasma: "#ff5b1f",
         azure:  "#5aa9ff",
         bone:   "#ebe8e0",
+        amber:  "#f5a623",
       },
       spacing: {
         "18": "4.5rem",

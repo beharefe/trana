@@ -1,13 +1,12 @@
 import Link from "next/link"
-import { SiteNav }          from "@/components/SiteNav"
-import { Hero }             from "@/components/Hero"
-import { RequireSection }       from "@/components/RequireSection"
-import { LimitSection }        from "@/components/LimitSection"
-import { NotBeforeSection }    from "@/components/NotBeforeSection"
-import { PolicyGrid }       from "@/components/PolicyGrid"
-import { JsonLd }           from "@/components/JsonLd"
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+import { SiteNav }              from "@/components/SiteNav"
+import { Hero }                 from "@/components/Hero"
+import { TwoPrimitivesSection } from "@/components/TwoPrimitivesSection"
+import { HowItWorksSection }    from "@/components/HowItWorksSection"
+import { PoliciesSection }      from "@/components/PoliciesSection"
+import { CodeSection }          from "@/components/CodeSection"
+import { TrustSection }         from "@/components/TrustSection"
+import { JsonLd }               from "@/components/JsonLd"
 
 export default function Home() {
   return (
@@ -18,8 +17,7 @@ export default function Home() {
         name: "Trana",
         applicationCategory: "SecurityApplication",
         operatingSystem: "Solana",
-        description:
-          "Trana enforces second-factor authorization at execution time. High-risk actions do not execute without explicit approval.",
+        description: "Trana enforces second-factor authorization at execution time. High-risk actions do not execute without explicit approval.",
         url: "https://trana.so",
         creator: {
           "@type": "Organization",
@@ -35,13 +33,15 @@ export default function Home() {
         },
       }} />
 
-      <main className="bg-bg text-ink overflow-x-hidden">
-        <SiteNav />
+      <SiteNav />
+
+      <main style={{ background: "var(--bg)", color: "var(--bone)", overflowX: "hidden" }}>
         <Hero />
-        <RequireSection />
-        <LimitSection />
-        <NotBeforeSection />
-        <PolicyGrid />
+        <TwoPrimitivesSection />
+        <HowItWorksSection />
+        <PoliciesSection />
+        <CodeSection />
+        <TrustSection />
         <Footer />
       </main>
     </>
@@ -52,62 +52,78 @@ export default function Home() {
 
 function Footer() {
   return (
-    <footer id="waitlist" className="relative pt-24 pb-20 border-t border-white/[0.08] bg-bg">
-      <div className="max-w-[1320px] mx-auto px-6 sm:px-12">
+    <footer id="waitlist" className="pt-24 pb-9" style={{ background: "var(--bg)" }}>
+      <div className="sec-wrap">
 
-        {/* Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr] gap-12">
-
-          {/* CTA */}
-          <div className="sm:col-span-2 lg:col-span-1">
-            <h3 className="font-serif text-[34px] leading-[1.05] tracking-[-0.025em] text-ink mb-2 text-balance">
-              Mainnet waitlist.
-            </h3>
-            <p className="text-muted text-[14.5px] max-w-[36ch] mb-6 leading-relaxed">
-              Trana is live on devnet. Drop your email to be the first to
-              know when we ship to mainnet-beta.
+        {/* Waitlist */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-14 items-end mb-16">
+          <div>
+            <h2
+              className="font-serif font-normal leading-[1.02] tracking-[-0.02em] m-0 text-balance"
+              style={{ fontSize: "clamp(36px,4.6vw,56px)", color: "var(--bone)" }}
+            >
+              Mainnet, <em>Q3 2026.</em><br />Get the design notes.
+            </h2>
+            <p className="mt-4 text-[15.5px] leading-[1.55] font-light max-w-[480px]" style={{ color: "var(--bone-3)" }}>
+              Ship-ready notice when the program freezes for audit.
+              Plus: deep-dive posts on the secp256r1 ceremony and policy composition.
+              One email per release. No marketing.
             </p>
-            <WaitlistForm />
+          </div>
+          <WaitlistForm />
+        </div>
+
+        {/* Links */}
+        <div
+          className="footer-grid pt-9 border-t"
+          style={{ borderColor: "var(--rule)" }}
+        >
+          <div className="flex flex-col gap-[14px]">
+            <div className="flex items-center gap-[10px]">
+              <span className="relative inline-block w-[22px] h-[22px] shrink-0" style={{ border: "1.5px solid var(--bone)" }}>
+                <span className="absolute" style={{ inset: "4px", border: "1.5px solid var(--lime)" }} />
+              </span>
+              <span className="font-serif text-[22px] leading-none tracking-[-0.01em]" style={{ color: "var(--bone)" }}>trana</span>
+            </div>
+            <p className="text-[13px] leading-[1.55] font-light m-0" style={{ color: "var(--bone-3)" }}>
+              Execution-time authorization for Solana programs.
+              A security primitive — not a wallet, not a SaaS.
+            </p>
           </div>
 
-          {/* Product */}
-          <FooterCol title="Product">
+          <FooterCol title="Protocol">
+            <FooterLink href="#how">How it works</FooterLink>
+            <FooterLink href="#policies">Policies</FooterLink>
+            <FooterLink href="#code">Integrate</FooterLink>
+            <FooterLink href="#trust">Audits</FooterLink>
+          </FooterCol>
+
+          <FooterCol title="Developers">
             <FooterLink href="/docs/quickstart">Docs</FooterLink>
-            <FooterLink href="/docs/quickstart">Quickstart</FooterLink>
-            <FooterLink href="/docs/quickstart">Policy reference</FooterLink>
-            <FooterLink href="/protocol">Protocol</FooterLink>
-          </FooterCol>
-
-          {/* Community */}
-          <FooterCol title="Community">
+            <FooterLink href="/docs/quickstart">SDK reference</FooterLink>
+            <FooterLink href="/docs/quickstart">Anchor macro</FooterLink>
             <FooterLink href="https://github.com/beharefe/trana-guard" external>GitHub</FooterLink>
-            <FooterLink href="https://x.com/beharefe" external>X / Twitter</FooterLink>
-            <FooterLink href="https://t.me/beharefe" external>Telegram</FooterLink>
           </FooterCol>
 
-          {/* Resources */}
-          <FooterCol title="Resources">
-            <FooterLink href="/security">Security model</FooterLink>
+          <FooterCol title="Project">
+            <FooterLink href="/protocol">Protocol</FooterLink>
+            <FooterLink href="/security">Threat model</FooterLink>
             <FooterLink href="/compare/multisig">vs Multisig</FooterLink>
-            <FooterLink href="/compare/para">vs Para</FooterLink>
-            <FooterLink href="/docs/glossary">Glossary</FooterLink>
+            <FooterLink href="https://x.com/beharefe" external>X / Twitter</FooterLink>
           </FooterCol>
-
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-16 pt-6 border-t border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 font-mono text-[11.5px] text-faint tracking-[0.04em]">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <span>backed by</span>
-            <LogoPill label="Superteam Poland" gradient="linear-gradient(135deg,#7aa8ff,#b794ff)" />
-            <span>· built for</span>
-            <LogoPill label="Solana"    gradient="linear-gradient(135deg,#9945ff,#14f195)" />
-            <LogoPill label="Colosseum" gradient="linear-gradient(135deg,#f3d77a,#ff7a59)" />
-          </div>
-          <div className="sm:text-right">
-            <p>© 2026 Trana, Inc. · MIT licensed</p>
-            <p className="mt-0.5 text-[10.5px]">1111B S Governors Ave STE 39117, Dover, DE 19904</p>
-          </div>
+        <div
+          className="mt-16 pt-6 border-t flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 font-mono text-[10.5px] tracking-[0.18em] uppercase"
+          style={{ borderColor: "var(--rule)", color: "var(--bone-4)" }}
+        >
+          <span>© 2026 TRANA, INC. · MIT-LICENSED</span>
+          <span className="flex items-center gap-3">
+            <span className="relative inline-block w-[7px] h-[7px] rounded-full" style={{ background: "var(--lime)" }} />
+            DEVNET · LIVE
+          </span>
+          <span className="hidden md:inline">1111B S GOVERNORS AVE STE 39117, DOVER DE 19904</span>
         </div>
 
       </div>
@@ -115,76 +131,58 @@ function Footer() {
   )
 }
 
-// ── Footer sub-components ─────────────────────────────────────────────────────
-
 function FooterCol({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h4 className="font-mono text-[11px] text-faint tracking-[0.08em] uppercase mb-3.5 font-medium">
-        {title}
-      </h4>
-      <ul className="flex flex-col gap-2.5">
-        {children}
-      </ul>
+      <h5 className="font-mono text-[10px] tracking-[0.22em] uppercase font-medium mb-[14px]" style={{ color: "var(--bone-4)" }}>{title}</h5>
+      <div className="flex flex-col gap-0">{children}</div>
     </div>
   )
 }
 
-function FooterLink({
-  href,
-  external,
-  children,
-}: {
-  href: string
-  external?: boolean
-  children: React.ReactNode
-}) {
-  const cls = "text-muted text-[14px] hover:text-ink transition-colors"
+function FooterLink({ href, external, children }: { href: string; external?: boolean; children: React.ReactNode }) {
+  const cls = "block py-1 font-mono text-[12px] tracking-[0.04em] transition-colors"
+  const style = { color: "var(--bone-2)" }
   if (external) {
-    return (
-      <li>
-        <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
-          {children}
-        </a>
-      </li>
-    )
+    return <a href={href} target="_blank" rel="noopener noreferrer" className={cls} style={style}>{children}</a>
   }
-  return (
-    <li>
-      <Link href={href} className={cls}>{children}</Link>
-    </li>
-  )
-}
-
-function LogoPill({ label, gradient }: { label: string; gradient: string }) {
-  return (
-    <span className="inline-flex items-center gap-2 px-3 py-1.5 border border-white/[0.08] rounded-full text-[12px] text-muted">
-      <span className="w-3.5 h-3.5 rounded-[3px] shrink-0" style={{ background: gradient }} />
-      {label}
-    </span>
-  )
+  return <Link href={href} className={cls} style={style}>{children}</Link>
 }
 
 function WaitlistForm() {
   return (
-    <form
-      method="POST"
-      action="/api/waitlist"
-      className="flex items-stretch border border-white/[0.14] rounded-full overflow-hidden bg-white/[0.02] max-w-[420px]"
-    >
-      <input
-        type="email"
-        name="email"
-        placeholder="you@protocol.xyz"
-        required
-        className="flex-1 bg-transparent border-0 outline-none text-ink font-[inherit] text-[14px] px-[18px] placeholder:text-faint"
-      />
-      <button
-        type="submit"
-        className="border-0 bg-ink text-bg font-semibold text-[13.5px] px-[18px] cursor-pointer tracking-[-0.005em] hover:bg-white transition-colors whitespace-nowrap"
+    <form method="POST" action="/api/waitlist">
+      <div
+        className="flex flex-col gap-[14px] p-[18px]"
+        style={{ border: "1px solid var(--rule-2)", background: "var(--ink-2)" }}
       >
-        Join waitlist →
-      </button>
+        <div
+          className="flex flex-wrap items-center gap-2 min-h-[52px] px-[14px] py-2"
+          style={{ border: "1px solid var(--rule)", background: "var(--ink)" }}
+        >
+          <span className="font-mono text-[13px] tracking-[0.04em] shrink-0" style={{ color: "var(--lime)" }}>
+            $ trana subscribe ——
+          </span>
+          <input
+            type="email"
+            name="email"
+            placeholder="your@email.com"
+            required
+            className="flex-1 min-w-[140px] bg-transparent border-0 outline-none font-mono text-[13px] tracking-[0.02em]"
+            style={{ color: "var(--bone)", caretColor: "var(--lime)" }}
+          />
+          <button
+            type="submit"
+            className="shrink-0 h-9 px-[14px] font-mono text-[11px] tracking-[0.16em] uppercase cursor-pointer border-0 transition-colors"
+            style={{ background: "var(--lime)", color: "var(--ink)" }}
+          >
+            Join waitlist →
+          </button>
+        </div>
+        <p className="font-mono text-[11px] tracking-[0.04em] m-0" style={{ color: "var(--bone-4)" }}>
+          // awaiting input · engineers subscribed
+        </p>
+      </div>
     </form>
   )
 }
