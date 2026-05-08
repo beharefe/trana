@@ -21,6 +21,11 @@ const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://trana.so"
 
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
+  icons: {
+    icon:    "/icon.svg",
+    shortcut: "/icon.svg",
+    apple:   "/icon.svg",
+  },
   title: {
     default:  "Trana — Unstealable Transactions on Solana",
     template: "%s | Trana",

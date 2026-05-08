@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { TranaWordmark } from "./Logo"
 
 export function SiteNav() {
   const [scrolled, setScrolled] = useState(false)
@@ -16,18 +17,15 @@ export function SiteNav() {
     <nav
       className={[
         "fixed top-0 left-0 right-0 z-50",
-        "flex items-center justify-between px-7 py-[18px]",
+        "flex items-center justify-between px-7 py-[17px]",
         "backdrop-blur-[14px] transition-[background,border-color] duration-200",
         scrolled
           ? "border-b border-white/[0.08] bg-[#08090b]/85"
           : "border-b border-transparent bg-gradient-to-b from-[#08090b]/75 to-transparent",
       ].join(" ")}
     >
-      <Link
-        href="/"
-        className="flex items-center gap-2.5 font-semibold text-[15px] tracking-[-0.01em] text-ink"
-      >
-        <span>Trana</span>
+      <Link href="/" className="flex items-center">
+        <TranaWordmark size="md" />
       </Link>
 
       <div className="flex items-center gap-[26px] text-[13.5px] text-muted">
@@ -54,18 +52,5 @@ export function SiteNav() {
         </a>
       </div>
     </nav>
-  )
-}
-
-function BrandMark() {
-  return (
-    <div
-      className="relative w-[22px] h-[22px] rounded-[6px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)] shrink-0"
-      style={{
-        background: "conic-gradient(from 220deg at 50% 50%, #fff 0 25%, #18191c 25% 75%, #fff 75%)",
-      }}
-    >
-      <div className="absolute inset-[6px] rounded-[2px] bg-[#08090b]" />
-    </div>
   )
 }
