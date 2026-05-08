@@ -15,7 +15,6 @@ export default async function DocsLayout({ children }: { children: ReactNode }) 
         />
       }
       pageMap={pageMap}
-      docsRepositoryBase=""
       editLink={null}
       feedback={{ content: null }}
       toc={{ backToTop: false, float: true }}
