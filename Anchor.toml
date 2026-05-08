@@ -2,8 +2,9 @@
 package_manager = "npm"
 
 [programs.localnet]
-trana_guard     = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
-trana_authority = "KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE"
+trana_guard      = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
+trana_authority  = "KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE"
+trana_test_vault = "8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa"
 
 [features]
 resolution = true
