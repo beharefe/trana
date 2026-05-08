@@ -20,6 +20,7 @@ pub struct VaultWithdraw {
     pub owner:       Pubkey,
     pub destination: Pubkey,
     pub amount:      u64,
+    pub proof_used:  bool,
 }
 
 #[event]

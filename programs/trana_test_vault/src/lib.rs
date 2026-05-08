@@ -1,27 +1,20 @@
-// ⚠️  DEMO PROGRAM — not for production use.
+// ⚠️  DEMO — not for production.
 //
-// trana_test_vault: passkey-gated SOL vault for devnet demos and end-to-end tests.
+// trana_test_vault: minimal SOL vault showing how simple trana_guard integration is.
 //
-// The "aha moment" flow:
-//   1. owner calls initialize(label, policy)  — picks one of 4 guard policies
-//   2. anyone calls deposit()                 — open to all; balance is publicly visible
-//   3. try calling withdraw() yourself        — fails per the chosen policy
-//   4. owner + passkey calls withdraw()       — succeeds when policy conditions are met
+// Rules:
+//   - Anyone can deposit (open, intentional — the vault balance is the bait).
+//   - Withdrawals < 1 SOL go through freely.
+//   - Withdrawals >= 1 SOL require a passkey.
+//   - Consecutive small withdrawals totalling >= 1 SOL within 60 seconds also
+//     require a passkey (drain protection).
+//   - Closing the vault always requires a passkey.
 //
-// Four policy flavours (choose at create time):
+// The only trana_guard integration point is one line:
 //
-//   Require               → passkey always required          policyId: "trana.require"
-//   Limit { lamports }    → free for small amounts,          policyId: "trana.limit"
-//                           passkey for withdrawals ≥ limit
-//   NotBefore { slot }    → passkey required until slot       policyId: "trana.not_before"
-//                           passes, then vault unlocks freely
-//   NotAfter  { slot }    → vault free until slot passes,    policyId: "trana.not_after"
-//                           then passkey required forever
+//   trana_guard::cpi::enforce(ctx, policy)?;
 //
-// Transaction shape for gated withdrawals (same as every trana_guard consumer):
-//   ix[N-2]: secp256r1 precompile
-//   ix[N-1]: trana_guard::record_proof
-//   ix[N]:   trana_test_vault::withdraw | close_vault
+// Everything else is standard Anchor.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::system_instruction;
@@ -43,32 +36,15 @@ pub use state::*;
 
 declare_id!("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa");
 
-pub const VAULT_SEED: &[u8] = b"trana-vault";
-
-// ── Policy mapping ─────────────────────────────────────────────────────────────
-
-fn to_guard_policy(vp: &VaultPolicy) -> Policy {
-    match vp {
-        VaultPolicy::Require                     => Policy::Require,
-        VaultPolicy::Limit    { lamports }       => Policy::Limit { param_offset: 0, limit: *lamports },
-        VaultPolicy::NotBefore { slot }          => Policy::NotBefore { slot: *slot },
-        VaultPolicy::NotAfter  { slot }          => Policy::NotAfter  { slot: *slot },
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+pub const VAULT_SEED:     &[u8] = b"trana-vault";
+pub const WITHDRAW_LIMIT: u64   = 1_000_000_000; // 1 SOL
+pub const DRAIN_WINDOW:   i64   = 60;            // seconds
 
 #[program]
 pub mod trana_test_vault {
     use super::*;
 
-    // ── Initialize ────────────────────────────────────────────────────────────
-
-    /// Create the vault PDA and choose its withdrawal policy.
-    /// No passkey required — wallet signature only.
-    ///
-    /// After this, the owner must register a passkey via trana_guard.
-    pub fn initialize(ctx: Context<Initialize>, label: String, policy: VaultPolicy) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, label: String) -> Result<()> {
         require!(label.len() <= 32, VaultError::LabelTooLong);
 
         let vault_key = ctx.accounts.vault.key();
@@ -78,31 +54,25 @@ pub mod trana_test_vault {
         vault.owner           = owner_key;
         vault.bump            = ctx.bumps.vault;
         vault.label           = label.clone();
-        vault.policy          = policy;
         vault.total_deposited = 0;
+        vault.window_withdrawn = 0;
+        vault.last_withdraw_at = 0;
 
         emit!(VaultInitialized { vault: vault_key, owner: owner_key, label });
-
-        msg!("TRANA_VAULT init | owner={} | vault={}", owner_key, vault_key);
         Ok(())
     }
 
-    // ── Deposit ───────────────────────────────────────────────────────────────
-
-    /// Deposit SOL into the vault. Open to anyone — no proof required.
-    ///
-    /// This is intentional: anyone can fund the vault (great for demos where
-    /// audience members top it up), but only the passkey owner can drain it.
+    /// Open to anyone — no proof required. This is intentional.
+    /// The vault balance is publicly visible; the challenge is draining it.
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
-        let ix = system_instruction::transfer(
-            &ctx.accounts.depositor.key(),
-            &ctx.accounts.vault.key(),
-            amount,
-        );
         anchor_lang::solana_program::program::invoke(
-            &ix,
+            &system_instruction::transfer(
+                &ctx.accounts.depositor.key(),
+                &ctx.accounts.vault.key(),
+                amount,
+            ),
             &[
                 ctx.accounts.depositor.to_account_info(),
                 ctx.accounts.vault.to_account_info(),
@@ -118,33 +88,51 @@ pub mod trana_test_vault {
             depositor: ctx.accounts.depositor.key(),
             amount,
         });
-
-        msg!("TRANA_VAULT deposit | amount={} | vault={}", amount, ctx.accounts.vault.key());
         Ok(())
     }
 
-    // ── Withdraw ──────────────────────────────────────────────────────────────
-
-    /// Withdraw SOL from the vault, subject to the vault's policy.
+    /// Withdraw SOL.
     ///
-    /// Policy behaviour:
-    ///   Require               → always needs secp256r1 + record_proof preamble
-    ///   Limit { lamports }    → free if amount < lamports; proof required if ≥ limit
-    ///   NotBefore { slot }    → proof required until slot passes; free after
-    ///   NotAfter  { slot }    → free until slot passes; proof required after
+    /// Passkey is required when:
+    ///   (a) amount >= 1 SOL in a single transaction, OR
+    ///   (b) cumulative withdrawals in the last 60 s hit 1 SOL (drain protection).
     ///
-    /// Frontend: check vault.policy before building the transaction.
-    /// For Limit, add the proof triple only when amount ≥ vault.policy.lamports.
-    /// For NotBefore/NotAfter, add the proof triple according to current slot.
+    /// Frontend hint: check vault.window_withdrawn + amount vs WITHDRAW_LIMIT
+    /// and current_time - vault.last_withdraw_at vs DRAIN_WINDOW to decide
+    /// whether to include the secp256r1 + record_proof preamble.
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
-        let lamports = ctx.accounts.vault.to_account_info().lamports();
-        let rent     = Rent::get()?.minimum_balance(Vault::space());
-        require!(lamports.saturating_sub(rent) >= amount, VaultError::InsufficientFunds);
+        let rent = Rent::get()?.minimum_balance(Vault::space());
+        require!(
+            ctx.accounts.vault.to_account_info().lamports().saturating_sub(rent) >= amount,
+            VaultError::InsufficientFunds,
+        );
 
-        // Map vault-stored policy → trana_guard Policy and enforce
-        let guard_policy = to_guard_policy(&ctx.accounts.vault.policy);
+        // ── Drain detection ───────────────────────────────────────────────────
+        let now        = Clock::get()?.unix_timestamp;
+        let vault      = &ctx.accounts.vault;
+        let in_window  = vault.last_withdraw_at > 0
+            && (now - vault.last_withdraw_at) < DRAIN_WINDOW;
+        let window_now = if in_window {
+            vault.window_withdrawn.saturating_add(amount)
+        } else {
+            amount
+        };
+        let is_drain   = window_now >= WITHDRAW_LIMIT;
+
+        // ── Single trana_guard call ───────────────────────────────────────────
+        //
+        // Policy::Limit reads the `amount` arg directly from instruction data
+        // (param_offset 0 = first u64 after the 8-byte discriminator).
+        // If amount < WITHDRAW_LIMIT *and* no drain detected, enforce returns
+        // Ok without requiring any proof — no tx rewrite needed for small pulls.
+        let policy = if is_drain {
+            Policy::Require
+        } else {
+            Policy::Limit { param_offset: 0, limit: WITHDRAW_LIMIT }
+        };
+
         trana_guard::cpi::enforce(
             CpiContext::new(
                 ctx.accounts.trana_guard_program.to_account_info(),
@@ -154,33 +142,38 @@ pub mod trana_test_vault {
                     instructions: ctx.accounts.instructions.to_account_info(),
                 },
             ),
-            guard_policy,
+            policy,
         )?;
 
-        // Transfer from PDA — direct lamport manipulation (PDA is program-owned)
+        // ── Transfer ──────────────────────────────────────────────────────────
         **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= amount;
         **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += amount;
+
+        // ── Update drain window ───────────────────────────────────────────────
+        let vault = &mut ctx.accounts.vault;
+        let proof_used = is_drain || amount >= WITHDRAW_LIMIT;
+        if proof_used {
+            // Authenticated — reset window
+            vault.window_withdrawn = 0;
+            vault.last_withdraw_at = 0;
+        } else if in_window {
+            vault.window_withdrawn = window_now;
+        } else {
+            vault.window_withdrawn = amount;
+            vault.last_withdraw_at = now;
+        }
 
         emit!(VaultWithdraw {
             vault:       ctx.accounts.vault.key(),
             owner:       ctx.accounts.owner.key(),
             destination: ctx.accounts.destination.key(),
             amount,
+            proof_used,
         });
-
-        msg!(
-            "TRANA_VAULT withdraw | amount={} | dest={}",
-            amount, ctx.accounts.destination.key(),
-        );
         Ok(())
     }
 
-    // ── Close vault ───────────────────────────────────────────────────────────
-
-    /// Drain all remaining SOL and permanently close the vault.
-    ///
-    /// Always requires passkey (Policy::Require) regardless of the vault's
-    /// configured withdrawal policy — closing is irreversible.
+    /// Close the vault and return all SOL to the owner. Always requires passkey.
     pub fn close_vault(ctx: Context<CloseVault>) -> Result<()> {
         trana_guard::cpi::enforce(
             CpiContext::new(
@@ -194,20 +187,19 @@ pub mod trana_test_vault {
             Policy::Require,
         )?;
 
-        // Move all SOL above rent to destination before Anchor closes the account
-        let rent   = Rent::get()?.minimum_balance(Vault::space());
-        let excess = ctx.accounts.vault.to_account_info().lamports().saturating_sub(rent);
+        // Drain balance to owner before Anchor closes the account
+        let balance = ctx.accounts.vault.to_account_info().lamports();
+        let rent    = Rent::get()?.minimum_balance(Vault::space());
+        let excess  = balance.saturating_sub(rent);
         if excess > 0 {
             **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= excess;
-            **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += excess;
+            **ctx.accounts.owner.to_account_info().try_borrow_mut_lamports()? += excess;
         }
 
         emit!(VaultClosed {
             vault: ctx.accounts.vault.key(),
             owner: ctx.accounts.owner.key(),
         });
-
-        msg!("TRANA_VAULT close | vault={}", ctx.accounts.vault.key());
         Ok(())
     }
 }
@@ -215,7 +207,6 @@ pub mod trana_test_vault {
 // ── Account contexts ───────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-#[instruction(label: String, policy: VaultPolicy)]
 pub struct Initialize<'info> {
     #[account(
         init,
@@ -259,7 +250,7 @@ pub struct Withdraw<'info> {
 
     pub owner: Signer<'info>,
 
-    /// CHECK: destination receives the withdrawn SOL
+    /// CHECK: receives the withdrawn SOL
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
@@ -273,7 +264,7 @@ pub struct Withdraw<'info> {
     )]
     pub trana_registry: Account<'info, TwoFactorRegistry>,
 
-    /// CHECK: Instructions sysvar
+    /// CHECK: instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
 }
@@ -292,10 +283,6 @@ pub struct CloseVault<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// CHECK: destination receives any remaining SOL above rent
-    #[account(mut)]
-    pub destination: UncheckedAccount<'info>,
-
     pub trana_guard_program: Program<'info, TranaGuard>,
 
     #[account(
@@ -306,7 +293,7 @@ pub struct CloseVault<'info> {
     )]
     pub trana_registry: Account<'info, TwoFactorRegistry>,
 
-    /// CHECK: Instructions sysvar
+    /// CHECK: instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
 
