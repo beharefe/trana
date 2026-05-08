@@ -154,7 +154,10 @@ pub mod trana_test_vault {
                 } else {
                     amount
                 };
-                let is_drain = window_now >= WITHDRAW_LIMIT;
+                // Drain only triggers when there IS a prior window — a fresh first
+                // withdrawal at exactly the limit should fall through to Policy::Limit,
+                // not escalate to Policy::Require.
+                let is_drain = in_window && window_now >= WITHDRAW_LIMIT;
                 let p = if is_drain {
                     Policy::Require
                 } else {

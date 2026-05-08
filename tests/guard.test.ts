@@ -137,7 +137,7 @@ describe("trana", () => {
     it("enforce_expired_proof", async () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
-      const pastExpiry = Math.floor(Date.now() / 1000) - 10
+      const pastExpiry = 1 // Unix epoch — guaranteed past on any running validator
       const proof      = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, pastExpiry)
 
       await expect(
@@ -510,7 +510,7 @@ describe("trana", () => {
     it("proof_expiry_boundary_invalid", async () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
-      const expiry    = Math.floor(Date.now() / 1000) - 1
+      const expiry    = 1 // Unix epoch — guaranteed past
       const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
 
       await expect(
@@ -531,7 +531,7 @@ describe("trana", () => {
     it("stale_expiry_invalid", async () => {
       const { program, owner, passkey } = await enforceFixture()
       const enforceIx = await buildEnforceIx(program, owner)
-      const expiry    = Math.floor(Date.now() / 1000) - 60
+      const expiry    = 1 // Unix epoch — guaranteed past
       const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require", "localhost", undefined, expiry)
 
       await expect(
