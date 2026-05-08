@@ -1,4 +1,4 @@
-const noChrome = { theme: { breadcrumb: false } }
+const noChrome = { theme: { breadcrumb: false, toc: false } }
 
 export default {
   deposit:  { title: "Deposit",         ...noChrome },
