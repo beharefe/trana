@@ -1,8 +1,11 @@
 export default {
-  "try-it-live": "Try it live",
-  index:         "Overview",
-  quickstart:    "Quickstart",
-  integration:   "Integration",
-  architecture:  "Architecture",
-  glossary:      "Glossary",
+  "try-it-live": {
+    title: "Try it live",
+    display: "normal",
+  },
+  index:        "How it works",
+  quickstart:   "Quickstart",
+  integration:  "Integration",
+  architecture: "Architecture",
+  glossary:     "Glossary",
 }

@@ -1,0 +1,21 @@
+import { VaultBanner, SeedPhraseBanner, DemoCards, WithdrawPanel, TxAnatomyStrip, TryItLiveShell } from "@/components/try-it-live"
+
+<VaultBanner />
+
+<TryItLiveShell>
+
+<p className="not-prose font-mono text-[10px] tracking-[0.16em] text-faint uppercase mb-4">01 · Try it live · Solana devnet</p>
+
+# A vault you can attack.
+
+Try to drain the pool. Small withdrawals pass freely. Cross the 1 SOL threshold — or withdraw in rapid succession — and the program demands a passkey proof.
+
+<SeedPhraseBanner />
+
+<DemoCards active="withdraw" />
+
+<WithdrawPanel />
+
+<TxAnatomyStrip policy="Limit" />
+
+</TryItLiveShell>

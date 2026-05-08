@@ -1,0 +1,21 @@
+import { VaultBanner, SeedPhraseBanner, DemoCards, UpgradePanel, TxAnatomyStrip, TryItLiveShell } from "@/components/try-it-live"
+
+<VaultBanner />
+
+<TryItLiveShell>
+
+<p className="not-prose font-mono text-[10px] tracking-[0.16em] text-faint uppercase mb-4">01 · Try it live · Solana devnet</p>
+
+# A vault you can attack.
+
+Try to patch the program with the leaked wallet key. The upgrade authority has been transferred to a Trana Authority PDA — the wallet alone cannot upgrade.
+
+<SeedPhraseBanner />
+
+<DemoCards active="upgrade" />
+
+<UpgradePanel />
+
+<TxAnatomyStrip policy="Require" />
+
+</TryItLiveShell>

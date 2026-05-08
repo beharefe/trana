@@ -1,0 +1,100 @@
+"use client"
+
+import { useState } from "react"
+import { ShieldCheck, XCircle, KeyRound } from "lucide-react"
+
+type UpgradeResult = "idle" | "blocked" | "approved"
+
+export function UpgradePanel() {
+  const [result, setResult] = useState<UpgradeResult>("idle")
+
+  return (
+    <div className="not-prose rounded-xl border border-white/[0.08] bg-card overflow-hidden">
+
+      {/* header */}
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06]">
+        <span className="font-mono text-[13px] font-medium text-ink">Program upgrade · authority PDA</span>
+        <span className="font-mono text-[11px] text-faint">
+          policy in play <span className="text-[#ff5b1f]">Require</span>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-white/[0.06]">
+
+        {/* left */}
+        <div className="p-5 bg-card space-y-5">
+          {/* current authority */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[0.14em] text-faint uppercase mb-2">Upgrade authority</div>
+            <div className="px-3.5 py-2.5 rounded-lg border border-white/[0.08] bg-bg">
+              <div className="font-mono text-[10px] text-faint mb-0.5">trana_authority PDA</div>
+              {/* address → replace with real PDA */}
+              <div className="font-mono text-[12px] text-ink">KoXv…vGEE</div>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* Attack */}
+            <button
+              type="button"
+              onClick={() => setResult("blocked")}
+              className="w-full py-3 rounded-xl font-mono text-[12px] tracking-[0.06em] text-[#ff5b1f] border border-[#ff5b1f]/25 bg-[#ff5b1f]/[0.04] hover:bg-[#ff5b1f]/[0.08] transition-colors uppercase"
+            >
+              Upgrade with leaked wallet key
+            </button>
+
+            {/* Approve */}
+            <button
+              type="button"
+              onClick={() => setResult("approved")}
+              className="w-full py-3 rounded-xl font-mono font-semibold text-[12px] tracking-[0.08em] text-bg bg-accent hover:brightness-110 transition-all uppercase"
+            >
+              Upgrade with passkey
+            </button>
+          </div>
+
+          <p className="font-mono text-[11px] text-faint leading-relaxed">
+            The wallet key alone cannot upgrade this program. The upgrade authority has been transferred to the Trana Authority PDA.
+          </p>
+        </div>
+
+        {/* right */}
+        <div className="p-5 bg-card space-y-6">
+          {/* result */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[0.14em] text-faint uppercase mb-2">Last result</div>
+            {result === "idle" &&
+              <div className="flex items-center gap-1.5 font-mono text-[12px] text-faint"><KeyRound size={12} /> Awaiting attempt</div>}
+            {result === "blocked" &&
+              <div className="flex items-center gap-1.5 font-mono text-[12px] text-[#ff5b1f]"><XCircle size={12} /> Incorrect authority provided</div>}
+            {result === "approved" &&
+              <div className="flex items-center gap-1.5 font-mono text-[12px] text-accent"><ShieldCheck size={12} /> ProofVerified — upgrade executed</div>}
+          </div>
+
+          <div className="h-px bg-white/[0.06]" />
+
+          <div className="space-y-3">
+            <div className="font-mono text-[9px] tracking-[0.14em] text-faint uppercase">What this proves</div>
+            <div className="space-y-2">
+              {[
+                { label: "Wallet key alone",    result: "blocked",  desc: "BPF Loader rejects — not the authority" },
+                { label: "Passkey approved",    result: "approved", desc: "execute_upgrade CPI succeeds" },
+              ].map((r) => (
+                <div key={r.label} className="flex items-start gap-3 px-3 py-2 rounded-lg border border-white/[0.06] bg-bg">
+                  <span className={`font-mono text-[10px] shrink-0 mt-0.5 ${r.result === "blocked" ? "text-[#ff5b1f]" : "text-accent"}`}>
+                    {r.result === "blocked" ? "✗" : "✓"}
+                  </span>
+                  <div>
+                    <div className="font-mono text-[11px] text-ink">{r.label}</div>
+                    <div className="font-mono text-[10px] text-faint mt-0.5">{r.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}
