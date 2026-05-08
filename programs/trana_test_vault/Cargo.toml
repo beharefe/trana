@@ -14,6 +14,7 @@ name = "trana_test_vault"
 
 [features]
 default = []
+devnet = ["trana_guard/devnet"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
