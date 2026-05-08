@@ -8,7 +8,8 @@
  */
 
 import { execSync }                     from "child_process"
-import { PublicKey, TransactionInstruction } from "@solana/web3.js"
+import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js"
+import * as fs   from "fs"
 import * as os   from "os"
 import * as path from "path"
 
@@ -59,6 +60,44 @@ export function createUpgradeBuffer(
   )
 
   return buffer
+}
+
+// ── Fresh upgradeable deployment ──────────────────────────────────────────────
+
+/**
+ * Deploy a fresh upgradeable program at a newly-generated address.
+ * Returns the program public key. The upgrade authority is set to the CLI wallet.
+ *
+ * Use this when the test needs a genuinely upgradeable program — programs
+ * loaded via `--bpf-program` (anchor's test-validator) are immutable
+ * (authority = 11111...1) and cannot have their authority transferred.
+ */
+export function deployFreshProgram(
+  soPath:       string,
+  keypairPath = DEFAULT_KEYPAIR,
+  rpcUrl      = "http://127.0.0.1:8899",
+): PublicKey {
+  const tmpKpPath = path.join(os.tmpdir(), `trana-deploy-${Date.now()}.json`)
+  const kp = Keypair.generate()
+  fs.writeFileSync(tmpKpPath, JSON.stringify(Array.from(kp.secretKey)))
+  try {
+    execSync(
+      `solana program deploy ${soPath} ` +
+      `--program-id ${tmpKpPath} ` +
+      `--keypair ${keypairPath} ` +
+      `--url ${rpcUrl}`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    )
+  } catch (e: any) {
+    throw new Error(
+      `solana program deploy failed.\n` +
+      `Make sure the Solana CLI is on PATH and a local validator is running.\n` +
+      `Original error: ${e.message}`,
+    )
+  } finally {
+    fs.unlinkSync(tmpKpPath)
+  }
+  return kp.publicKey
 }
 
 // ── Raw BPF Loader instructions (for lower-level tests) ───────────────────────

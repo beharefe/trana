@@ -24,7 +24,7 @@ import {
 } from "./helpers/setup"
 import { sendV0 } from "./helpers/transactions"
 import { buildProofInstructions } from "./helpers/proof"
-import { createUpgradeBuffer, BPF_LOADER as _BPF_LOADER, setUpgradeAuthorityIx as _setUpgradeAuthorityIx } from "./helpers/bpf"
+import { createUpgradeBuffer, deployFreshProgram, BPF_LOADER as _BPF_LOADER, setUpgradeAuthorityIx as _setUpgradeAuthorityIx } from "./helpers/bpf"
 import * as path from "path"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1543,6 +1543,15 @@ describe("trana_authority", () => {
 
     const setUpgradeAuthorityIx = _setUpgradeAuthorityIx
 
+    // Programs loaded via anchor's --bpf-program flag are immutable (authority =
+    // 11111...1) so setUpgradeAuthorityIx would fail against them. We deploy one
+    // fresh upgradeable copy per describe block; all upgrade tests share it.
+    let upgradeTargetProgramId: PublicKey
+    beforeAll(async () => {
+      const soPath = path.join(__dirname, "../target/deploy/trana_test_vault.so")
+      upgradeTargetProgramId = deployFreshProgram(soPath)
+    }, 60_000)
+
     // Full fixture: registers PDA for trana_test_vault and transfers upgrade
     // authority from payer → PDA. Returns a cleanup function that restores
     // the authority back to payer so subsequent tests start from a clean state.
@@ -1552,8 +1561,7 @@ describe("trana_authority", () => {
       const payerKp = (payer as unknown as { payer: Keypair }).payer
 
       const { owner, passkey } = await setupGuardedOwner(tranaGuard)
-      const testVault   = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
-      const programId   = testVault.programId
+      const programId   = upgradeTargetProgramId
       const programData = await getProgramData(conn, programId)
 
       await authority.methods
