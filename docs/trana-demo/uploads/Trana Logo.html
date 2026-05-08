@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>trana — logo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #0a0a0b;
+    --ink-2: #131316;
+    --ink-3: #1c1c20;
+    --bone: #ebe8e0;
+    --bone-2: #d6d2c6;
+    --rule: rgba(235,232,224,0.12);
+    --lime: #c6ff3a;
+    --plasma: #ff5b1f;
+    --azure: #5aa9ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; color: var(--bone); }
+  body { padding: 64px 72px 120px; max-width: 1480px; margin: 0 auto; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 28px; border-bottom: 1px solid var(--rule); margin-bottom: 64px; }
+  .topbar .name { font-size: 14px; letter-spacing: 0.32em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: var(--bone); }
+  .topbar .meta { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; color: rgba(235,232,224,0.5); }
+
+  h2.section {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase;
+    color: rgba(235,232,224,0.55);
+    margin: 96px 0 28px; padding-bottom: 16px; border-bottom: 1px solid var(--rule);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  h2.section span.tag { color: var(--lime); }
+
+  /* ---------- crossbar wordmark ----------
+     Crossbar starts only a touch left of the t (was -0.36em) so it reads
+     as an extension of the t's stem rather than a banner crossing the
+     whole word. */
+  .crossbar { display: inline-block; position: relative; }
+  .crossbar::after {
+    content: ""; position: absolute;
+    left: -0.18em; right: -0.04em;
+    top: 0.30em; height: 0.07em;
+    background: var(--lime);
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    display: grid; grid-template-columns: 1.05fr 0.95fr;
+    min-height: 540px; border: 1px solid var(--rule);
+  }
+  .hero .L, .hero .R { padding: 56px; display: flex; flex-direction: column; justify-content: space-between; }
+  .hero .L { background: var(--ink); }
+  .hero .R { background: var(--bone); color: var(--ink); }
+  .hero .name {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    font-size: 148px; letter-spacing: -0.06em; line-height: 0.9;
+    white-space: nowrap;
+  }
+  .wm-display, .lockup-row .word { white-space: nowrap; }
+  .hero .L .name { color: var(--bone); }
+  .hero .R .name { color: var(--ink); }
+  .hero .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(235,232,224,0.5); }
+  .hero .R .meta { color: rgba(10,10,11,0.55); }
+
+  /* ---------- MARK (icon only) ----------
+     Standalone mark = the lowercase 't' from the wordmark itself, with the
+     lime crossbar accent. We use the actual Space Grotesk glyph (not a
+     reconstructed shape) so the mark is literally the 't' lifted out of
+     'trana'. The .glyph class wraps a single character so we can size it
+     freely and stamp the same crossbar pseudo-element used in the
+     wordmark.
+     Anatomy:
+       • the 't' character itself (Space Grotesk 600)
+       • a horizontal lime bar set at the same y as .crossbar — but here it
+         only extends to the right of the stem (no left overhang) so the
+         mark is centered and self-contained.                       */
+  .glyph {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    letter-spacing: -0.05em; line-height: 1; display: inline-block;
+    position: relative;
+  }
+  .glyph::after {
+    content: ""; position: absolute;
+    /* Match the wordmark crossbar exactly — bar sits on the t's own
+       horizontal stroke and extends to the right of the stem. */
+    left: -0.18em; right: -0.40em;
+    top: 0.30em; height: 0.075em;
+    background: var(--lime);
+  }
+  .glyph.ink-bar::after { background: var(--ink); }
+  .glyph.bone-bar::after { background: var(--bone); }
+  .glyph.plasma-bar::after { background: var(--plasma); }
+
+  .marks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .mark-card {
+    border: 1px solid var(--rule);
+    aspect-ratio: 1 / 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px; position: relative;
+    background: var(--ink);
+  }
+  .mark-card.bone { background: var(--bone); border-color: rgba(10,10,11,0.12); }
+  .mark-card.lime { background: var(--lime); }
+  .mark-card.plasma { background: var(--plasma); }
+  .mark-card .num {
+    position: absolute; top: 14px; left: 16px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: rgba(235,232,224,0.5);
+  }
+  .mark-card.bone .num { color: rgba(10,10,11,0.5); }
+  .mark-card.lime .num, .mark-card.plasma .num { color: rgba(10,10,11,0.55); }
+  .mark-card .lbl {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(235,232,224,0.85);
+  }
+  .mark-card.bone .lbl, .mark-card.lime .lbl, .mark-card.plasma .lbl { color: rgba(10,10,11,0.75); }
+
+  /* ---------- WORDMARK ---------- */
+  .wordmark-sheet {
+    border: 1px solid var(--rule);
+    padding: 64px;
+    display: flex; flex-direction: column; gap: 48px;
+  }
+  .wm-row { display: flex; flex-direction: column; gap: 14px; }
+  .wm-row .lbl { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.22em; color: rgba(235,232,224,0.5); text-transform: uppercase; }
+  .wm-display {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    letter-spacing: -0.05em; line-height: 1; color: var(--bone);
+  }
+  .wm-display.xl { font-size: 140px; }
+  .wm-display.lg { font-size: 84px; }
+  .wm-display.md { font-size: 48px; }
+  .wm-display.sm { font-size: 28px; }
+
+  /* ---------- LOCKUP (mark + wordmark) ---------- */
+  .lockup-row {
+    border: 1px solid var(--rule);
+    padding: 56px 64px;
+    display: flex; align-items: center; gap: 28px;
+  }
+  .lockup-row.bone { background: var(--bone); }
+  .lockup-row .word {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    font-size: 96px; letter-spacing: -0.05em; line-height: 1;
+    color: var(--bone);
+  }
+  .lockup-row.bone .word { color: var(--ink); }
+
+  /* ---------- PALETTE ---------- */
+  .palette { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--rule); }
+  .swatch { aspect-ratio: 1 / 1.1; padding: 22px; display: flex; flex-direction: column; justify-content: space-between; }
+  .swatch .h { font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
+  .swatch .n { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.78; }
+
+  /* ---------- APP ICONS ---------- */
+  .icons-row { display: flex; gap: 28px; flex-wrap: wrap; }
+  .tile { width: 156px; height: 156px; border-radius: 32px; display: flex; align-items: center; justify-content: center; box-shadow: 0 30px 60px -30px rgba(0,0,0,0.7); }
+  .tile.ink { background: linear-gradient(160deg, #1a1a1f 0%, #0a0a0b 100%); }
+  .tile.bone { background: var(--bone); }
+  .tile.lime { background: var(--lime); }
+  .tile.plasma { background: var(--plasma); }
+
+  /* ---------- SCALE ---------- */
+  .scale-row { display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap; }
+  .scale-cell { background: var(--ink-2); border: 1px solid var(--rule); display: flex; align-items: center; justify-content: center; }
+  .scale-cell-wrap { position: relative; padding-bottom: 28px; }
+  .scale-cell-wrap .lbl { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; color: rgba(235,232,224,0.45); }
+
+  /* ---------- IN CONTEXT (Trana docs-flavored) ---------- */
+  .ctx-window {
+    border: 1px solid var(--rule);
+    background: var(--ink-2);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 50px 90px -30px rgba(0,0,0,0.7);
+  }
+  .ctx-top { height: 38px; padding: 0 16px; display: flex; align-items: center; gap: 8px; background: var(--ink-3); border-bottom: 1px solid var(--rule); }
+  .ctx-top .dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(235,232,224,0.18); }
+  .ctx-top .url { flex: 1; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(235,232,224,0.55); }
+  .ctx-body { padding: 40px 56px 64px; display: flex; flex-direction: column; gap: 36px; }
+  .ctx-nav { display: flex; align-items: center; justify-content: space-between; }
+  .ctx-mark { display: flex; align-items: center; gap: 12px; }
+  .ctx-mark .word { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 26px; letter-spacing: -0.04em; color: var(--bone); }
+  .ctx-links { display: flex; gap: 26px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(235,232,224,0.6); }
+  .ctx-h1 { font-family: 'Space Grotesk', sans-serif; font-weight: 500; font-size: 76px; letter-spacing: -0.04em; line-height: 1.0; color: var(--bone); max-width: 880px; }
+  .ctx-h1 em { font-style: normal; color: var(--lime); }
+  .ctx-sub { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: rgba(235,232,224,0.62); letter-spacing: 0.04em; max-width: 620px; line-height: 1.7; }
+  .cta-row { display: flex; gap: 14px; }
+  .cta { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border: 1px solid var(--bone); color: var(--bone); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; text-decoration: none; }
+  .cta.lime { background: var(--lime); color: var(--ink); border-color: var(--lime); }
+
+  /* code block — docs-flavored */
+  .code {
+    margin-top: 8px; padding: 22px 26px;
+    background: var(--ink); border: 1px solid var(--rule); border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.85;
+    color: rgba(235,232,224,0.78); white-space: pre; overflow-x: auto;
+  }
+  .code .c { color: rgba(235,232,224,0.42); }
+  .code .k { color: var(--lime); }
+  .code .a { color: var(--azure); }
+
+  .footer { margin-top: 96px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(235,232,224,0.4); display: flex; justify-content: space-between; padding-top: 24px; border-top: 1px solid var(--rule); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="name">trana — logo</div>
+  <div class="meta">execution-time authorization · solana · v0.2</div>
+</div>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <div class="L">
+    <div class="meta">— primary surface · ink + bone</div>
+    <div class="name"><span class="crossbar">t</span>rana</div>
+    <div class="meta">accent · lime · #c6ff3a</div>
+  </div>
+  <div class="R">
+    <div class="meta">— inverse · light surface</div>
+    <div class="name"><span class="crossbar">t</span>rana</div>
+    <div class="meta">monochrome variant</div>
+  </div>
+</div>
+
+<!-- ============ MARK ONLY ============ -->
+<h2 class="section"><span><span class="tag">02</span> &nbsp;Mark · the t-stem</span><span>icon-only, four surfaces</span></h2>
+
+<div class="marks">
+  <div class="mark-card">
+    <div class="num">01 · ink</div>
+    <span class="glyph" style="font-size:160px; color:var(--bone);">t</span>
+    <div class="lbl">primary</div>
+  </div>
+
+  <div class="mark-card bone">
+    <div class="num">02 · bone</div>
+    <span class="glyph plasma-bar" style="font-size:160px; color:var(--ink);">t</span>
+    <div class="lbl">light surface</div>
+  </div>
+
+  <div class="mark-card lime">
+    <div class="num">03 · lime fill</div>
+    <span class="glyph ink-bar" style="font-size:160px; color:var(--ink);">t</span>
+    <div class="lbl">accent fill · single ink</div>
+  </div>
+
+  <div class="mark-card" style="border:1px dashed rgba(235,232,224,0.18);">
+    <div class="num">04 · monochrome</div>
+    <span class="glyph bone-bar" style="font-size:160px; color:var(--bone);">t</span>
+    <div class="lbl">single ink · print safe</div>
+  </div>
+</div>
+
+<!-- ============ WORDMARK ============ -->
+<h2 class="section"><span><span class="tag">03</span> &nbsp;Wordmark · grotesk + crossbar</span><span>tightened — bar starts at the t</span></h2>
+
+<div class="wordmark-sheet">
+  <div class="wm-row">
+    <div class="lbl">XL · marketing / hero</div>
+    <div class="wm-display xl"><span class="crossbar">t</span>rana</div>
+  </div>
+  <div class="wm-row">
+    <div class="lbl">L · section header</div>
+    <div class="wm-display lg"><span class="crossbar">t</span>rana</div>
+  </div>
+  <div class="wm-row">
+    <div class="lbl">M · nav / lockup</div>
+    <div class="wm-display md"><span class="crossbar">t</span>rana</div>
+  </div>
+  <div class="wm-row">
+    <div class="lbl">S · inline</div>
+    <div class="wm-display sm"><span class="crossbar">t</span>rana</div>
+  </div>
+</div>
+
+<!-- ============ LOCKUP ============ -->
+<h2 class="section"><span><span class="tag">04</span> &nbsp;Lockup · mark + wordmark</span><span>horizontal, both surfaces</span></h2>
+
+<div class="lockup-row">
+  <span class="glyph" style="font-size:108px; color:var(--bone);">t</span>
+  <div class="word">trana</div>
+</div>
+
+<div class="lockup-row bone" style="margin-top:24px;">
+  <span class="glyph plasma-bar" style="font-size:108px; color:var(--ink);">t</span>
+  <div class="word">trana</div>
+</div>
+
+<!-- ============ PALETTE ============ -->
+<h2 class="section"><span><span class="tag">05</span> &nbsp;Palette · preserved</span><span>1 surface · 1 type · 3 accents</span></h2>
+
+<div class="palette">
+  <div class="swatch" style="background:#0a0a0b; color:#ebe8e0;">
+    <div class="n">INK · #0a0a0b</div>
+    <div><div class="h">trana</div><div class="n" style="margin-top:6px; opacity:0.6;">primary surface</div></div>
+  </div>
+  <div class="swatch" style="background:#ebe8e0; color:#0a0a0b;">
+    <div class="n">BONE · #ebe8e0</div>
+    <div><div class="h">trana</div><div class="n" style="margin-top:6px; opacity:0.6;">primary type</div></div>
+  </div>
+  <div class="swatch" style="background:#c6ff3a; color:#0a0a0b;">
+    <div class="n">LIME · #c6ff3a</div>
+    <div><div class="h">trana</div><div class="n" style="margin-top:6px; opacity:0.6;">accent · primary</div></div>
+  </div>
+  <div class="swatch" style="background:#ff5b1f; color:#1a0a04;">
+    <div class="n">PLASMA · #ff5b1f</div>
+    <div><div class="h">trana</div><div class="n" style="margin-top:6px; opacity:0.6;">accent · alert</div></div>
+  </div>
+  <div class="swatch" style="background:#5aa9ff; color:#08111e;">
+    <div class="n">AZURE · #5aa9ff</div>
+    <div><div class="h">trana</div><div class="n" style="margin-top:6px; opacity:0.6;">accent · data</div></div>
+  </div>
+</div>
+
+<!-- ============ APP ICONS ============ -->
+<h2 class="section"><span><span class="tag">06</span> &nbsp;App icons · 1024² mock</span><span>4 fills</span></h2>
+
+<div class="icons-row">
+  <div class="tile ink">
+    <span class="glyph" style="font-size:120px; color:var(--bone);">t</span>
+  </div>
+  <div class="tile bone">
+    <span class="glyph plasma-bar" style="font-size:120px; color:var(--ink);">t</span>
+  </div>
+  <div class="tile lime">
+    <span class="glyph ink-bar" style="font-size:120px; color:var(--ink);">t</span>
+  </div>
+  <div class="tile plasma">
+    <span class="glyph" style="font-size:120px; color:#1a0a04;"><span style="position:relative">t</span></span>
+  </div>
+</div>
+
+<!-- ============ SCALE ============ -->
+<h2 class="section"><span><span class="tag">07</span> &nbsp;Scale · favicon → display</span><span>16 → 144 px</span></h2>
+
+<div class="scale-row">
+  <div class="scale-cell-wrap"><div class="scale-cell" style="width:32px; height:32px; border-radius:6px;"><span class="glyph" style="font-size:24px; color:var(--bone);">t</span></div><span class="lbl">16</span></div>
+  <div class="scale-cell-wrap"><div class="scale-cell" style="width:48px; height:48px; border-radius:8px;"><span class="glyph" style="font-size:36px; color:var(--bone);">t</span></div><span class="lbl">32</span></div>
+  <div class="scale-cell-wrap"><div class="scale-cell" style="width:80px; height:80px; border-radius:14px;"><span class="glyph" style="font-size:60px; color:var(--bone);">t</span></div><span class="lbl">64</span></div>
+  <div class="scale-cell-wrap"><div class="scale-cell" style="width:120px; height:120px; border-radius:22px;"><span class="glyph" style="font-size:90px; color:var(--bone);">t</span></div><span class="lbl">96</span></div>
+  <div class="scale-cell-wrap"><div class="scale-cell" style="width:168px; height:168px; border-radius:30px;"><span class="glyph" style="font-size:124px; color:var(--bone);">t</span></div><span class="lbl">144</span></div>
+</div>
+
+<!-- ============ IN CONTEXT ============ -->
+<h2 class="section"><span><span class="tag">08</span> &nbsp;In context · trana.so</span><span>nav · hero · code</span></h2>
+
+<div class="ctx-window">
+  <div class="ctx-top">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="url">trana.so</div>
+  </div>
+  <div class="ctx-body">
+    <div class="ctx-nav">
+      <div class="ctx-mark">
+        <span class="glyph" style="font-size:38px; color:var(--bone);">t</span>
+        <div class="word"><span class="crossbar">t</span>rana</div>
+      </div>
+      <div class="ctx-links">
+        <span>overview</span><span>quickstart</span><span>integration</span><span>architecture</span><span>glossary</span>
+      </div>
+      <div class="cta-row">
+        <span class="cta">github →</span>
+      </div>
+    </div>
+    <div class="ctx-h1">Stolen keys can't drain <em>guarded</em> accounts.</div>
+    <div class="ctx-sub">Trana adds a second-factor passkey check at execution time — directly onchain, inside the instruction itself. Proofs are bound to the exact accounts and parameters and expire in 120 seconds. No backend.</div>
+    <div class="cta-row">
+      <span class="cta lime">read the docs →</span>
+      <span class="cta">npm i @trana/sdk</span>
+    </div>
+    <pre class="code"><span class="c">// any instruction calling guard::cpi::enforce()</span>
+<span class="c">// cannot execute without a fresh WebAuthn proof.</span>
+
+ix[0]:  <span class="k">secp256r1</span> precompile        <span class="c">← P-256 verified natively</span>
+ix[1]:  <span class="k">guard::record_proof</span>         <span class="c">← authenticatorData + clientDataJSON</span>
+ix[2]:  your_program::<span class="a">action</span>         <span class="c">→ guard::cpi::enforce()</span></pre>
+  </div>
+</div>
+
+<div class="footer">
+  <span>trana · logo v0.2</span>
+  <span>execution requires approval.</span>
+</div>
+
+</body>
+</html>
