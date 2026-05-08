@@ -24,6 +24,8 @@ import {
 } from "./helpers/setup"
 import { sendV0 } from "./helpers/transactions"
 import { buildProofInstructions } from "./helpers/proof"
+import { createUpgradeBuffer, BPF_LOADER as _BPF_LOADER, setUpgradeAuthorityIx as _setUpgradeAuthorityIx } from "./helpers/bpf"
+import * as path from "path"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1529,7 +1531,7 @@ describe("trana_authority", () => {
   // by the test runner so we have a genuine upgradeable BPF program to work with.
 
   describe("execute_upgrade", () => {
-    const BPF_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
+    const BPF_LOADER = _BPF_LOADER
 
     // Read the ProgramData address from the deployed program account.
     // BpfLoaderUpgradeable::Program layout: [variant u32 (2)][programdata_address 32]
@@ -1539,24 +1541,7 @@ describe("trana_authority", () => {
       return new PublicKey(info.data.slice(4, 36))
     }
 
-    // Build a set_upgrade_authority instruction (BPF Loader variant 4).
-    function setUpgradeAuthorityIx(
-      programData:      PublicKey,
-      currentAuthority: PublicKey,
-      newAuthority:     PublicKey,
-    ): TransactionInstruction {
-      const data = Buffer.alloc(4)
-      data.writeUInt32LE(4, 0)
-      return new TransactionInstruction({
-        programId: BPF_LOADER,
-        keys: [
-          { pubkey: programData,      isSigner: false, isWritable: true  },
-          { pubkey: currentAuthority, isSigner: true,  isWritable: false },
-          { pubkey: newAuthority,     isSigner: false, isWritable: false },
-        ],
-        data,
-      })
-    }
+    const setUpgradeAuthorityIx = _setUpgradeAuthorityIx
 
     // Full fixture: registers PDA for trana_test_vault and transfers upgrade
     // authority from payer → PDA. Returns a cleanup function that restores
@@ -1941,15 +1926,97 @@ describe("trana_authority", () => {
       ).rejects.toThrow()
     })
 
-    it.todo("execute_upgrade_success_after_transferring_upgrade_authority_to_pda")
-    it.todo("execute_upgrade_without_real_upgrade_authority_transfer_fails")
+    it("execute_upgrade_success_after_transferring_upgrade_authority_to_pda", async () => {
+      // Uses trana_test_vault's own .so — upgrading to the same binary is valid
+      // for testing the mechanism. The CLI handles the ~290 write transactions.
+      const soPath = path.join(__dirname, "../../target/deploy/trana_test_vault.so")
+
+      const { conn, payerKp, owner, passkey, programId, programData, upgradePda, registry,
+              advanceRestoreNonce, restore } = await upgradeFixture()
+      try {
+        const buffer = createUpgradeBuffer(soPath, upgradePda)
+        const spill  = payerKp.publicKey  // receives buffer rent refund
+
+        const ix = await authority.methods
+          .executeUpgrade()
+          .accounts({
+            authorityRecord:   upgradePda,
+            owner:             owner.publicKey,
+            program:           programId,
+            programData,
+            buffer,
+            spill,
+            rent:              anchor.web3.SYSVAR_RENT_PUBKEY,
+            clock:             anchor.web3.SYSVAR_CLOCK_PUBKEY,
+            bpfLoader:         BPF_LOADER,
+            tranaGuardProgram: tranaGuard.programId,
+            tranaRegistry:     registry,
+            instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          })
+          .instruction()
+
+        await buildAndSendProof(tranaGuard, ix, owner, passkey)
+        advanceRestoreNonce()  // nonce 0 consumed — restore must use nonce 1
+
+        // Buffer drained to spill — buffer account should be gone or zeroed
+        const bufferInfo = await conn.getAccountInfo(buffer)
+        expect(bufferInfo).toBeNull()
+
+        // Program still executable
+        const programInfo = await conn.getAccountInfo(programId)
+        expect(programInfo?.executable).toBe(true)
+      } finally {
+        await restore()
+      }
+    })
+
+    it("execute_upgrade_without_real_upgrade_authority_transfer_fails", async () => {
+      // Register PDA as ProgramUpgrade but do NOT transfer upgrade authority.
+      // Prove passes, BPF Loader rejects because PDA is not the current authority.
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const conn    = tranaGuard.provider.connection
+      const testVault   = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
+      const programId   = testVault.programId
+      const programData = await getProgramData(conn, programId)
+
+      await authority.methods
+        .register({ programUpgrade: {} })
+        .accounts({ owner: owner.publicKey, target: programId })
+        .signers([owner])
+        .rpc()
+
+      const pda      = authorityRecordPda(owner.publicKey, programId, authority.programId)
+      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const dummy    = Keypair.generate().publicKey
+
+      const ix = await authority.methods
+        .executeUpgrade()
+        .accounts({
+          authorityRecord:   pda,
+          owner:             owner.publicKey,
+          program:           programId,
+          programData,
+          buffer:            dummy,
+          spill:             dummy,
+          rent:              anchor.web3.SYSVAR_RENT_PUBKEY,
+          clock:             anchor.web3.SYSVAR_CLOCK_PUBKEY,
+          bpfLoader:         BPF_LOADER,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .instruction()
+
+      await expect(
+        buildAndSendProof(tranaGuard, ix, owner, passkey)
+      ).rejects.toThrow()
+    })
+
     it.todo("execute_upgrade_wrong_program_data_for_program_fails")
     it.todo("execute_upgrade_invalid_buffer_account_fails")
     it.todo("execute_upgrade_wrong_buffer_authority_fails")
     it.todo("execute_upgrade_wrong_spill_account_fails")
     it.todo("execute_upgrade_emits_upgrade_executed_event")
-    it.todo("execute_upgrade_drains_buffer_to_spill")
-    it.todo("execute_upgrade_updates_programdata_state")
     it.todo("execute_upgrade_cannot_reuse_drained_buffer")
     it.todo("reclaim_program_upgrade_new_authority_arg_and_account_mismatch_fails")
     it.todo("reclaim_program_upgrade_then_new_authority_can_upgrade_directly")
