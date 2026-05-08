@@ -101,56 +101,63 @@ export function VaultBar({
 
   return (
     <>
-      <div className="not-prose mb-8 mt-2 px-5 py-3 rounded-xl border border-white/[0.08] bg-card flex flex-wrap items-center gap-3">
+      <div className="not-prose mb-8 mt-2 px-4 py-2.5 rounded-xl border border-white/[0.08] bg-card flex items-center gap-2 min-w-0">
 
         {/* ── Left: vault stats ── */}
-        <div className="flex items-center gap-3 mr-auto">
-          <span className="flex items-center gap-1.5 px-2 py-1 rounded-full border border-[#ff5b1f]/30 bg-[#ff5b1f]/[0.06] font-mono text-[9px] tracking-[0.10em] text-[#ff5b1f] uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#ff5b1f]" />
+        <div className="flex items-center gap-2 min-w-0 shrink-0">
+          {/* devnet badge — no dot */}
+          <span className="px-2 py-0.5 rounded-full border border-[#ff5b1f]/30 bg-[#ff5b1f]/[0.06] font-mono text-[9px] tracking-[0.10em] text-[#ff5b1f] uppercase shrink-0">
             devnet
           </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase">Vault</span>
-            {/* balance → replace with live RPC */}
-            <span className="font-mono text-[14px] font-medium text-ink">{vaultBalance} <span className="text-[11px] font-normal text-faint">SOL</span></span>
+          <div className="hidden sm:flex items-baseline gap-1">
+            <span className="font-mono text-[9px] tracking-[0.10em] text-faint uppercase">Vault</span>
+            <span className="font-mono text-[13px] font-medium text-ink">{vaultBalance} <span className="text-[10px] font-normal text-faint">SOL</span></span>
           </div>
         </div>
 
-        {/* ── Right: actions ── */}
-        <div className="flex items-center gap-2 flex-wrap">
-
-          {/* Seed phrase */}
+        {/* ── Secondary actions — hidden on mobile ── */}
+        <div className="hidden sm:flex items-center gap-1.5 ml-auto">
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.10] font-mono text-[11px] text-faint hover:text-ink hover:border-white/[0.20] transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.10] font-mono text-[10px] text-faint hover:text-ink hover:border-white/[0.20] transition-colors"
           >
-            <Lock size={11} />
+            <Lock size={10} />
             Seed phrase
           </button>
-
-          {/* Get Devnet SOL */}
           <a
             href="https://faucet.solana.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.10] font-mono text-[11px] text-faint hover:text-ink hover:border-white/[0.20] transition-colors no-underline"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/[0.10] font-mono text-[10px] text-faint hover:text-ink hover:border-white/[0.20] transition-colors no-underline"
           >
             Get devnet SOL
-            <ExternalLink size={10} />
+            <ExternalLink size={9} />
           </a>
+        </div>
 
-          {/* Connect wallet / connected state */}
+        {/* ── Seed phrase icon-only on mobile ── */}
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          className="sm:hidden ml-auto p-1.5 rounded-lg border border-white/[0.10] text-faint hover:text-ink transition-colors"
+          aria-label="Seed phrase"
+        >
+          <Lock size={13} />
+        </button>
+
+        {/* ── Connect wallet — always top right ── */}
+        <div className="shrink-0 sm:ml-1.5">
           {connected
             ? <WalletConnected address={walletAddress} balance={walletBalance} />
             : (
-              /* onClick → open wallet adapter modal */
               <button
                 type="button"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent/35 bg-accent/[0.06] font-mono text-[11px] text-accent hover:bg-accent/[0.12] transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent/35 bg-accent/[0.06] font-mono text-[11px] text-accent hover:bg-accent/[0.12] transition-colors whitespace-nowrap"
               >
                 <Wallet size={11} />
-                Connect wallet
+                <span className="hidden xs:inline">Connect wallet</span>
+                <span className="xs:hidden">Connect</span>
               </button>
             )
           }
