@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ShieldCheck, XCircle, KeyRound } from "lucide-react"
+import { ShieldCheck, XCircle, KeyRound, Copy } from "lucide-react"
 
 type UpgradeResult = "idle" | "blocked" | "approved"
 
@@ -91,6 +91,71 @@ export function UpgradePanel() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* ── Program state ── */}
+      <div className="border-t border-white/[0.06] p-5 space-y-5">
+
+        {/* section label */}
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[9px] tracking-[0.16em] text-faint uppercase">Program state</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+          <span className="font-mono text-[9px] tracking-[0.10em] text-accent uppercase">Live</span>
+        </div>
+
+        {/* ids */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Program ID</div>
+            {/* replace with real program ID */}
+            <div className="font-mono text-[12px] text-ink">8v6hfEZ3…yxtaa</div>
+          </div>
+          <div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Upgrade Auth</div>
+            {/* replace with real PDA */}
+            <div className="font-mono text-[12px] text-ink">KoXvrg4D…vGEE</div>
+            <div className="font-mono text-[9px] text-accent tracking-[0.06em] uppercase mt-1">Trana Authority PDA</div>
+          </div>
+        </div>
+
+        {/* solana program show terminal */}
+        <div className="rounded-xl border border-white/[0.08] bg-bg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
+            <span className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase">
+              Solana program show
+            </span>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(
+                "solana program show 8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa --url devnet"
+              )}
+              className="flex items-center gap-1 font-mono text-[9px] tracking-[0.08em] text-faint hover:text-ink transition-colors uppercase"
+            >
+              <Copy size={10} />
+              Copy
+            </button>
+          </div>
+          <pre className="px-4 py-3.5 font-mono text-[11.5px] leading-[1.85] overflow-x-auto">
+            <span className="text-faint">{"$ solana program show 8v6hfEZ3…yxtaa\n"}</span>
+            <span className="text-ink">{"Program Id:   "}</span><span className="text-accent">{"8v6hfEZ3…yxtaa\n"}</span>
+            <span className="text-ink">{"Owner:        "}</span><span className="text-muted">{"BPFLoaderUpgradeab1e\n"}</span>
+            <span className="text-ink">{"Authority:    "}</span><span className="text-accent">{"KoXvrg4D…vGEE"}</span><span className="text-faint">{"  ← Trana PDA, not a wallet\n"}</span>
+            <span className="text-ink">{"Last Slot:    "}</span><span className="text-muted">{"327,891,204\n"}</span>
+            <span className="text-ink">{"Data Length:  "}</span><span className="text-muted">{"286,456 bytes"}</span>
+          </pre>
+        </div>
+
+        {/* version */}
+        <div className="flex items-center gap-3">
+          <div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Version</div>
+            {/* update after upgrade tx */}
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-white/[0.12] font-mono text-[11px] text-ink">
+              v1
+            </span>
           </div>
         </div>
 

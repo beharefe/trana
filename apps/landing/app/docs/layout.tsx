@@ -15,7 +15,10 @@ export default async function DocsLayout({ children }: { children: ReactNode }) 
         />
       }
       pageMap={pageMap}
-      docsRepositoryBase="https://github.com/beharefe/trana"
+      docsRepositoryBase=""
+      editLink={null}
+      feedback={{ content: null }}
+      toc={{ backToTop: false, float: true }}
       footer={<Footer>© 2026 Trana Guard</Footer>}
       sidebar={{ defaultMenuCollapseLevel: 1 }}
     >

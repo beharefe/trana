@@ -101,7 +101,7 @@ export function VaultBar({
 
   return (
     <>
-      <div className="not-prose -mx-6 sm:-mx-8 mb-8 px-5 sm:px-7 py-3 border-b border-white/[0.08] bg-card flex flex-wrap items-center gap-3">
+      <div className="not-prose -mx-6 sm:-mx-8 mb-8 mt-2 px-5 sm:px-7 py-3 bg-card flex flex-wrap items-center gap-3">
 
         {/* ── Left: vault stats ── */}
         <div className="flex items-center gap-3 mr-auto">
