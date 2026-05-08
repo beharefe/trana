@@ -133,9 +133,10 @@ pub mod trana_guard {
 
     // ── Passkey registration ──────────────────────────────────────────────────
 
-    /// Register a P-256 passkey in the caller's onchain registry PDA.
-    /// Idempotent — re-registering updates the key without resetting the nonce.
-    /// Charges register_fee on first registration, recovery_fee on subsequent ones.
+    /// Register a P-256 passkey for the first time.
+    /// Only works when no key is registered yet (registry.pubkey_bytes is empty).
+    /// For replacing an existing key use recover_two_fa, which requires the
+    /// current passkey to prove you still hold it.
     pub fn register_two_fa(
         ctx: Context<RegisterTwoFa>,
         key_kind: KeyKind,
@@ -150,13 +151,13 @@ pub mod trana_guard {
             credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
             GuardError::InvalidProof
         );
-        // Detect new vs recovery before mutating state
         let is_new = ctx.accounts.registry.pubkey_bytes.is_empty();
-        let fee    = if is_new {
-            ctx.accounts.config.register_fee
-        } else {
-            ctx.accounts.config.recovery_fee
-        };
+        // Block wallet-only re-registration — use recover_two_fa instead.
+        // This closes the hijack vector: an attacker with just the wallet key
+        // cannot overwrite the registered passkey.
+        require!(is_new, GuardError::Unauthorized);
+
+        let fee = ctx.accounts.config.register_fee;
         if fee > 0 {
             anchor_lang::system_program::transfer(
                 CpiContext::new(
@@ -175,11 +176,67 @@ pub mod trana_guard {
         r.pubkey_bytes  = pubkey_bytes;
         r.credential_id = credential_id;
         r.enabled       = true;
-        // Preserve nonce — re-registration must not reset replay protection
-        msg!(
-            "TRANA register | owner={} | is_new={} | fee={}",
-            r.owner, is_new, fee,
+        msg!("TRANA register | owner={}", r.owner);
+        Ok(())
+    }
+
+    /// Replace the registered passkey. Requires a proof from the CURRENT key.
+    ///
+    /// The old passkey signs an intent whose params_hash covers the new
+    /// pubkey_bytes and credential_id, so the replacement is approved by the
+    /// existing device before it takes effect.
+    ///
+    /// Transaction shape (same as enforce):
+    ///   ix[N-2]: secp256r1 precompile  (signed by OLD key)
+    ///   ix[N-1]: trana_guard::record_proof
+    ///   ix[N]:   trana_guard::recover_two_fa  ← this instruction
+    pub fn recover_two_fa(
+        ctx: Context<RecoverTwoFa>,
+        key_kind: KeyKind,
+        pubkey_bytes: Vec<u8>,
+        credential_id: Vec<u8>,
+    ) -> Result<()> {
+        require!(
+            pubkey_bytes.len() <= TwoFactorRegistry::MAX_PUBKEY_LEN,
+            GuardError::InvalidProof
         );
+        require!(
+            credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
+            GuardError::InvalidProof
+        );
+
+        let owner_key = ctx.accounts.owner.key();
+
+        // Verify the OLD passkey signed this exact instruction (which carries the
+        // new pubkey_bytes in its params). No separate enforce CPI needed.
+        verify::verify_with_policy(
+            &ctx.accounts.instructions,
+            &mut ctx.accounts.registry,
+            &owner_key,
+            ctx.program_id,
+            "trana.require",
+        )?;
+
+        let fee = ctx.accounts.config.recovery_fee;
+        if fee > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.owner.to_account_info(),
+                        to:   ctx.accounts.treasury.to_account_info(),
+                    },
+                ),
+                fee,
+            )?;
+        }
+
+        let r           = &mut ctx.accounts.registry;
+        r.key_kind      = key_kind;
+        r.pubkey_bytes  = pubkey_bytes;
+        r.credential_id = credential_id;
+        // nonce was already incremented by verify_with_policy — do not reset it
+        msg!("TRANA recover | owner={}", owner_key);
         Ok(())
     }
 

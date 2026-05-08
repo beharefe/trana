@@ -92,6 +92,38 @@ pub struct RegisterTwoFa<'info> {
     pub treasury: UncheckedAccount<'info>,
 }
 
+/// Accounts for recover_two_fa — replaces an existing passkey.
+/// Requires the current passkey proof at ix[N-2..N-1].
+#[derive(Accounts)]
+pub struct RecoverTwoFa<'info> {
+    #[account(
+        mut,
+        seeds = [b"2fa", owner.key().as_ref()],
+        bump,
+        constraint = registry.enabled @ GuardError::RegistryDisabled,
+    )]
+    pub registry: Account<'info, TwoFactorRegistry>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(seeds = [b"config"], bump)]
+    pub config: Account<'info, TranaConfig>,
+
+    /// CHECK: treasury — receives the recovery fee.
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
+    )]
+    pub treasury: UncheckedAccount<'info>,
+
+    /// CHECK: Solana Instructions sysvar
+    #[account(address = INSTRUCTIONS_ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
+
 #[derive(Accounts)]
 pub struct RecordProof<'info> {
     /// CHECK: Solana Instructions sysvar
