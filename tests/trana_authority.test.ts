@@ -1,5 +1,5 @@
 import * as anchor from "@coral-xyz/anchor"
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js"
+import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js"
 import {
   createMint,
   createAccount,
@@ -12,6 +12,7 @@ import {
 } from "@solana/spl-token"
 import type { TranaGuard }     from "../target/types/trana_guard"
 import type { TranaAuthority } from "../target/types/trana_authority"
+import type { TranaTestVault } from "../target/types/trana_test_vault"
 import {
   getProgram,
   registryPda,
@@ -1522,9 +1523,101 @@ describe("trana_authority", () => {
     })
   })
 
-  // ── execute_upgrade (structure test) ────────────────────────────────────────
+  // ── execute_upgrade ──────────────────────────────────────────────────────────
+  //
+  // Uses trana_test_vault as the real target program — it is always deployed
+  // by the test runner so we have a genuine upgradeable BPF program to work with.
 
   describe("execute_upgrade", () => {
+    const BPF_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
+
+    // Read the ProgramData address from the deployed program account.
+    // BpfLoaderUpgradeable::Program layout: [variant u32 (2)][programdata_address 32]
+    async function getProgramData(conn: anchor.web3.Connection, programId: PublicKey): Promise<PublicKey> {
+      const info = await conn.getAccountInfo(programId)
+      if (!info) throw new Error(`program ${programId} not found`)
+      return new PublicKey(info.data.slice(4, 36))
+    }
+
+    // Build a set_upgrade_authority instruction (BPF Loader variant 4).
+    function setUpgradeAuthorityIx(
+      programData:      PublicKey,
+      currentAuthority: PublicKey,
+      newAuthority:     PublicKey,
+    ): TransactionInstruction {
+      const data = Buffer.alloc(4)
+      data.writeUInt32LE(4, 0)
+      return new TransactionInstruction({
+        programId: BPF_LOADER,
+        keys: [
+          { pubkey: programData,      isSigner: false, isWritable: true  },
+          { pubkey: currentAuthority, isSigner: true,  isWritable: false },
+          { pubkey: newAuthority,     isSigner: false, isWritable: false },
+        ],
+        data,
+      })
+    }
+
+    // Full fixture: registers PDA for trana_test_vault and transfers upgrade
+    // authority from payer → PDA. Returns a cleanup function that restores
+    // the authority back to payer so subsequent tests start from a clean state.
+    async function upgradeFixture() {
+      const conn    = tranaGuard.provider.connection
+      const payer   = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const payerKp = (payer as unknown as { payer: Keypair }).payer
+
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const testVault   = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
+      const programId   = testVault.programId
+      const programData = await getProgramData(conn, programId)
+
+      await authority.methods
+        .register({ programUpgrade: {} })
+        .accounts({ owner: owner.publicKey, target: programId })
+        .signers([owner])
+        .rpc()
+
+      const upgradePda = authorityRecordPda(owner.publicKey, programId, authority.programId)
+      const registry   = registryPda(owner.publicKey, tranaGuard.programId)
+
+      // Transfer upgrade authority: payer → PDA
+      await sendV0(
+        conn,
+        [setUpgradeAuthorityIx(programData, payerKp.publicKey, upgradePda)],
+        payerKp.publicKey, [payerKp],
+      )
+
+      const restore = async () => {
+        // Reclaim authority back to payer so the next test starts clean.
+        // Only valid if the PDA still exists (some tests close it).
+        const pdaInfo = await conn.getAccountInfo(upgradePda)
+        if (!pdaInfo) return
+        const reclaimIx = await authority.methods
+          .reclaimAuthority(payerKp.publicKey)
+          .accounts({
+            authorityRecord:   upgradePda,
+            owner:             owner.publicKey,
+            target:            programId,
+            programData,
+            newAuthorityInfo:  payerKp.publicKey,
+            bpfLoader:         BPF_LOADER,
+            tokenProgram:      TOKEN_PROGRAM_ID,
+            tranaGuardProgram: tranaGuard.programId,
+            tranaRegistry:     registry,
+            instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+            systemProgram:     SystemProgram.programId,
+          })
+          .instruction()
+        const proof = buildProofInstructions(
+          passkey, reclaimIx, tranaGuard.programId, owner.publicKey,
+          999n, "trana.require", "localhost", undefined, undefined, tranaGuard.programId,
+        )
+        await sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, reclaimIx], owner.publicKey, [owner])
+      }
+
+      return { conn, payer, payerKp, owner, passkey, programId, programData, upgradePda, registry, restore }
+    }
+
     it("register_program_upgrade_pda_is_correct", async () => {
       const { owner } = await setupGuardedOwner(tranaGuard)
       const fakeProgram = Keypair.generate().publicKey
@@ -1540,13 +1633,309 @@ describe("trana_authority", () => {
       expect(rec.owner.toBase58()).toBe(owner.publicKey.toBase58())
       expect(rec.target.toBase58()).toBe(fakeProgram.toBase58())
       expect(rec.authorityKind).toEqual({ programUpgrade: {} })
-      // The real execute_upgrade test requires a deployed BPF program + buffer —
-      // tested via anchor test integration or the demo script
+    })
+
+    it("execute_upgrade_kind_mismatch_fails", async () => {
+      // Register as TokenMint — calling execute_upgrade should fire KindMismatch
+      // before reaching enforce or the BPF CPI.
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const conn    = tranaGuard.provider.connection
+      const testVault = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
+      const programId = testVault.programId
+      const programData = await getProgramData(conn, programId)
+
+      await authority.methods
+        .register({ tokenMint: {} })
+        .accounts({ owner: owner.publicKey, target: programId })
+        .signers([owner])
+        .rpc()
+
+      const mintPda  = authorityRecordPda(owner.publicKey, programId, authority.programId)
+      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const dummy    = Keypair.generate().publicKey
+
+      const ix = await authority.methods
+        .executeUpgrade()
+        .accounts({
+          authorityRecord:   mintPda,
+          owner:             owner.publicKey,
+          program:           programId,
+          programData,
+          buffer:            dummy,
+          spill:             dummy,
+          rent:              anchor.web3.SYSVAR_RENT_PUBKEY,
+          clock:             anchor.web3.SYSVAR_CLOCK_PUBKEY,
+          bpfLoader:         BPF_LOADER,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .instruction()
+
+      await expect(
+        buildAndSendProof(tranaGuard, ix, owner, passkey)
+      ).rejects.toThrow(/"Custom":6000/)
+    })
+
+    it("execute_upgrade_missing_proof_fails", async () => {
+      // KindMismatch passes (ProgramUpgrade), then enforce fires → MissingProof.
+      // Buffer/spill are never reached so dummies are fine.
+      const { owner } = await setupGuardedOwner(tranaGuard)
+      const conn     = tranaGuard.provider.connection
+      const testVault = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
+      const programId  = testVault.programId
+      const programData = await getProgramData(conn, programId)
+
+      await authority.methods
+        .register({ programUpgrade: {} })
+        .accounts({ owner: owner.publicKey, target: programId })
+        .signers([owner])
+        .rpc()
+
+      const pda      = authorityRecordPda(owner.publicKey, programId, authority.programId)
+      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const dummy    = Keypair.generate().publicKey
+
+      const ix = await authority.methods
+        .executeUpgrade()
+        .accounts({
+          authorityRecord:   pda,
+          owner:             owner.publicKey,
+          program:           programId,
+          programData,
+          buffer:            dummy,
+          spill:             dummy,
+          rent:              anchor.web3.SYSVAR_RENT_PUBKEY,
+          clock:             anchor.web3.SYSVAR_CLOCK_PUBKEY,
+          bpfLoader:         BPF_LOADER,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .instruction()
+
+      await expect(
+        sendV0(conn, [ix], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6000/)
+    })
+
+    it("direct_upgrade_with_old_key_fails_after_transfer", async () => {
+      const { conn, payerKp, programData, restore } = await upgradeFixture()
+      try {
+        // Payer is no longer the upgrade authority — set_upgrade_authority fails
+        await expect(
+          sendV0(
+            conn,
+            [setUpgradeAuthorityIx(programData, payerKp.publicKey, payerKp.publicKey)],
+            payerKp.publicKey, [payerKp],
+          )
+        ).rejects.toThrow()
+      } finally {
+        await restore()
+      }
+    })
+
+    it("reclaim_program_upgrade_success_sets_new_upgrade_authority", async () => {
+      const { conn, payerKp, owner, passkey, programId, programData, upgradePda, registry } =
+        await upgradeFixture()
+      // Reclaim back to payer (keeps state clean for other tests)
+      const ix = await authority.methods
+        .reclaimAuthority(payerKp.publicKey)
+        .accounts({
+          authorityRecord:   upgradePda,
+          owner:             owner.publicKey,
+          target:            programId,
+          programData,
+          newAuthorityInfo:  payerKp.publicKey,
+          bpfLoader:         BPF_LOADER,
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          systemProgram:     SystemProgram.programId,
+        })
+        .instruction()
+
+      await buildAndSendProof(tranaGuard, ix, owner, passkey)
+
+      // PDA closed
+      expect(await conn.getAccountInfo(upgradePda)).toBeNull()
+
+      // Upgrade authority returned to payer
+      const pdInfo = await conn.getAccountInfo(programData)
+      // ProgramData layout: [variant u32 (3)][slot u64][Option<Pubkey>: 1+32 bytes]
+      const hasAuthority = pdInfo!.data[12] === 1
+      const actualAuth   = new PublicKey(pdInfo!.data.slice(13, 45))
+      expect(hasAuthority).toBe(true)
+      expect(actualAuth.toBase58()).toBe(payerKp.publicKey.toBase58())
+    })
+
+    it("reclaim_program_upgrade_missing_proof_fails", async () => {
+      const { conn, payerKp, owner, programId, programData, upgradePda, registry, restore } =
+        await upgradeFixture()
+      try {
+        const ix = await authority.methods
+          .reclaimAuthority(payerKp.publicKey)
+          .accounts({
+            authorityRecord:   upgradePda,
+            owner:             owner.publicKey,
+            target:            programId,
+            programData,
+            newAuthorityInfo:  payerKp.publicKey,
+            bpfLoader:         BPF_LOADER,
+            tokenProgram:      TOKEN_PROGRAM_ID,
+            tranaGuardProgram: tranaGuard.programId,
+            tranaRegistry:     registry,
+            instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+            systemProgram:     SystemProgram.programId,
+          })
+          .instruction()
+
+        await expect(
+          sendV0(conn, [ix], owner.publicKey, [owner])
+        ).rejects.toThrow(/"Custom":6000/)
+
+        // Record still open
+        const rec = await authority.account.authorityRecord.fetch(upgradePda)
+        expect(rec.owner.toBase58()).toBe(owner.publicKey.toBase58())
+      } finally {
+        await restore()
+      }
+    })
+
+    it("reclaim_program_upgrade_invalid_proof_fails", async () => {
+      const { conn, payerKp, owner, programId, programData, upgradePda, registry, restore } =
+        await upgradeFixture()
+      try {
+        const wrongPasskey = generateTestPasskey()
+        const ix = await authority.methods
+          .reclaimAuthority(payerKp.publicKey)
+          .accounts({
+            authorityRecord:   upgradePda,
+            owner:             owner.publicKey,
+            target:            programId,
+            programData,
+            newAuthorityInfo:  payerKp.publicKey,
+            bpfLoader:         BPF_LOADER,
+            tokenProgram:      TOKEN_PROGRAM_ID,
+            tranaGuardProgram: tranaGuard.programId,
+            tranaRegistry:     registry,
+            instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+            systemProgram:     SystemProgram.programId,
+          })
+          .instruction()
+
+        const proof = buildProofInstructions(
+          wrongPasskey, ix, tranaGuard.programId, owner.publicKey,
+          0n, "trana.require", "localhost", undefined, undefined, tranaGuard.programId,
+        )
+        await expect(
+          sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, ix], owner.publicKey, [owner])
+        ).rejects.toThrow(/"Custom":6003/)
+      } finally {
+        await restore()
+      }
+    })
+
+    it("reclaim_program_upgrade_keeps_record_open_on_failure", async () => {
+      // Register but do NOT transfer upgrade authority to PDA.
+      // Reclaim with valid proof → enforce passes, BPF CPI fails (PDA ≠ authority),
+      // tx reverts → record stays open.
+      const { owner, passkey } = await setupGuardedOwner(tranaGuard)
+      const conn    = tranaGuard.provider.connection
+      const payer   = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+      const payerKp = (payer as unknown as { payer: Keypair }).payer
+      const testVault  = anchor.workspace.TranaTestVault as anchor.Program<TranaTestVault>
+      const programId  = testVault.programId
+      const programData = await getProgramData(conn, programId)
+
+      await authority.methods
+        .register({ programUpgrade: {} })
+        .accounts({ owner: owner.publicKey, target: programId })
+        .signers([owner])
+        .rpc()
+
+      const pda      = authorityRecordPda(owner.publicKey, programId, authority.programId)
+      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+
+      const ix = await authority.methods
+        .reclaimAuthority(payerKp.publicKey)
+        .accounts({
+          authorityRecord:   pda,
+          owner:             owner.publicKey,
+          target:            programId,
+          programData,
+          newAuthorityInfo:  payerKp.publicKey,
+          bpfLoader:         BPF_LOADER,
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          systemProgram:     SystemProgram.programId,
+        })
+        .instruction()
+
+      // Fails because PDA is not the upgrade authority
+      await expect(
+        buildAndSendProof(tranaGuard, ix, owner, passkey)
+      ).rejects.toThrow()
+
+      // Record still open
+      const rec = await authority.account.authorityRecord.fetch(pda)
+      expect(rec.owner.toBase58()).toBe(owner.publicKey.toBase58())
+    })
+
+    it("reclaim_program_upgrade_then_old_pda_cannot_upgrade", async () => {
+      // After reclaim the AuthorityRecord is closed.
+      // Trying to call execute_upgrade with the same PDA address fails
+      // at Anchor account deserialization.
+      const { conn, payerKp, owner, passkey, programId, programData, upgradePda, registry } =
+        await upgradeFixture()
+
+      const reclaimIx = await authority.methods
+        .reclaimAuthority(payerKp.publicKey)
+        .accounts({
+          authorityRecord:   upgradePda,
+          owner:             owner.publicKey,
+          target:            programId,
+          programData,
+          newAuthorityInfo:  payerKp.publicKey,
+          bpfLoader:         BPF_LOADER,
+          tokenProgram:      TOKEN_PROGRAM_ID,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          systemProgram:     SystemProgram.programId,
+        })
+        .instruction()
+      await buildAndSendProof(tranaGuard, reclaimIx, owner, passkey)
+
+      // PDA closed — execute_upgrade with it now fails
+      const dummy = Keypair.generate().publicKey
+      const upgradeIx = await authority.methods
+        .executeUpgrade()
+        .accounts({
+          authorityRecord:   upgradePda,
+          owner:             owner.publicKey,
+          program:           programId,
+          programData,
+          buffer:            dummy,
+          spill:             dummy,
+          rent:              anchor.web3.SYSVAR_RENT_PUBKEY,
+          clock:             anchor.web3.SYSVAR_CLOCK_PUBKEY,
+          bpfLoader:         BPF_LOADER,
+          tranaGuardProgram: tranaGuard.programId,
+          tranaRegistry:     registry,
+          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .instruction()
+
+      await expect(
+        buildAndSendProof(tranaGuard, upgradeIx, owner, passkey, 1n)
+      ).rejects.toThrow()
     })
 
     it.todo("execute_upgrade_success_after_transferring_upgrade_authority_to_pda")
-    it.todo("execute_upgrade_kind_mismatch_fails")
-    it.todo("execute_upgrade_missing_proof_fails")
     it.todo("execute_upgrade_without_real_upgrade_authority_transfer_fails")
     it.todo("execute_upgrade_wrong_program_data_for_program_fails")
     it.todo("execute_upgrade_invalid_buffer_account_fails")
@@ -1556,13 +1945,7 @@ describe("trana_authority", () => {
     it.todo("execute_upgrade_drains_buffer_to_spill")
     it.todo("execute_upgrade_updates_programdata_state")
     it.todo("execute_upgrade_cannot_reuse_drained_buffer")
-    it.todo("direct_upgrade_with_old_key_fails_after_transfer")
-    it.todo("reclaim_program_upgrade_success_sets_new_upgrade_authority")
-    it.todo("reclaim_program_upgrade_missing_proof_fails")
-    it.todo("reclaim_program_upgrade_invalid_proof_fails")
     it.todo("reclaim_program_upgrade_new_authority_arg_and_account_mismatch_fails")
-    it.todo("reclaim_program_upgrade_keeps_record_open_on_failure")
-    it.todo("reclaim_program_upgrade_then_old_pda_cannot_upgrade")
     it.todo("reclaim_program_upgrade_then_new_authority_can_upgrade_directly")
   })
 
