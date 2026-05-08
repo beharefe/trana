@@ -89,6 +89,22 @@ describe("trana_authority", () => {
   const tranaGuard = getProgram()
   const authority  = getAuthorityProgram()
 
+  // Pre-initialise the guard config before any test runs. On a fresh anchor
+  // test-validator the very first transaction can be dropped during startup.
+  // Retrying here avoids that race without polluting individual test bodies.
+  beforeAll(async () => {
+    const payer = (tranaGuard.provider as anchor.AnchorProvider).wallet as anchor.Wallet
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await ensureConfig(tranaGuard, payer)
+        return
+      } catch (err) {
+        if (attempt >= 4) throw err
+        await new Promise(r => setTimeout(r, 3_000))
+      }
+    }
+  }, 30_000)
+
   // ── register ────────────────────────────────────────────────────────────────
 
   describe("register", () => {
