@@ -7,6 +7,7 @@ import {
   ensureConfig,
   setupWallet,
   registerPasskey,
+  recoverPasskey,
   generateTestPasskey,
   SOL,
 } from "./helpers/setup"
@@ -1198,33 +1199,130 @@ describe("trana", () => {
   })
 
   describe("registry recovery", () => {
-    it("registry_recovery_success", async () => {
+    // ── Hijack prevention ─────────────────────────────────────────────────────
+
+    it("wallet_key_alone_cannot_overwrite_registered_passkey", async () => {
+      // THE CORE DEMO SECURITY PROPERTY:
+      // Even if an attacker has the wallet's private key, they cannot replace the
+      // registered passkey — register_two_fa now blocks re-registration entirely.
+      // This means publishing the wallet key is safe after the passkey is registered.
       const { program, owner, treasury } = await enforceFixture()
-      const pda      = registryPda(owner.publicKey, program.programId)
-      const passkey2 = generateTestPasskey()
+      const attackerPasskey = generateTestPasskey()
+
+      const ix = await program.methods
+        .registerTwoFa(
+          { secp256R1Passkey: {} },
+          Buffer.from(attackerPasskey.pubkey),
+          Buffer.from(attackerPasskey.credentialId),
+        )
+        .accounts({ owner: owner.publicKey, treasury })
+        .instruction()
+
+      // owner signs the tx (attacker HAS the wallet key in the demo scenario)
+      await expect(
+        sendV0(program.provider.connection, [ix], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6008/)  // Unauthorized — registry already occupied
+    })
+
+    it("wallet_key_cannot_recover_without_existing_passkey", async () => {
+      // recover_two_fa requires the secp256r1 proof triple from the current passkey.
+      // Wallet-only tx → MissingProof.
+      const { program, owner, treasury } = await enforceFixture()
+      const newPasskey = generateTestPasskey()
+
+      const ix = await program.methods
+        .recoverTwoFa(
+          { secp256R1Passkey: {} },
+          Buffer.from(newPasskey.pubkey),
+          Buffer.from(newPasskey.credentialId),
+        )
+        .accounts({ owner: owner.publicKey, treasury })
+        .instruction()
+
+      await expect(
+        sendV0(program.provider.connection, [ix], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6000/)  // MissingProof — no secp256r1+record_proof
+    })
+
+    it("recover_two_fa_wrong_passkey_fails", async () => {
+      // Attacker knows the wallet key and tries recover_two_fa with their OWN
+      // passkey as the "old key" proof — WrongSigner because the registry expects
+      // the registered passkey, not the attacker's.
+      const { program, owner, treasury } = await enforceFixture()
+      const attackerPasskey = generateTestPasskey()
+      const newPasskey      = generateTestPasskey()
+
+      const recoverIx = await program.methods
+        .recoverTwoFa(
+          { secp256R1Passkey: {} },
+          Buffer.from(newPasskey.pubkey),
+          Buffer.from(newPasskey.credentialId),
+        )
+        .accounts({ owner: owner.publicKey, treasury })
+        .instruction()
+
+      // Build proof signed by attacker's key (not the registered one)
+      const proof = buildProofInstructions(
+        attackerPasskey, recoverIx, program.programId, owner.publicKey, 0n, "trana.require",
+      )
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, recoverIx], owner.publicKey, [owner])
+      ).rejects.toThrow(/"Custom":6003/)  // WrongSigner
+    })
+
+    // ── Legitimate recovery ───────────────────────────────────────────────────
+
+    it("recover_two_fa_success_replaces_key", async () => {
+      // Owner has old passkey, gets a new device, calls recover_two_fa with proof
+      // from the old device — new key is installed, recovery fee charged.
+      const { program, owner, passkey: oldPasskey, treasury } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
+      const newPasskey = generateTestPasskey()
 
       const balanceBefore = await program.provider.connection.getBalance(treasury)
-      await registerPasskey(program, owner, passkey2, treasury)  // re-register = recovery
+      await recoverPasskey(program, owner, oldPasskey, newPasskey, treasury)
       const balanceAfter = await program.provider.connection.getBalance(treasury)
 
       const data = await program.account.twoFactorRegistry.fetch(pda)
-      expect(Buffer.from(data.pubkeyBytes).equals(Buffer.from(passkey2.pubkey))).toBe(true)
+      expect(Buffer.from(data.pubkeyBytes).equals(Buffer.from(newPasskey.pubkey))).toBe(true)
       expect(balanceAfter).toBeGreaterThan(balanceBefore)  // recovery fee charged
     })
 
-    it("registry_recovery_invalid_proof", async () => {
-      const { program, owner, passkey, treasury } = await enforceFixture()
+    it("recover_two_fa_nonce_preserved", async () => {
+      // Nonce must NOT reset after recovery — replay protection must survive
+      // a key rotation.
+      const { program, owner, passkey: oldPasskey, treasury } = await enforceFixture()
+      const pda       = registryPda(owner.publicKey, program.programId)
 
-      // After recovery, old passkey is rejected — proof no longer matches registry
-      const passkey2 = generateTestPasskey()
-      await registerPasskey(program, owner, passkey2, treasury)
+      // Use the old passkey once to advance the nonce
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof0    = buildProofInstructions(oldPasskey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+      await sendV0(program.provider.connection, [proof0.secp256r1Ix, proof0.recordProofIx, enforceIx], owner.publicKey, [owner])
+
+      const nonceBefore = (await program.account.twoFactorRegistry.fetch(pda)).nonce.toNumber()
+      expect(nonceBefore).toBe(1)
+
+      // Recover with old passkey (nonce 1 used for the recover_two_fa proof)
+      const newPasskey = generateTestPasskey()
+      await recoverPasskey(program, owner, oldPasskey, newPasskey, treasury, 1n)
+
+      const nonceAfter = (await program.account.twoFactorRegistry.fetch(pda)).nonce.toNumber()
+      expect(nonceAfter).toBe(2)  // incremented by recovery, not reset
+    })
+
+    it("recover_two_fa_old_passkey_rejected_after_rotation", async () => {
+      // After recovery the old key can no longer authorize anything.
+      const { program, owner, passkey: oldPasskey, treasury } = await enforceFixture()
+      const newPasskey = generateTestPasskey()
+      await recoverPasskey(program, owner, oldPasskey, newPasskey, treasury)
 
       const enforceIx = await buildEnforceIx(program, owner)
-      const oldProof  = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
-
+      const oldProof  = buildProofInstructions(
+        oldPasskey, enforceIx, program.programId, owner.publicKey, 1n, "trana.require",
+      )
       await expect(
         sendV0(program.provider.connection, [oldProof.secp256r1Ix, oldProof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6003/)
+      ).rejects.toThrow(/"Custom":6003/)  // WrongSigner — old key no longer in registry
     })
 
     it("registry_recovery_wrong_owner", async () => {
@@ -1232,7 +1330,7 @@ describe("trana", () => {
       const attacker = Keypair.generate()
       const passkey2 = generateTestPasskey()
 
-      // Attacker tries to register a passkey for owner — owner must sign, attacker cannot
+      // Attacker can't call register_two_fa for a wallet they don't control
       const ix = await program.methods
         .registerTwoFa(
           { secp256R1Passkey: {} },

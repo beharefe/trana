@@ -3,6 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js"
 import type { TranaGuard } from "../../target/types/trana_guard"
 import { airdrop, sendV0 } from "./transactions"
 import { generateTestPasskey } from "../../packages/sdk/src/testing"
+import { buildProofInstructions } from "./proof"
 
 export type { TestPasskeyHandle } from "../../packages/sdk/src/testing"
 export { generateTestPasskey }
@@ -86,4 +87,41 @@ export async function registerPasskey(
     .accounts({ owner: owner.publicKey, treasury })
     .instruction()
   await sendV0(program.provider.connection, [ix], owner.publicKey, [owner])
+}
+
+/**
+ * Replace an existing passkey using the OLD passkey as proof.
+ * Calls recover_two_fa — requires secp256r1 + record_proof from the current key.
+ *
+ * Transaction shape:
+ *   ix[N-2]: secp256r1  (signed by oldPasskey)
+ *   ix[N-1]: record_proof
+ *   ix[N]:   recover_two_fa
+ */
+export async function recoverPasskey(
+  program:    anchor.Program<TranaGuard>,
+  owner:      Keypair,
+  oldPasskey: ReturnType<typeof generateTestPasskey>,
+  newPasskey: { pubkey: Uint8Array; credentialId: Uint8Array },
+  treasury:   PublicKey,
+  nonce = 0n,
+): Promise<void> {
+  const recoverIx = await program.methods
+    .recoverTwoFa(
+      { secp256R1Passkey: {} },
+      Buffer.from(newPasskey.pubkey),
+      Buffer.from(newPasskey.credentialId),
+    )
+    .accounts({ owner: owner.publicKey, treasury })
+    .instruction()
+
+  const proof = buildProofInstructions(
+    oldPasskey, recoverIx, program.programId, owner.publicKey, nonce, "trana.require",
+  )
+  await sendV0(
+    program.provider.connection,
+    [proof.secp256r1Ix, proof.recordProofIx, recoverIx],
+    owner.publicKey,
+    [owner],
+  )
 }
