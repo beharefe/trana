@@ -88,15 +88,17 @@ describe("trana", () => {
 
       await registerPasskey(program, owner, passkey1, treasury)
 
-      const pda      = registryPda(owner.publicKey, program.programId)
-      const before   = await program.account.twoFactorRegistry.fetch(pda)
+      const pda         = registryPda(owner.publicKey, program.programId)
+      const before      = await program.account.twoFactorRegistry.fetch(pda)
       const nonceBefore = (before.nonce as anchor.BN).toNumber()
 
-      await registerPasskey(program, owner, passkey2, treasury)
+      // recover_two_fa requires proof from passkey1 (nonce 0) — key is replaced
+      await recoverPasskey(program, owner, passkey1, passkey2, treasury, BigInt(nonceBefore))
 
       const after = await program.account.twoFactorRegistry.fetch(pda)
       expect(Buffer.from(after.pubkeyBytes).equals(Buffer.from(passkey2.pubkey))).toBe(true)
-      expect((after.nonce as anchor.BN).toNumber()).toBe(nonceBefore)
+      // Nonce incremented by the recovery proof — NOT reset (replay protection preserved)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(nonceBefore + 1)
     })
 
     it.skip("disable_registry", async () => {})
@@ -1157,24 +1159,28 @@ describe("trana", () => {
   describe("passkey rotation", () => {
     it("passkey_rotation_success", async () => {
       const { program, owner, passkey: passkey1, treasury } = await enforceFixture()
-      const pda     = registryPda(owner.publicKey, program.programId)
+      const pda      = registryPda(owner.publicKey, program.programId)
       const passkey2 = generateTestPasskey()
 
-      await registerPasskey(program, owner, passkey2, treasury)
+      // recover_two_fa: passkey1 proves it approves replacing itself with passkey2
+      await recoverPasskey(program, owner, passkey1, passkey2, treasury, 0n)
 
       const after = await program.account.twoFactorRegistry.fetch(pda)
       expect(Buffer.from(after.pubkeyBytes).equals(Buffer.from(passkey2.pubkey))).toBe(true)
-      expect((after.nonce as anchor.BN).toNumber()).toBe(0)  // nonce preserved
+      // Nonce advances to 1 (recovery proof consumed nonce 0) — not reset
+      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
     })
 
     it("old_passkey_invalid_after_rotation", async () => {
       const { program, owner, passkey: passkey1, treasury } = await enforceFixture()
       const passkey2 = generateTestPasskey()
-      await registerPasskey(program, owner, passkey2, treasury)
+      await recoverPasskey(program, owner, passkey1, passkey2, treasury, 0n)
+      // registry.nonce is now 1, registry.pubkey = passkey2
 
-      // Registry now has passkey2 — proof signed by passkey1 → 6003
+      // Proof with passkey1 at nonce=1 (matches registry.nonce so no PayloadMismatch)
+      // → pubkey check: passkey1 ≠ passkey2 → WrongSigner (6003)
       const enforceIx = await buildEnforceIx(program, owner)
-      const proof     = buildProofInstructions(passkey1, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+      const proof     = buildProofInstructions(passkey1, enforceIx, program.programId, owner.publicKey, 1n, "trana.require")
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
@@ -1185,16 +1191,17 @@ describe("trana", () => {
       const { program, owner, passkey: passkey1, treasury } = await enforceFixture()
       const pda      = registryPda(owner.publicKey, program.programId)
       const passkey2 = generateTestPasskey()
-      await registerPasskey(program, owner, passkey2, treasury)
+      await recoverPasskey(program, owner, passkey1, passkey2, treasury, 0n)
+      // registry.nonce = 1, registry.pubkey = passkey2
 
-      // Registry has passkey2 — proof signed by passkey2 → passes
+      // Proof with passkey2 at nonce=1 — matches registry exactly
       const enforceIx = await buildEnforceIx(program, owner)
-      const proof     = buildProofInstructions(passkey2, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+      const proof     = buildProofInstructions(passkey2, enforceIx, program.programId, owner.publicKey, 1n, "trana.require")
 
       await sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
 
       const after = await program.account.twoFactorRegistry.fetch(pda)
-      expect((after.nonce as anchor.BN).toNumber()).toBe(1)
+      expect((after.nonce as anchor.BN).toNumber()).toBe(2)  // 1 from recovery + 1 from enforce
     })
   })
 
