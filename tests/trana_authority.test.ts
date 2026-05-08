@@ -1934,19 +1934,22 @@ describe("trana_authority", () => {
         passkey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require",
         "localhost", undefined, undefined, tranaGuard.programId,
       )
-      // Swapped: record_proof before secp256r1 — enforce looks at wrong positions
+      // Swapped: record_proof before secp256r1 — enforce tries to deserialize
+      // ix[N-1]=secp256r1 as a record_proof discriminator → InvalidProof (6005)
       await expect(
         sendV0(tranaGuard.provider.connection, [proof.recordProofIx, proof.secp256r1Ix, ix], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6000/)
+      ).rejects.toThrow(/"Custom":6005/)
     })
 
     it("execute_any_wrong_owner_registry_pair_fails", async () => {
       const { owner: owner1, passkey: passkey1, buildMintIx } = await guardFixture()
-      const { owner: owner2 } = await setupGuardedOwner(tranaGuard)
-      const ix   = await buildMintIx()
-      // Proof signed by owner2's passkey but registry is owner1's
+      const { owner: owner2, passkey: passkey2 } = await setupGuardedOwner(tranaGuard)
+      const ix = await buildMintIx()
+      // Build intent correctly for owner1, but sign with passkey2 (owner2's key).
+      // enforce: hash matches owner1's intent ✓, but secp256r1 pubkey ≠ owner1's
+      // registered passkey1 → WrongSigner (6003).
       const proof = buildProofInstructions(
-        passkey1, ix, tranaGuard.programId, owner2.publicKey, 0n, "trana.require",
+        passkey2, ix, tranaGuard.programId, owner1.publicKey, 0n, "trana.require",
         "localhost", undefined, undefined, tranaGuard.programId,
       )
       await expect(
@@ -1957,8 +1960,9 @@ describe("trana_authority", () => {
     it("execute_any_expired_proof_fails", async () => {
       const { owner, passkey, buildMintIx } = await guardFixture()
       const ix = await buildMintIx()
-      // overrideExpiry 60 seconds in the past
-      const expiredAt = Math.floor(Date.now() / 1000) - 60
+      // Unix epoch + 1 — guaranteed past on any running validator regardless of
+      // how far its clock lags behind JS Date.now()
+      const expiredAt = 1
       const proof = buildProofInstructions(
         passkey, ix, tranaGuard.programId, owner.publicKey, 0n, "trana.require",
         "localhost", undefined, expiredAt, tranaGuard.programId,
