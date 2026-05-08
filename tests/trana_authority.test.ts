@@ -103,7 +103,8 @@ describe("trana_authority", () => {
         await new Promise(r => setTimeout(r, 3_000))
       }
     }
-  }, 30_000)
+  // 5 attempts × (up to 30s confirmTransaction + 3s sleep) = ~165s worst-case
+  }, 180_000)
 
   // ── register ────────────────────────────────────────────────────────────────
 
