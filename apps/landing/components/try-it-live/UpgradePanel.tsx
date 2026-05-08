@@ -111,12 +111,12 @@ export function UpgradePanel() {
           <div>
             <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Program ID</div>
             {/* replace with real program ID */}
-            <div className="font-mono text-[12px] text-ink">8v6hfEZ3…yxtaa</div>
+            <div className="font-mono text-[12px] text-ink">TRNAHz…puHw</div>
           </div>
           <div>
             <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Upgrade Auth</div>
             {/* replace with real PDA */}
-            <div className="font-mono text-[12px] text-ink">KoXvrg4D…vGEE</div>
+            <div className="font-mono text-[12px] text-ink">TRNA8i…G4AN</div>
             <div className="font-mono text-[9px] text-accent tracking-[0.06em] uppercase mt-1">Trana Authority PDA</div>
           </div>
         </div>
@@ -130,7 +130,7 @@ export function UpgradePanel() {
             <button
               type="button"
               onClick={() => navigator.clipboard?.writeText(
-                "solana program show 8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa --url devnet"
+                "solana program show TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw --url devnet"
               )}
               className="flex items-center gap-1 font-mono text-[9px] tracking-[0.08em] text-faint hover:text-ink transition-colors uppercase"
             >
@@ -139,10 +139,10 @@ export function UpgradePanel() {
             </button>
           </div>
           <pre className="px-4 py-3.5 font-mono text-[11.5px] leading-[1.85] overflow-x-auto">
-            <span className="text-faint">{"$ solana program show 8v6hfEZ3…yxtaa\n"}</span>
-            <span className="text-ink">{"Program Id:   "}</span><span className="text-accent">{"8v6hfEZ3…yxtaa\n"}</span>
+            <span className="text-faint">{"$ solana program show TRNAHz…puHw\n"}</span>
+            <span className="text-ink">{"Program Id:   "}</span><span className="text-accent">{"TRNAHz…puHw\n"}</span>
             <span className="text-ink">{"Owner:        "}</span><span className="text-muted">{"BPFLoaderUpgradeab1e\n"}</span>
-            <span className="text-ink">{"Authority:    "}</span><span className="text-accent">{"KoXvrg4D…vGEE"}</span><span className="text-faint">{"  ← Trana PDA, not a wallet\n"}</span>
+            <span className="text-ink">{"Authority:    "}</span><span className="text-accent">{"TRNA8i…G4AN"}</span><span className="text-faint">{"  ← Trana PDA, not a wallet\n"}</span>
             <span className="text-ink">{"Last Slot:    "}</span><span className="text-muted">{"327,891,204\n"}</span>
             <span className="text-ink">{"Data Length:  "}</span><span className="text-muted">{"286,456 bytes"}</span>
           </pre>

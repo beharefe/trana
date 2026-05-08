@@ -6,6 +6,10 @@ trana_guard      = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
 trana_authority  = "KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE"
 trana_test_vault = "8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa"
 
+[programs.devnet]
+trana_guard     = "TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw"
+trana_authority = "TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN"
+
 [features]
 resolution = true
 skip-lint = false
