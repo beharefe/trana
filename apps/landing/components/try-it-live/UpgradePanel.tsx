@@ -111,7 +111,7 @@ export function UpgradePanel() {
           <div>
             <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Program ID</div>
             {/* replace with real program ID */}
-            <div className="font-mono text-[12px] text-ink">TRNAHz…puHw</div>
+            <div className="font-mono text-[12px] text-ink">TRAqCh…wsG</div>
           </div>
           <div>
             <div className="font-mono text-[9px] tracking-[0.12em] text-faint uppercase mb-1.5">Upgrade Auth</div>

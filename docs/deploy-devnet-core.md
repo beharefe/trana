@@ -6,7 +6,7 @@ global fee config. Run this once. The vault deploy builds on top of it.
 ## Program IDs
 
 ```
-trana_guard     TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw
+trana_guard     TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG
 trana_authority TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN
 ```
 
@@ -44,7 +44,7 @@ NO_DNA=1 anchor build -- --features devnet
 Confirm the program IDs match before deploying:
 ```bash
 anchor keys list
-# trana_guard     : TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw
+# trana_guard     : TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG
 # trana_authority : TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN
 ```
 
@@ -79,7 +79,7 @@ anchor deploy \
 
 Verify both are live:
 ```bash
-solana program show TRNAHzLHFGTZrYPWEBURJGS6oetfdEfkf1XHpY6puHw --url devnet
+solana program show TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG --url devnet
 solana program show TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN --url devnet
 ```
 
