@@ -1587,11 +1587,15 @@ describe("trana_authority", () => {
         payerKp.publicKey, [payerKp],
       )
 
+      // Each fixture creates a fresh owner (nonce starts at 0).
+      // restore() must be called before the owner's nonce has been incremented,
+      // which is true for every test that uses it — they fail at proof/CPI level
+      // without consuming the nonce.
+      let restoreNonce = 0n
+
       const restore = async () => {
-        // Reclaim authority back to payer so the next test starts clean.
-        // Only valid if the PDA still exists (some tests close it).
         const pdaInfo = await conn.getAccountInfo(upgradePda)
-        if (!pdaInfo) return
+        if (!pdaInfo) return  // already closed — payer has the authority
         const reclaimIx = await authority.methods
           .reclaimAuthority(payerKp.publicKey)
           .accounts({
@@ -1610,12 +1614,14 @@ describe("trana_authority", () => {
           .instruction()
         const proof = buildProofInstructions(
           passkey, reclaimIx, tranaGuard.programId, owner.publicKey,
-          999n, "trana.require", "localhost", undefined, undefined, tranaGuard.programId,
+          restoreNonce, "trana.require", "localhost", undefined, undefined, tranaGuard.programId,
         )
         await sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, reclaimIx], owner.publicKey, [owner])
       }
 
-      return { conn, payer, payerKp, owner, passkey, programId, programData, upgradePda, registry, restore }
+      return { conn, payer, payerKp, owner, passkey, programId, programData, upgradePda, registry, restore,
+               // Expose so tests that use the passkey can keep restoreNonce in sync
+               advanceRestoreNonce: () => { restoreNonce++ } }
     }
 
     it("register_program_upgrade_pda_is_correct", async () => {
