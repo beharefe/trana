@@ -2,16 +2,18 @@ use anchor_lang::prelude::*;
 
 /// Policy governing withdrawals from this pool.
 ///
-/// Limit      — small pulls free, large pulls gated. Threshold per-user drain
-///              window prevents death-by-a-thousand-cuts.
+/// Limit      — small pulls free, large ones gated. Per-user drain window
+///              catches burst withdrawals below the single-tx threshold.
 ///
-/// TimeLocked — whole pool locked until `slot`. The slot is signed inside the
-///              WebAuthn challenge so even a redeployed program cannot alter it.
-///              Before unlock: passkey needed. After: withdraw freely.
+/// TimeLocked — 1-minute cooldown between withdrawals, per user, automatic.
+///              After each withdrawal the next unlock slot is stored on-chain as
+///              `last_withdraw_slot + COOLDOWN_SLOTS`. The program passes that
+///              computed slot to Policy::NotBefore — it ends up baked into the
+///              signed WebAuthn challenge, so the program cannot fake the timing.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, InitSpace, Debug)]
 pub enum PoolKind {
     Limit,
-    TimeLocked { slot: u64 },
+    TimeLocked, // no parameter — cooldown is always last_withdraw_slot + ~1 min
 }
 
 /// Shared pool — holds all deposited SOL in its lamport balance.
@@ -41,7 +43,12 @@ pub struct UserDeposit {
     pub user:    Pubkey,
     pub balance: u64,
 
-    // Drain-window state (Limit pools only)
+    // TimeLocked: slot of the user's last withdrawal.
+    // unlock_slot = last_withdraw_slot + COOLDOWN_SLOTS each call.
+    // 0 = never withdrawn → first pull is always free.
+    pub last_withdraw_slot: u64,
+
+    // Limit: drain-window tracking
     pub window_withdrawn: u64,
     pub last_withdraw_at: i64,
 

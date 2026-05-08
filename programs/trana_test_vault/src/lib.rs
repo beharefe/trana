@@ -41,7 +41,8 @@ declare_id!("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa");
 pub const POOL_SEED:      &[u8] = b"trana-pool";
 pub const DEPOSIT_SEED:   &[u8] = b"deposit";
 pub const WITHDRAW_LIMIT: u64   = 1_000_000_000; // 1 SOL
-pub const DRAIN_WINDOW:   i64   = 60;            // seconds
+pub const DRAIN_WINDOW:   i64   = 60;            // seconds (Limit drain window)
+pub const COOLDOWN_SLOTS: u64   = 150;           // ~1 min at 400 ms/slot (TimeLocked)
 
 #[program]
 pub mod trana_test_vault {
@@ -121,21 +122,30 @@ pub mod trana_test_vault {
     ///     within 60 s (per user)                  → passkey (Policy::Require)
     ///
     /// PoolKind::TimeLocked { slot }
-    ///   - current_slot < slot   → passkey (Policy::NotBefore)
-    ///   - current_slot >= slot  → free, no proof needed
+    ///
+    /// TimeLocked: after each withdrawal the user's next free pull is at
+    ///   last_withdraw_slot + COOLDOWN_SLOTS (~1 min). That slot is passed
+    ///   to Policy::NotBefore — it ends up signed inside the WebAuthn challenge.
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
         require!(ctx.accounts.user_deposit.balance >= amount, VaultError::InsufficientFunds);
 
+        let clock = Clock::get()?;
+
         // ── Choose policy ─────────────────────────────────────────────────────
-        let (policy, proof_used) = match &ctx.accounts.pool.kind {
-            PoolKind::TimeLocked { slot } => (
-                Policy::NotBefore { slot: *slot },
-                false, // we don't track proof_used for time-locked pools
-            ),
+        let (policy, proof_used) = match ctx.accounts.pool.kind {
+            PoolKind::TimeLocked => {
+                // unlock_slot is derived from the user's last withdrawal on-chain.
+                // Frontend reads last_withdraw_slot, adds COOLDOWN_SLOTS, and signs
+                // that exact slot into the WebAuthn challenge. Program cannot fake it.
+                let unlock_slot = ctx.accounts.user_deposit
+                    .last_withdraw_slot
+                    .saturating_add(COOLDOWN_SLOTS);
+                (Policy::NotBefore { slot: unlock_slot }, false)
+            }
 
             PoolKind::Limit => {
-                let now       = Clock::get()?.unix_timestamp;
+                let now       = clock.unix_timestamp;
                 let ud        = &ctx.accounts.user_deposit;
                 let in_window = ud.last_withdraw_at > 0
                     && (now - ud.last_withdraw_at) < DRAIN_WINDOW;
@@ -171,25 +181,30 @@ pub mod trana_test_vault {
         **ctx.accounts.pool.to_account_info().try_borrow_mut_lamports()? -= amount;
         **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += amount;
 
-        // ── Update user balance ───────────────────────────────────────────────
+        // ── Update user state ─────────────────────────────────────────────────
         ctx.accounts.user_deposit.balance -= amount;
 
-        // ── Update per-user drain window (Limit only) ─────────────────────────
-        if let PoolKind::Limit = ctx.accounts.pool.kind {
-            let now   = Clock::get()?.unix_timestamp;
-            let ud    = &mut ctx.accounts.user_deposit;
-            let in_w  = ud.last_withdraw_at > 0
-                && (now - ud.last_withdraw_at) < DRAIN_WINDOW;
-            let w_now = if in_w { ud.window_withdrawn.saturating_add(amount) } else { amount };
+        match ctx.accounts.pool.kind {
+            PoolKind::TimeLocked => {
+                // Record this slot so next call can derive the cooldown window
+                ctx.accounts.user_deposit.last_withdraw_slot = clock.slot;
+            }
+            PoolKind::Limit => {
+                let now   = clock.unix_timestamp;
+                let ud    = &mut ctx.accounts.user_deposit;
+                let in_w  = ud.last_withdraw_at > 0
+                    && (now - ud.last_withdraw_at) < DRAIN_WINDOW;
+                let w_now = if in_w { ud.window_withdrawn.saturating_add(amount) } else { amount };
 
-            if proof_used {
-                ud.window_withdrawn = 0;
-                ud.last_withdraw_at = 0;
-            } else if in_w {
-                ud.window_withdrawn = w_now;
-            } else {
-                ud.window_withdrawn = amount;
-                ud.last_withdraw_at = now;
+                if proof_used {
+                    ud.window_withdrawn = 0;
+                    ud.last_withdraw_at = 0;
+                } else if in_w {
+                    ud.window_withdrawn = w_now;
+                } else {
+                    ud.window_withdrawn = amount;
+                    ud.last_withdraw_at = now;
+                }
             }
         }
 
