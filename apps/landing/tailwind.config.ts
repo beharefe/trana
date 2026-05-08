@@ -8,10 +8,9 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans:  ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
-        // serif kept as alias so existing font-serif classes render in Space Grotesk
-        serif: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
-        mono:  ["var(--font-jetbrains-mono)", "ui-monospace", "monospace"],
+        sans:  ["var(--font-inter)", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
+        mono:  ["ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {
         bg:     "#0a0a0b",

@@ -25,7 +25,7 @@ export function SiteNav() {
       ].join(" ")}
     >
       <Link href="/" className="flex items-center">
-        <TranaWordmark size="20px" />
+        <TranaWordmark size="40px" />
       </Link>
 
       <div className="flex items-center gap-[26px] text-[13.5px] text-muted">

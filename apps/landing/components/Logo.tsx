@@ -42,8 +42,8 @@ export function TranaMark({
 }) {
   return (
     <span
-      className={`relative inline-block font-sans font-semibold leading-none select-none ${className ?? ""}`}
-      style={{ fontSize: size, letterSpacing: "-0.05em", color: textColor }}
+      className={`relative inline-block leading-none select-none ${className ?? ""}`}
+      style={{ fontSize: size, letterSpacing: "-0.05em", color: textColor, fontFamily: "var(--font-space-grotesk), system-ui, sans-serif", fontWeight: 600 }}
     >
       t
       <CrossBar variant="mark" color={barColor} />
@@ -66,8 +66,8 @@ export function TranaWordmark({
 }) {
   return (
     <span
-      className={`inline-flex items-baseline font-sans font-semibold leading-none select-none ${className ?? ""}`}
-      style={{ fontSize: size, letterSpacing: "-0.05em", color: textColor }}
+      className={`inline-flex items-baseline leading-none select-none ${className ?? ""}`}
+      style={{ fontSize: size, letterSpacing: "-0.05em", color: textColor, fontFamily: "var(--font-space-grotesk), system-ui, sans-serif", fontWeight: 600 }}
     >
       <span className="relative">
         t

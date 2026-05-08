@@ -1,19 +1,28 @@
 import type { Metadata } from "next"
-import { Space_Grotesk, JetBrains_Mono } from "next/font/google"
+import { Inter, DM_Serif_Display, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 
-const spaceGrotesk = Space_Grotesk({
+const inter = Inter({
   subsets:  ["latin"],
-  weight:   ["300", "400", "500", "600", "700"],
+  weight:   ["300", "400", "500", "600"],
   display:  "swap",
-  variable: "--font-space-grotesk",
+  variable: "--font-inter",
 })
 
-const jetbrainsMono = JetBrains_Mono({
+const dmSerif = DM_Serif_Display({
   subsets:  ["latin"],
-  weight:   ["400", "500", "600", "700"],
+  weight:   "400",
+  style:    ["normal", "italic"],
   display:  "swap",
-  variable: "--font-jetbrains-mono",
+  variable: "--font-serif",
+})
+
+// Space Grotesk loaded only for the logo mark
+const spaceGrotesk = Space_Grotesk({
+  subsets:  ["latin"],
+  weight:   ["600"],
+  display:  "swap",
+  variable: "--font-space-grotesk",
 })
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://trana.so"
@@ -70,7 +79,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`dark scroll-smooth ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`dark scroll-smooth ${inter.variable} ${dmSerif.variable} ${spaceGrotesk.variable}`}>
       <body className="bg-bg text-ink antialiased font-sans">{children}</body>
     </html>
   )
