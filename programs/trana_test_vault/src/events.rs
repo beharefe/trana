@@ -1,30 +1,25 @@
 use anchor_lang::prelude::*;
 
 #[event]
-pub struct VaultInitialized {
-    pub vault: Pubkey,
-    pub owner: Pubkey,
-    pub label: String,
+pub struct PoolInitialized {
+    pub pool:      Pubkey,
+    pub authority: Pubkey,
+    pub label:     String,
 }
 
 #[event]
-pub struct VaultDeposit {
-    pub vault:     Pubkey,
-    pub depositor: Pubkey,
-    pub amount:    u64,
+pub struct Deposited {
+    pub pool:        Pubkey,
+    pub user:        Pubkey,
+    pub amount:      u64,
+    pub new_balance: u64,
 }
 
 #[event]
-pub struct VaultWithdraw {
-    pub vault:       Pubkey,
-    pub owner:       Pubkey,
+pub struct Withdrawn {
+    pub pool:        Pubkey,
+    pub user:        Pubkey,
     pub destination: Pubkey,
     pub amount:      u64,
     pub proof_used:  bool,
-}
-
-#[event]
-pub struct VaultClosed {
-    pub vault: Pubkey,
-    pub owner: Pubkey,
 }

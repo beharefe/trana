@@ -22,7 +22,7 @@ idl-build = ["anchor-lang/idl-build", "trana_guard/idl-build"]
 anchor-debug = []
 
 [dependencies]
-anchor-lang = { version = "0.32.0" }
+anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
 trana_guard = { path = "../trana_guard", features = ["cpi"] }
 
 [lints.rust]

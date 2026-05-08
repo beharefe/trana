@@ -1,41 +1,53 @@
 use anchor_lang::prelude::*;
 
-/// Two demo policies, each telling a different security story.
+/// Policy governing withdrawals from this pool.
 ///
-/// Limit      — "large pulls need my passkey; the program enforces the threshold."
-/// TimeLocked — "vault is locked until slot X; Solana's clock enforces it, not the program."
-///              The slot is signed inside the WebAuthn challenge — even a compromised
-///              program binary cannot fake the unlock time.
+/// Limit      — small pulls free, large pulls gated. Threshold per-user drain
+///              window prevents death-by-a-thousand-cuts.
+///
+/// TimeLocked — whole pool locked until `slot`. The slot is signed inside the
+///              WebAuthn challenge so even a redeployed program cannot alter it.
+///              Before unlock: passkey needed. After: withdraw freely.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, InitSpace, Debug)]
-pub enum VaultKind {
-    /// Passkey required when withdrawal >= 1 SOL, or when consecutive small
-    /// withdrawals in a 60-second window accumulate to >= 1 SOL (drain guard).
+pub enum PoolKind {
     Limit,
-    /// Passkey required until `slot` passes; after that the vault is open.
-    /// policyId to sign: "trana.not_before"
     TimeLocked { slot: u64 },
 }
 
+/// Shared pool — holds all deposited SOL in its lamport balance.
+/// Seeds: [b"trana-pool", authority]
 #[account]
 #[derive(InitSpace)]
-pub struct Vault {
-    pub owner: Pubkey,
-    pub kind:  VaultKind,
+pub struct Pool {
+    pub authority: Pubkey,
+    pub kind:      PoolKind,
 
     #[max_len(32)]
     pub label: String,
 
-    pub total_deposited:  u64,
+    pub bump: u8,
+}
 
-    // Drain-window state (only meaningful for VaultKind::Limit)
+impl Pool {
+    pub fn space() -> usize { 8 + Pool::INIT_SPACE }
+}
+
+/// Per-user deposit record — tracks balance and drain window inside the pool.
+/// Seeds: [b"deposit", pool, user]
+#[account]
+#[derive(InitSpace)]
+pub struct UserDeposit {
+    pub pool:    Pubkey,
+    pub user:    Pubkey,
+    pub balance: u64,
+
+    // Drain-window state (Limit pools only)
     pub window_withdrawn: u64,
     pub last_withdraw_at: i64,
 
     pub bump: u8,
 }
 
-impl Vault {
-    pub fn space() -> usize {
-        8 + Vault::INIT_SPACE
-    }
+impl UserDeposit {
+    pub fn space() -> usize { 8 + UserDeposit::INIT_SPACE }
 }
