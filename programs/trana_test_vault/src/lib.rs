@@ -1,20 +1,26 @@
 // ⚠️  DEMO — not for production.
 //
-// trana_test_vault: minimal SOL vault showing how simple trana_guard integration is.
+// trana_test_vault: minimal SOL vault showing trana_guard integration in ~1 line.
 //
-// Rules:
-//   - Anyone can deposit (open, intentional — the vault balance is the bait).
-//   - Withdrawals < 1 SOL go through freely.
-//   - Withdrawals >= 1 SOL require a passkey.
-//   - Consecutive small withdrawals totalling >= 1 SOL within 60 seconds also
-//     require a passkey (drain protection).
-//   - Closing the vault always requires a passkey.
+// Two vault kinds, two security stories:
 //
-// The only trana_guard integration point is one line:
+//  VaultKind::Limit
+//    "Large pulls need my passkey; small ones are free."
+//    - withdrawal < 1 SOL                  → no proof needed
+//    - withdrawal >= 1 SOL                 → passkey (Policy::Limit)
+//    - consecutive small pulls >= 1 SOL    → passkey (Policy::Require, drain guard)
+//      within 60 seconds
+//
+//  VaultKind::TimeLocked { slot }
+//    "Locked until slot X. Solana's clock enforces it — not my code."
+//    - current_slot < slot                 → passkey (Policy::NotBefore)
+//    - current_slot >= slot                → free, no proof needed
+//    The slot is embedded in the signed WebAuthn challenge; even a
+//    redeployed program cannot change the unlock time retroactively.
+//
+// The entire trana_guard integration is one call:
 //
 //   trana_guard::cpi::enforce(ctx, policy)?;
-//
-// Everything else is standard Anchor.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::system_instruction;
@@ -44,17 +50,18 @@ pub const DRAIN_WINDOW:   i64   = 60;            // seconds
 pub mod trana_test_vault {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, label: String) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, kind: VaultKind, label: String) -> Result<()> {
         require!(label.len() <= 32, VaultError::LabelTooLong);
 
         let vault_key = ctx.accounts.vault.key();
         let owner_key = ctx.accounts.owner.key();
         let vault     = &mut ctx.accounts.vault;
 
-        vault.owner           = owner_key;
-        vault.bump            = ctx.bumps.vault;
-        vault.label           = label.clone();
-        vault.total_deposited = 0;
+        vault.owner            = owner_key;
+        vault.bump             = ctx.bumps.vault;
+        vault.kind             = kind;
+        vault.label            = label.clone();
+        vault.total_deposited  = 0;
         vault.window_withdrawn = 0;
         vault.last_withdraw_at = 0;
 
@@ -62,8 +69,8 @@ pub mod trana_test_vault {
         Ok(())
     }
 
-    /// Open to anyone — no proof required. This is intentional.
-    /// The vault balance is publicly visible; the challenge is draining it.
+    /// Open to anyone — no proof required.
+    /// The vault balance is the bait; the passkey is the lock.
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
@@ -91,15 +98,6 @@ pub mod trana_test_vault {
         Ok(())
     }
 
-    /// Withdraw SOL.
-    ///
-    /// Passkey is required when:
-    ///   (a) amount >= 1 SOL in a single transaction, OR
-    ///   (b) cumulative withdrawals in the last 60 s hit 1 SOL (drain protection).
-    ///
-    /// Frontend hint: check vault.window_withdrawn + amount vs WITHDRAW_LIMIT
-    /// and current_time - vault.last_withdraw_at vs DRAIN_WINDOW to decide
-    /// whether to include the secp256r1 + record_proof preamble.
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
 
@@ -109,30 +107,37 @@ pub mod trana_test_vault {
             VaultError::InsufficientFunds,
         );
 
-        // ── Drain detection ───────────────────────────────────────────────────
-        let now        = Clock::get()?.unix_timestamp;
-        let vault      = &ctx.accounts.vault;
-        let in_window  = vault.last_withdraw_at > 0
-            && (now - vault.last_withdraw_at) < DRAIN_WINDOW;
-        let window_now = if in_window {
-            vault.window_withdrawn.saturating_add(amount)
-        } else {
-            amount
-        };
-        let is_drain   = window_now >= WITHDRAW_LIMIT;
+        let (policy, proof_used) = match &ctx.accounts.vault.kind {
 
-        // ── Single trana_guard call ───────────────────────────────────────────
-        //
-        // Policy::Limit reads the `amount` arg directly from instruction data
-        // (param_offset 0 = first u64 after the 8-byte discriminator).
-        // If amount < WITHDRAW_LIMIT *and* no drain detected, enforce returns
-        // Ok without requiring any proof — no tx rewrite needed for small pulls.
-        let policy = if is_drain {
-            Policy::Require
-        } else {
-            Policy::Limit { param_offset: 0, limit: WITHDRAW_LIMIT }
+            // ── TimeLocked ────────────────────────────────────────────────────
+            // Slot is baked into the signed challenge — program cannot fake it.
+            VaultKind::TimeLocked { slot } => {
+                (Policy::NotBefore { slot: *slot }, false)
+            }
+
+            // ── Limit + drain guard ───────────────────────────────────────────
+            VaultKind::Limit => {
+                let now       = Clock::get()?.unix_timestamp;
+                let vault     = &ctx.accounts.vault;
+                let in_window = vault.last_withdraw_at > 0
+                    && (now - vault.last_withdraw_at) < DRAIN_WINDOW;
+                let window_now = if in_window {
+                    vault.window_withdrawn.saturating_add(amount)
+                } else {
+                    amount
+                };
+                let is_drain = window_now >= WITHDRAW_LIMIT;
+                let p = if is_drain {
+                    Policy::Require
+                } else {
+                    Policy::Limit { param_offset: 0, limit: WITHDRAW_LIMIT }
+                };
+                let used = is_drain || amount >= WITHDRAW_LIMIT;
+                (p, used)
+            }
         };
 
+        // ── The one trana_guard line ──────────────────────────────────────────
         trana_guard::cpi::enforce(
             CpiContext::new(
                 ctx.accounts.trana_guard_program.to_account_info(),
@@ -149,18 +154,26 @@ pub mod trana_test_vault {
         **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= amount;
         **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += amount;
 
-        // ── Update drain window ───────────────────────────────────────────────
-        let vault = &mut ctx.accounts.vault;
-        let proof_used = is_drain || amount >= WITHDRAW_LIMIT;
-        if proof_used {
-            // Authenticated — reset window
-            vault.window_withdrawn = 0;
-            vault.last_withdraw_at = 0;
-        } else if in_window {
-            vault.window_withdrawn = window_now;
-        } else {
-            vault.window_withdrawn = amount;
-            vault.last_withdraw_at = now;
+        // ── Update drain window (Limit only) ──────────────────────────────────
+        if let VaultKind::Limit = ctx.accounts.vault.kind {
+            let now      = Clock::get()?.unix_timestamp;
+            let vault    = &mut ctx.accounts.vault;
+            let in_win   = vault.last_withdraw_at > 0
+                && (now - vault.last_withdraw_at) < DRAIN_WINDOW;
+            let win_now  = if in_win {
+                vault.window_withdrawn.saturating_add(amount)
+            } else {
+                amount
+            };
+            if proof_used {
+                vault.window_withdrawn = 0;
+                vault.last_withdraw_at = 0;
+            } else if in_win {
+                vault.window_withdrawn = win_now;
+            } else {
+                vault.window_withdrawn = amount;
+                vault.last_withdraw_at = now;
+            }
         }
 
         emit!(VaultWithdraw {
@@ -173,7 +186,7 @@ pub mod trana_test_vault {
         Ok(())
     }
 
-    /// Close the vault and return all SOL to the owner. Always requires passkey.
+    /// Always requires passkey regardless of vault kind.
     pub fn close_vault(ctx: Context<CloseVault>) -> Result<()> {
         trana_guard::cpi::enforce(
             CpiContext::new(
@@ -187,7 +200,6 @@ pub mod trana_test_vault {
             Policy::Require,
         )?;
 
-        // Drain balance to owner before Anchor closes the account
         let balance = ctx.accounts.vault.to_account_info().lamports();
         let rent    = Rent::get()?.minimum_balance(Vault::space());
         let excess  = balance.saturating_sub(rent);
