@@ -7,8 +7,14 @@ use crate::error::GuardError;
 use crate::events::ProofVerified;
 use crate::state::{ProofData, TwoFactorRegistry};
 
-const SECP256R1_PROGRAM_ID: &str = "Secp256r1SigVerify1111111111111111111111111";
+const SECP256R1_ID: Pubkey = Pubkey::new_from_array([
+    6, 146, 13, 236, 47, 234, 113, 181, 183, 35, 129, 77,
+    116, 45, 169, 3, 28, 131, 231, 95, 219, 121, 93, 86,
+    142, 117, 71, 128, 32, 0, 0, 0,
+]);
 const INTENT_DOMAIN:        &str = "trana:v1";
+// First 8 bytes of sha256("global:record_proof") — Anchor instruction discriminator.
+const RECORD_PROOF_DISC: [u8; 8] = [0x90, 0xac, 0x90, 0x23, 0x7c, 0xaa, 0x5d, 0x50];
 
 // ── Public helpers ────────────────────────────────────────────────────────────
 
@@ -130,8 +136,7 @@ fn run_verification<'info>(
     let secp_ix  = load_instruction_at_checked(secp_idx, ix_sysvar)
         .map_err(|_| { msg!("TRANA_MISSING_PROOF"); error!(GuardError::MissingProof) })?;
 
-    let secp_id: Pubkey = SECP256R1_PROGRAM_ID.parse().unwrap();
-    if secp_ix.program_id != secp_id {
+    if secp_ix.program_id != SECP256R1_ID {
         msg!("TRANA_MISSING_PROOF");
         return Err(error!(GuardError::MissingProof));
     }
@@ -189,9 +194,8 @@ fn load_proof_from_preceding_ix(
     let proof_ix = load_instruction_at_checked(idx, ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
 
-    let disc = &sha256_bytes(b"global:record_proof")[..8];
-    require!(proof_ix.data.len() >= 8,    GuardError::InvalidProof);
-    require!(&proof_ix.data[..8] == disc, GuardError::InvalidProof);
+    require!(proof_ix.data.len() >= 8,                          GuardError::InvalidProof);
+    require!(proof_ix.data[..8] == RECORD_PROOF_DISC,           GuardError::InvalidProof);
 
     ProofData::try_from_slice(&proof_ix.data[8..])
         .map_err(|_| error!(GuardError::InvalidProof))

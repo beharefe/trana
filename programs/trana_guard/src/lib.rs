@@ -52,6 +52,13 @@ pub enum Policy {
     Limit { param_offset: u8, limit: u64 },
 }
 
+/// Canonical policy domain strings. Use these in your integration — not raw literals —
+/// so a typo is a compile error rather than a runtime `PolicyMismatch`.
+pub const POLICY_REQUIRE:    &str = "trana.require";
+pub const POLICY_LIMIT:      &str = "trana.limit";
+pub const POLICY_NOT_BEFORE: &str = "trana.not_before";
+pub const POLICY_NOT_AFTER:  &str = "trana.not_after";
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Trana Guard — Onchain Authorization Primitive
 //
@@ -218,7 +225,7 @@ pub mod trana_guard {
             &mut ctx.accounts.registry,
             &owner_key,
             ctx.program_id,
-            "trana.require",
+            POLICY_REQUIRE,
         )?;
 
         let fee = ctx.accounts.config.recovery_fee;
@@ -280,18 +287,18 @@ pub mod trana_guard {
 
         match policy {
             Policy::Require => {
-                msg!("TRANA require | policy=trana.require | owner={}", owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.require")
+                msg!("TRANA require | policy={} | owner={}", POLICY_REQUIRE, owner_key);
+                verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_REQUIRE)
             }
 
             Policy::NotBefore { slot } => {
                 let current_slot = Clock::get()?.slot;
                 if current_slot < slot {
                     msg!(
-                        "TRANA require | policy=trana.not_before | current={} | required={} | owner={}",
-                        current_slot, slot, owner_key,
+                        "TRANA require | policy={} | current={} | required={} | owner={}",
+                        POLICY_NOT_BEFORE, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_before")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_BEFORE)?;
                 }
                 Ok(())
             }
@@ -300,10 +307,10 @@ pub mod trana_guard {
                 let current_slot = Clock::get()?.slot;
                 if current_slot > slot {
                     msg!(
-                        "TRANA require | policy=trana.not_after | current={} | expiry={} | owner={}",
-                        current_slot, slot, owner_key,
+                        "TRANA require | policy={} | current={} | expiry={} | owner={}",
+                        POLICY_NOT_AFTER, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.not_after")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_AFTER)?;
                 }
                 Ok(())
             }
@@ -312,10 +319,10 @@ pub mod trana_guard {
                 let amount = verify::read_u64_from_protected_ix(ix, param_offset)?;
                 if amount >= limit {
                     msg!(
-                        "TRANA require | policy=trana.limit | amount={} | limit={} | owner={}",
-                        amount, limit, owner_key,
+                        "TRANA require | policy={} | amount={} | limit={} | owner={}",
+                        POLICY_LIMIT, amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, "trana.limit")?;
+                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_LIMIT)?;
                 }
                 Ok(())
             }
