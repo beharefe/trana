@@ -32,8 +32,7 @@ pub struct TwoFactorRegistry {
     pub pubkey_bytes:  Vec<u8>,
     #[max_len(128)]
     pub credential_id: Vec<u8>,
-    pub enabled: bool,
-    pub nonce:   u64,
+    pub nonce: u64,
 }
 
 impl TwoFactorRegistry {
@@ -100,7 +99,6 @@ pub struct RecoverTwoFa<'info> {
         mut,
         seeds = [b"2fa", owner.key().as_ref()],
         bump,
-        constraint = registry.enabled @ GuardError::RegistryDisabled,
     )]
     pub registry: Account<'info, TwoFactorRegistry>,
 
@@ -139,7 +137,6 @@ pub struct Enforce<'info> {
         mut,
         seeds = [b"2fa", owner.key().as_ref()],
         bump,
-        constraint = registry.enabled @ GuardError::RegistryDisabled,
     )]
     pub registry: Account<'info, TwoFactorRegistry>,
 

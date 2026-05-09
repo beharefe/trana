@@ -172,7 +172,6 @@ pub mod trana_guard {
         r.key_kind      = key_kind;
         r.pubkey_bytes  = pubkey_bytes;
         r.credential_id = credential_id;
-        r.enabled       = true;
         msg!("TRANA register | owner={}", r.owner);
         Ok(())
     }

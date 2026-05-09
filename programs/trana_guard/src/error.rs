@@ -14,9 +14,6 @@ pub enum GuardError {
     #[msg("Proof was signed by a key not in the registry")]
     WrongSigner,
 
-    #[msg("Registry is disabled — register a passkey first")]
-    RegistryDisabled,
-
     #[msg("Invalid proof data")]
     InvalidProof,
 
