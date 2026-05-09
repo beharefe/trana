@@ -62,8 +62,12 @@ export async function airdrop(
   pubkey:     PublicKey,
   lamports:   number,
 ): Promise<void> {
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
   const signature = await connection.requestAirdrop(pubkey, lamports)
-  const result = await connection.confirmTransaction(signature, "confirmed")
+  const result = await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed",
+  )
   if (result.value.err) {
     throw new Error(`Airdrop failed: ${JSON.stringify(result.value.err)}`)
   }
