@@ -316,13 +316,13 @@ pub mod trana_guard {
             }
 
             Policy::Limit { param_offset, limit } => {
-                let amount = verify::read_u64_from_protected_ix(ix, param_offset)?;
+                let (amount, current_idx) = verify::read_u64_from_protected_ix(ix, param_offset)?;
                 if amount >= limit {
                     msg!(
                         "TRANA require | policy={} | amount={} | limit={} | owner={}",
                         POLICY_LIMIT, amount, limit, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_LIMIT)?;
+                    verify::verify_at_idx(ix, registry, &owner_key, pid, POLICY_LIMIT, current_idx)?;
                 }
                 Ok(())
             }

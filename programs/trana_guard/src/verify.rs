@@ -20,40 +20,58 @@ const RECORD_PROOF_DISC: [u8; 8] = [0x90, 0xac, 0x90, 0x23, 0x7c, 0xaa, 0x5d, 0x
 
 /// Read the protected instruction at the current index and extract a u64
 /// from its parameter data at `byte_offset` bytes after the 8-byte discriminator.
-/// Used by standard policy instructions to read amounts trustlessly from the
-/// protected instruction itself — the caller cannot fake the value.
+/// Returns (value, current_idx) so the caller can pass the index directly to
+/// verify_at_idx, avoiding a second sysvar index read on the Limit path.
 pub fn read_u64_from_protected_ix(
     ix_sysvar:   &AccountInfo,
     byte_offset: u8,
-) -> Result<u64> {
+) -> Result<(u64, u16)> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
     let ix = load_instruction_at_checked(current_idx as usize, ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
     let offset = 8 + byte_offset as usize; // skip Anchor discriminator
     require!(ix.data.len() >= offset + 8, GuardError::InvalidProof);
-    Ok(u64::from_le_bytes(ix.data[offset..offset + 8].try_into().unwrap()))
+    let value = u64::from_le_bytes(
+        ix.data[offset..offset + 8].try_into()
+            .expect("slice is exactly 8 bytes: guarded by require! above"),
+    );
+    Ok((value, current_idx))
 }
 
 // ── Core verification ─────────────────────────────────────────────────────────
 
 pub fn verify_with_policy<'info>(
-    ix_sysvar:        &AccountInfo<'info>,
-    registry:         &mut TwoFactorRegistry,
-    owner:            &Pubkey,
+    ix_sysvar:              &AccountInfo<'info>,
+    registry:               &mut TwoFactorRegistry,
+    owner:                  &Pubkey,
     trana_guard_program_id: &Pubkey,
-    expected_policy:  &str,
+    expected_policy:        &str,
 ) -> Result<()> {
     let current_idx = load_current_index_checked(ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
+    verify_at_idx(ix_sysvar, registry, owner, trana_guard_program_id, expected_policy, current_idx)
+}
+
+/// Verify at a known instruction index. Use this instead of verify_with_policy
+/// when current_idx is already available (e.g., from read_u64_from_protected_ix)
+/// to skip the redundant sysvar index read.
+pub(crate) fn verify_at_idx<'info>(
+    ix_sysvar:              &AccountInfo<'info>,
+    registry:               &mut TwoFactorRegistry,
+    owner:                  &Pubkey,
+    trana_guard_program_id: &Pubkey,
+    expected_policy:        &str,
+    current_idx:            u16,
+) -> Result<()> {
     if current_idx < 2 {
         msg!("TRANA_MISSING_PROOF");
         return Err(error!(GuardError::MissingProof));
     }
     let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
-    require!(proof.policy  == expected_policy,  GuardError::PolicyMismatch);
-    let policy = proof.policy.clone();
-    run_verification(ix_sysvar, registry, owner, trana_guard_program_id, current_idx, proof, &policy)
+    require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
+    // proof.policy == expected_policy is guaranteed above; pass expected_policy directly
+    run_verification(ix_sysvar, registry, owner, trana_guard_program_id, current_idx, proof, expected_policy)
 }
 
 // ── Shared verification pipeline ─────────────────────────────────────────────
@@ -202,16 +220,7 @@ fn load_proof_from_preceding_ix(
 }
 
 // ── Intent hash ───────────────────────────────────────────────────────────────
-//
-// Canonical binary encoding — must match TypeScript's hashIntent() exactly.
-// Length prefixes are u16 LE. All integers little-endian.
-//
-//   version (u8 = 1)
-//   domain  (u16-LE + UTF-8)
-//   wallet (32), tranaGuardProgramId (32), targetProgramId (32)
-//   policy  (u16-LE + UTF-8)
-//   discriminator (8), accountsHash (32), paramsHash (32)
-//   nonce (u64 LE, 8), expiry (i64 LE, 8)
+// Must match TypeScript's hashIntent() exactly. Length prefixes u16 LE, integers LE.
 
 fn compute_intent_hash(
     domain:            &str,
@@ -279,6 +288,9 @@ fn base64url_decode(input: &[u8]) -> Option<Vec<u8>> {
             acc &= (1 << acc_len) - 1;
         }
     }
+    // A full extra byte was promised by bit accumulation but not delivered —
+    // reject rather than silently discard the trailing bits.
+    if acc_len >= 8 { return None; }
     Some(out)
 }
 
