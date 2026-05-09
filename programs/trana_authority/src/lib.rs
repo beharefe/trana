@@ -79,7 +79,7 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        enforce_passkey(
+        enforce_proof(
             ctx.accounts.trana_guard_program.to_account_info(),
             ctx.accounts.trana_registry.to_account_info(),
             ctx.accounts.owner.to_account_info(),
@@ -133,7 +133,7 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        enforce_passkey(
+        enforce_proof(
             ctx.accounts.trana_guard_program.to_account_info(),
             ctx.accounts.trana_registry.to_account_info(),
             ctx.accounts.owner.to_account_info(),
@@ -178,7 +178,7 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        enforce_passkey(
+        enforce_proof(
             ctx.accounts.trana_guard_program.to_account_info(),
             ctx.accounts.trana_registry.to_account_info(),
             ctx.accounts.owner.to_account_info(),
@@ -217,7 +217,7 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        enforce_passkey(
+        enforce_proof(
             ctx.accounts.trana_guard_program.to_account_info(),
             ctx.accounts.trana_registry.to_account_info(),
             ctx.accounts.owner.to_account_info(),
@@ -253,7 +253,7 @@ pub mod trana_authority {
     /// Even the escape hatch is second-factor protected.
     /// Closes the AuthorityRecord PDA and returns rent to the owner.
     pub fn reclaim_authority(ctx: Context<ReclaimAuthority>, new_authority: Pubkey) -> Result<()> {
-        enforce_passkey(
+        enforce_proof(
             ctx.accounts.trana_guard_program.to_account_info(),
             ctx.accounts.trana_registry.to_account_info(),
             ctx.accounts.owner.to_account_info(),
@@ -528,7 +528,7 @@ pub struct ReclaimAuthority<'info> {
 
 // ── Private helpers ────────────────────────────────────────────────────────────
 
-fn enforce_passkey<'info>(
+fn enforce_proof<'info>(
     guard_program: AccountInfo<'info>,
     registry:      AccountInfo<'info>,
     owner:         AccountInfo<'info>,
