@@ -79,25 +79,15 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        // Passkey verification — enforce reads ix[N-2] and ix[N-1] from sysvar
-        trana_guard::cpi::enforce(
-            CpiContext::new(
-                ctx.accounts.trana_guard_program.to_account_info(),
-                Enforce {
-                    registry:     ctx.accounts.trana_registry.to_account_info(),
-                    owner:        ctx.accounts.owner.to_account_info(),
-                    instructions: ctx.accounts.instructions.to_account_info(),
-                },
-            ),
-            Policy::Require,
+        enforce_passkey(
+            ctx.accounts.trana_guard_program.to_account_info(),
+            ctx.accounts.trana_registry.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.instructions.to_account_info(),
         )?;
 
-        let seeds: &[&[u8]] = &[
-            AUTHORITY_SEED,
-            ctx.accounts.authority_record.owner.as_ref(),
-            ctx.accounts.authority_record.target.as_ref(),
-            &[ctx.accounts.authority_record.bump],
-        ];
+        let bump  = [ctx.accounts.authority_record.bump];
+        let seeds = authority_seeds(&ctx.accounts.authority_record, &bump);
 
         let upgrade_ix = bpf_loader_upgradeable::upgrade(
             &ctx.accounts.program.key(),
@@ -117,7 +107,7 @@ pub mod trana_authority {
                 ctx.accounts.clock.to_account_info(),
                 ctx.accounts.authority_record.to_account_info(),
             ],
-            &[seeds],
+            &[seeds.as_slice()],
         )?;
 
         emit!(UpgradeExecuted {
@@ -143,24 +133,15 @@ pub mod trana_authority {
             AuthorityError::KindMismatch
         );
 
-        trana_guard::cpi::enforce(
-            CpiContext::new(
-                ctx.accounts.trana_guard_program.to_account_info(),
-                Enforce {
-                    registry:     ctx.accounts.trana_registry.to_account_info(),
-                    owner:        ctx.accounts.owner.to_account_info(),
-                    instructions: ctx.accounts.instructions.to_account_info(),
-                },
-            ),
-            Policy::Require,
+        enforce_passkey(
+            ctx.accounts.trana_guard_program.to_account_info(),
+            ctx.accounts.trana_registry.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.instructions.to_account_info(),
         )?;
 
-        let seeds: &[&[u8]] = &[
-            AUTHORITY_SEED,
-            ctx.accounts.authority_record.owner.as_ref(),
-            ctx.accounts.authority_record.target.as_ref(),
-            &[ctx.accounts.authority_record.bump],
-        ];
+        let bump  = [ctx.accounts.authority_record.bump];
+        let seeds = authority_seeds(&ctx.accounts.authority_record, &bump);
 
         token::mint_to(
             CpiContext::new_with_signer(
@@ -170,7 +151,7 @@ pub mod trana_authority {
                     to:        ctx.accounts.destination.to_account_info(),
                     authority: ctx.accounts.authority_record.to_account_info(),
                 },
-                &[seeds],
+                &[seeds.as_slice()],
             ),
             amount,
         )?;
@@ -191,30 +172,21 @@ pub mod trana_authority {
     // ── Execute freeze ────────────────────────────────────────────────────────
 
     /// Freeze a token account. Requires passkey proof.
-    pub fn execute_freeze(ctx: Context<ExecuteFreeze>) -> Result<()> {
+    pub fn execute_freeze(ctx: Context<ExecuteFreezeOrThaw>) -> Result<()> {
         require!(
             ctx.accounts.authority_record.authority_kind == AuthorityKind::TokenFreeze,
             AuthorityError::KindMismatch
         );
 
-        trana_guard::cpi::enforce(
-            CpiContext::new(
-                ctx.accounts.trana_guard_program.to_account_info(),
-                Enforce {
-                    registry:     ctx.accounts.trana_registry.to_account_info(),
-                    owner:        ctx.accounts.owner.to_account_info(),
-                    instructions: ctx.accounts.instructions.to_account_info(),
-                },
-            ),
-            Policy::Require,
+        enforce_passkey(
+            ctx.accounts.trana_guard_program.to_account_info(),
+            ctx.accounts.trana_registry.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.instructions.to_account_info(),
         )?;
 
-        let seeds: &[&[u8]] = &[
-            AUTHORITY_SEED,
-            ctx.accounts.authority_record.owner.as_ref(),
-            ctx.accounts.authority_record.target.as_ref(),
-            &[ctx.accounts.authority_record.bump],
-        ];
+        let bump  = [ctx.accounts.authority_record.bump];
+        let seeds = authority_seeds(&ctx.accounts.authority_record, &bump);
 
         token::freeze_account(
             CpiContext::new_with_signer(
@@ -224,41 +196,36 @@ pub mod trana_authority {
                     mint:      ctx.accounts.mint.to_account_info(),
                     authority: ctx.accounts.authority_record.to_account_info(),
                 },
-                &[seeds],
+                &[seeds.as_slice()],
             ),
         )?;
 
         emit!(FreezeExecuted { owner: ctx.accounts.owner.key(), mint: ctx.accounts.mint.key(), frozen: true });
+        msg!(
+            "TRANA_AUTHORITY freeze | owner={} | mint={}",
+            ctx.accounts.owner.key(), ctx.accounts.mint.key(),
+        );
         Ok(())
     }
 
     // ── Execute thaw ──────────────────────────────────────────────────────────
 
     /// Thaw a frozen token account. Requires passkey proof.
-    pub fn execute_thaw(ctx: Context<ExecuteThaw>) -> Result<()> {
+    pub fn execute_thaw(ctx: Context<ExecuteFreezeOrThaw>) -> Result<()> {
         require!(
             ctx.accounts.authority_record.authority_kind == AuthorityKind::TokenFreeze,
             AuthorityError::KindMismatch
         );
 
-        trana_guard::cpi::enforce(
-            CpiContext::new(
-                ctx.accounts.trana_guard_program.to_account_info(),
-                Enforce {
-                    registry:     ctx.accounts.trana_registry.to_account_info(),
-                    owner:        ctx.accounts.owner.to_account_info(),
-                    instructions: ctx.accounts.instructions.to_account_info(),
-                },
-            ),
-            Policy::Require,
+        enforce_passkey(
+            ctx.accounts.trana_guard_program.to_account_info(),
+            ctx.accounts.trana_registry.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.instructions.to_account_info(),
         )?;
 
-        let seeds: &[&[u8]] = &[
-            AUTHORITY_SEED,
-            ctx.accounts.authority_record.owner.as_ref(),
-            ctx.accounts.authority_record.target.as_ref(),
-            &[ctx.accounts.authority_record.bump],
-        ];
+        let bump  = [ctx.accounts.authority_record.bump];
+        let seeds = authority_seeds(&ctx.accounts.authority_record, &bump);
 
         token::thaw_account(
             CpiContext::new_with_signer(
@@ -268,11 +235,15 @@ pub mod trana_authority {
                     mint:      ctx.accounts.mint.to_account_info(),
                     authority: ctx.accounts.authority_record.to_account_info(),
                 },
-                &[seeds],
+                &[seeds.as_slice()],
             ),
         )?;
 
         emit!(FreezeExecuted { owner: ctx.accounts.owner.key(), mint: ctx.accounts.mint.key(), frozen: false });
+        msg!(
+            "TRANA_AUTHORITY thaw | owner={} | mint={}",
+            ctx.accounts.owner.key(), ctx.accounts.mint.key(),
+        );
         Ok(())
     }
 
@@ -282,24 +253,15 @@ pub mod trana_authority {
     /// Even the escape hatch is second-factor protected.
     /// Closes the AuthorityRecord PDA and returns rent to the owner.
     pub fn reclaim_authority(ctx: Context<ReclaimAuthority>, new_authority: Pubkey) -> Result<()> {
-        trana_guard::cpi::enforce(
-            CpiContext::new(
-                ctx.accounts.trana_guard_program.to_account_info(),
-                Enforce {
-                    registry:     ctx.accounts.trana_registry.to_account_info(),
-                    owner:        ctx.accounts.owner.to_account_info(),
-                    instructions: ctx.accounts.instructions.to_account_info(),
-                },
-            ),
-            Policy::Require,
+        enforce_passkey(
+            ctx.accounts.trana_guard_program.to_account_info(),
+            ctx.accounts.trana_registry.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.instructions.to_account_info(),
         )?;
 
-        let seeds: &[&[u8]] = &[
-            AUTHORITY_SEED,
-            ctx.accounts.authority_record.owner.as_ref(),
-            ctx.accounts.authority_record.target.as_ref(),
-            &[ctx.accounts.authority_record.bump],
-        ];
+        let bump  = [ctx.accounts.authority_record.bump];
+        let seeds = authority_seeds(&ctx.accounts.authority_record, &bump);
 
         match ctx.accounts.authority_record.authority_kind {
             AuthorityKind::ProgramUpgrade => {
@@ -315,7 +277,7 @@ pub mod trana_authority {
                         ctx.accounts.authority_record.to_account_info(),
                         ctx.accounts.new_authority_info.to_account_info(),
                     ],
-                    &[seeds],
+                    &[seeds.as_slice()],
                 )?;
             }
 
@@ -327,7 +289,7 @@ pub mod trana_authority {
                             account_or_mint: ctx.accounts.target.to_account_info(),
                             current_authority: ctx.accounts.authority_record.to_account_info(),
                         },
-                        &[seeds],
+                        &[seeds.as_slice()],
                     ),
                     AuthorityType::MintTokens,
                     Some(new_authority),
@@ -342,7 +304,7 @@ pub mod trana_authority {
                             account_or_mint: ctx.accounts.target.to_account_info(),
                             current_authority: ctx.accounts.authority_record.to_account_info(),
                         },
-                        &[seeds],
+                        &[seeds.as_slice()],
                     ),
                     AuthorityType::FreezeAccount,
                     Some(new_authority),
@@ -480,41 +442,7 @@ pub struct ExecuteMint<'info> {
 // ── Execute freeze / thaw ──────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct ExecuteFreeze<'info> {
-    #[account(
-        seeds = [AUTHORITY_SEED, owner.key().as_ref(), mint.key().as_ref()],
-        bump  = authority_record.bump,
-        constraint = authority_record.owner  == owner.key(),
-        constraint = authority_record.target == mint.key(),
-    )]
-    pub authority_record: Account<'info, AuthorityRecord>,
-
-    pub owner: Signer<'info>,
-
-    pub mint: Account<'info, Mint>,
-
-    #[account(mut)]
-    pub token_account: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
-
-    pub trana_guard_program: Program<'info, TranaGuard>,
-
-    #[account(
-        mut,
-        seeds = [b"2fa", owner.key().as_ref()],
-        seeds::program = trana_guard_program.key(),
-        bump,
-    )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
-
-    /// CHECK: Instructions sysvar
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
-    pub instructions: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-pub struct ExecuteThaw<'info> {
+pub struct ExecuteFreezeOrThaw<'info> {
     #[account(
         seeds = [AUTHORITY_SEED, owner.key().as_ref(), mint.key().as_ref()],
         bump  = authority_record.bump,
@@ -596,4 +524,25 @@ pub struct ReclaimAuthority<'info> {
     pub instructions: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+// ── Private helpers ────────────────────────────────────────────────────────────
+
+fn enforce_passkey<'info>(
+    guard_program: AccountInfo<'info>,
+    registry:      AccountInfo<'info>,
+    owner:         AccountInfo<'info>,
+    instructions:  AccountInfo<'info>,
+) -> Result<()> {
+    trana_guard::cpi::enforce(
+        CpiContext::new(
+            guard_program,
+            Enforce { registry, owner, instructions },
+        ),
+        Policy::Require,
+    )
+}
+
+fn authority_seeds<'a>(rec: &'a AuthorityRecord, bump: &'a [u8]) -> [&'a [u8]; 4] {
+    [AUTHORITY_SEED, rec.owner.as_ref(), rec.target.as_ref(), bump]
 }
