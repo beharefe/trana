@@ -154,33 +154,19 @@ pub mod trana_guard {
         pubkey_bytes: Vec<u8>,
         credential_id: Vec<u8>,
     ) -> Result<()> {
-        require!(
-            pubkey_bytes.len() <= TwoFactorRegistry::MAX_PUBKEY_LEN,
-            GuardError::InvalidProof
-        );
-        require!(
-            credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
-            GuardError::InvalidProof
-        );
+        validate_key_inputs(&pubkey_bytes, &credential_id)?;
         let is_new = ctx.accounts.registry.pubkey_bytes.is_empty();
         // Block wallet-only re-registration — use recover_two_fa instead.
         // This closes the hijack vector: an attacker with just the wallet key
         // cannot overwrite the registered passkey.
         require!(is_new, GuardError::Unauthorized);
 
-        let fee = ctx.accounts.config.register_fee;
-        if fee > 0 {
-            anchor_lang::system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    anchor_lang::system_program::Transfer {
-                        from: ctx.accounts.owner.to_account_info(),
-                        to:   ctx.accounts.treasury.to_account_info(),
-                    },
-                ),
-                fee,
-            )?;
-        }
+        collect_fee(
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.treasury.to_account_info(),
+            ctx.accounts.config.register_fee,
+        )?;
         let r           = &mut ctx.accounts.registry;
         r.owner         = ctx.accounts.owner.key();
         r.key_kind      = key_kind;
@@ -207,14 +193,7 @@ pub mod trana_guard {
         pubkey_bytes: Vec<u8>,
         credential_id: Vec<u8>,
     ) -> Result<()> {
-        require!(
-            pubkey_bytes.len() <= TwoFactorRegistry::MAX_PUBKEY_LEN,
-            GuardError::InvalidProof
-        );
-        require!(
-            credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
-            GuardError::InvalidProof
-        );
+        validate_key_inputs(&pubkey_bytes, &credential_id)?;
 
         let owner_key = ctx.accounts.owner.key();
 
@@ -228,19 +207,12 @@ pub mod trana_guard {
             POLICY_REQUIRE,
         )?;
 
-        let fee = ctx.accounts.config.recovery_fee;
-        if fee > 0 {
-            anchor_lang::system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    anchor_lang::system_program::Transfer {
-                        from: ctx.accounts.owner.to_account_info(),
-                        to:   ctx.accounts.treasury.to_account_info(),
-                    },
-                ),
-                fee,
-            )?;
-        }
+        collect_fee(
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.treasury.to_account_info(),
+            ctx.accounts.config.recovery_fee,
+        )?;
 
         let r           = &mut ctx.accounts.registry;
         r.key_kind      = key_kind;
@@ -328,4 +300,36 @@ pub mod trana_guard {
             }
         }
     }
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+fn validate_key_inputs(pubkey_bytes: &[u8], credential_id: &[u8]) -> Result<()> {
+    require!(
+        pubkey_bytes.len()  <= TwoFactorRegistry::MAX_PUBKEY_LEN,
+        GuardError::InvalidProof
+    );
+    require!(
+        credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
+        GuardError::InvalidProof
+    );
+    Ok(())
+}
+
+fn collect_fee<'info>(
+    system_program: AccountInfo<'info>,
+    from:           AccountInfo<'info>,
+    to:             AccountInfo<'info>,
+    fee:            u64,
+) -> Result<()> {
+    if fee > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                system_program,
+                anchor_lang::system_program::Transfer { from, to },
+            ),
+            fee,
+        )?;
+    }
+    Ok(())
 }
