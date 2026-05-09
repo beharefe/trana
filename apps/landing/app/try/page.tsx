@@ -178,7 +178,8 @@ export default function TryPage() {
     { ts: nowTs(), cls: "eval", msg: "$ trana auth secure --kind program-upgrade" },
     { ts: nowTs(), cls: "eval", msg: "awaiting target program ID…" },
   ])
-  const consoleRef = useRef<HTMLDivElement>(null)
+  const consoleRef   = useRef<HTMLDivElement>(null)
+  const authRunning  = useRef(false)
 
   // slot ticker
   useEffect(() => {
@@ -241,27 +242,37 @@ export default function TryPage() {
   }
 
   async function handleAuthSecure() {
+    if (authRunning.current || authBusy) return
+    authRunning.current = true
     if (!connected) setConnected(true)
-    if (authTarget.length < 6) { addLine("err", "no target supplied"); return }
+    if (authTarget.length < 6) {
+      setLines(prev => [...prev, { ts: nowTs(), cls: "err", msg: "no target supplied" }])
+      authRunning.current = false
+      return
+    }
     const pda = fakePda(authKind, authTarget) ?? "—"
-    const cfg = AUTH_KIND_CFG[authKind]
+    setLines([])
     setAuthBusy(true); setAuthStatus("submitting…")
 
-    addLine("eval", `$ trana auth secure --kind ${authKind.toLowerCase()} --target ${authTarget}`)
-    await wait(400); addLine("eval", `derived PDA: ${pda}`)
-    await wait(400); addLine("eval", "ix[0] secp256r1::verify P-256")
-    await wait(350); addLine("eval", "ix[1] trana_guard::record_proof → sysvar")
-    await wait(350); addLine("eval", "ix[2] trana_authority::register")
-    await wait(350); addLine("eval", authKind === "ProgramUpgrade" ? "ix[3] bpf_loader::set_upgrade_authority" : "ix[3] spl_token::set_authority")
+    const push = (cls: ConsoleLine["cls"], msg: string) =>
+      setLines(prev => [...prev, { ts: nowTs(), cls, msg }])
+
+    push("eval", `$ trana auth secure --kind ${authKind.toLowerCase()} --target ${authTarget}`)
+    await wait(400); push("eval", `derived PDA: ${pda}`)
+    await wait(400); push("eval", "ix[0] secp256r1::verify P-256")
+    await wait(350); push("eval", "ix[1] trana_guard::record_proof → sysvar")
+    await wait(350); push("eval", "ix[2] trana_authority::register")
+    await wait(350); push("eval", authKind === "ProgramUpgrade" ? "ix[3] bpf_loader::set_upgrade_authority" : "ix[3] spl_token::set_authority")
     await wait(500)
-    addLine("ok", "PROOF · VERIFIED ✓")
-    addLine("ok", "AuthorityRecord PDA initialized")
-    addLine("ok", `${authKind === "ProgramUpgrade" ? "upgrade_authority" : "mint_authority"} → ${pda}`)
+    push("ok", "PROOF · VERIFIED ✓")
+    push("ok", "AuthorityRecord PDA initialized")
+    push("ok", `${authKind === "ProgramUpgrade" ? "upgrade_authority" : "mint_authority"} → ${pda}`)
 
     setStep2Done(true); setStep3Done(true)
     setAuthStatus("confirmed")
     setAmTxsig("5Fv" + Math.random().toString(36).slice(2, 8) + "…M6s")
     setAuthBusy(false)
+    authRunning.current = false
   }
 
   const kindCfg  = AUTH_KIND_CFG[authKind]
@@ -278,34 +289,46 @@ export default function TryPage() {
     <>
       <SiteNav />
 
+      <div className="sec-wrap">
       <div className="try-app">
 
         {/* ══ Sidebar ══ */}
         <aside
-          className="try-sidebar border-r flex flex-col gap-[18px] py-[22px] px-[18px]"
-          style={{ borderColor: "var(--rule)", background: "var(--ink-2)" }}
+          className="try-sidebar border-r flex flex-col"
+          style={{ borderColor: "var(--rule)", background: "var(--ink)" }}
         >
-          {/* Devnet pill */}
-          <span
-            className="inline-flex items-center gap-2 self-start px-[10px] py-[6px] font-mono text-[10px] tracking-[0.18em] uppercase"
-            style={{ border: "1px solid rgba(255,91,31,0.40)", color: "var(--plasma)" }}
-          >
-            <span className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--plasma)" }} />
-            Devnet
-          </span>
-
-          {/* Mobile toggle */}
-          <button
-            className="flex md:hidden items-center gap-2 self-start px-[10px] py-2 font-mono text-[11px] tracking-[0.18em] uppercase cursor-pointer"
-            style={{ border: "1px solid var(--rule-2)", color: "var(--bone-2)", background: "transparent" }}
-            onClick={() => setSideOpen(o => !o)}
-          >
-            Menu
-          </button>
+          {/* Header: devnet indicator + live slot + mobile toggle */}
+          <div className="flex items-center justify-between px-[14px] py-[13px] border-b" style={{ borderColor: "var(--rule)" }}>
+            <span className="font-mono text-[10px] tracking-[0.16em] uppercase flex items-center gap-[7px]" style={{ color: "var(--plasma)" }}>
+              <span className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--plasma)" }} />
+              Devnet
+            </span>
+            <div className="flex items-center gap-[10px]">
+              <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--bone-4)" }}>
+                #{slot.toLocaleString()}
+              </span>
+              <button
+                className="flex md:hidden items-center justify-center w-[22px] h-[22px] cursor-pointer"
+                style={{ border: "1px solid var(--rule-2)", color: "var(--bone-3)", background: "transparent" }}
+                onClick={() => setSideOpen(o => !o)}
+                aria-label={sideOpen ? "Close menu" : "Open menu"}
+              >
+                {sideOpen ? (
+                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
+                    <path d="M1 1 11 11M11 1 1 11"/>
+                  </svg>
+                ) : (
+                  <svg width="11" height="7" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
+                    <path d="M0 1h14M0 5h14M0 9h14"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
 
           {/* Nav */}
-          <div className={`flex-col gap-[2px] ${sideOpen ? "flex" : "hidden md:flex"}`}>
-            <div className="font-mono text-[10px] tracking-[0.2em] uppercase px-[10px] pt-[10px] pb-[6px]" style={{ color: "var(--bone-4)" }}>
+          <div className={`flex-col flex-1 py-2 ${sideOpen ? "flex" : "hidden md:flex"}`}>
+            <div className="font-mono text-[10px] tracking-[0.22em] uppercase px-[14px] pt-[12px] pb-[6px]" style={{ color: "var(--bone-4)" }}>
               Try the demo
             </div>
             {NAV_ITEMS.filter(n => n.group === "demo").map(n => (
@@ -313,7 +336,7 @@ export default function TryPage() {
                 onClick={() => { setRoute(n.route); setSideOpen(false) }} />
             ))}
 
-            <div className="font-mono text-[10px] tracking-[0.2em] uppercase px-[10px] pt-[14px] pb-[6px]" style={{ color: "var(--bone-4)" }}>
+            <div className="font-mono text-[10px] tracking-[0.22em] uppercase px-[14px] pt-[18px] pb-[6px]" style={{ color: "var(--bone-4)" }}>
               Manage authorities
             </div>
             {NAV_ITEMS.filter(n => n.group === "auth").map(n => (
@@ -323,10 +346,18 @@ export default function TryPage() {
           </div>
 
           {/* Sidebar footer */}
-          <div className="mt-auto flex justify-between items-center pt-3 border-t font-mono text-[11px]"
+          <div className="mt-auto flex justify-between items-center px-[14px] py-[12px] border-t font-mono text-[10.5px]"
                style={{ borderColor: "var(--rule)", color: "var(--bone-4)" }}>
-            <a href="/" style={{ color: "var(--bone-4)" }} className="hover:text-bone-2 transition-colors">← back</a>
-            <span>v0.4.2 · devnet</span>
+            <a
+              href="/"
+              className="flex items-center gap-[5px] transition-colors"
+              style={{ color: "var(--bone-3)" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--bone)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--bone-3)")}
+            >
+              ← trana.so
+            </a>
+            <span className="tracking-[0.06em]">v0.4.2</span>
           </div>
         </aside>
 
@@ -380,7 +411,7 @@ export default function TryPage() {
           </div>
 
           {/* Page content */}
-          <div className="px-5 sm:px-8 pt-9 pb-16" style={{ maxWidth: 1180 }}>
+          <div className="px-5 sm:px-8 pt-9 pb-16">
 
             {/* ── Vault routes ── */}
             {isVault && vMeta && (
@@ -834,6 +865,7 @@ export default function TryPage() {
           </div>
         </div>
       </div>
+      </div>
     </>
   )
 }
@@ -843,18 +875,20 @@ export default function TryPage() {
 function NavItem({ item, active, auth, onClick }: {
   item: typeof NAV_ITEMS[number]; active: boolean; auth?: boolean; onClick: () => void
 }) {
+  const accent   = auth ? "var(--plasma)" : "var(--lime)"
+  const accentBg = auth ? "rgba(255,91,31,0.05)" : "rgba(198,255,58,0.05)"
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-[10px] px-[10px] py-2 border font-mono text-[13px] text-left w-full cursor-pointer transition-colors"
+      className="flex items-center gap-[10px] py-[9px] px-[14px] font-mono text-[12.5px] text-left w-full cursor-pointer transition-colors"
       style={{
-        borderColor: active ? (auth ? "rgba(255,91,31,0.20)" : "rgba(198,255,58,0.20)") : "transparent",
-        background: active ? (auth ? "rgba(255,91,31,0.06)" : "rgba(198,255,58,0.06)") : "transparent",
-        color: active ? (auth ? "var(--plasma)" : "var(--lime)") : "var(--bone-2)",
+        background: active ? accentBg : "transparent",
+        color: active ? accent : "var(--bone-3)",
+        boxShadow: active ? `inset 0 -1.5px 0 0 ${accent}` : "none",
       }}
     >
-      <span className="font-mono text-[10.5px] w-[18px]"
-            style={{ color: active ? (auth ? "var(--plasma)" : "var(--lime)") : "var(--bone-4)" }}>
+      <span className="font-mono text-[10px] w-[18px] tracking-[0.04em] shrink-0"
+            style={{ color: active ? accent : "var(--bone-5)" }}>
         {item.ix}
       </span>
       <span>{item.label}</span>

@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Instrument_Serif, DM_Sans, JetBrains_Mono } from "next/font/google"
+import { Instrument_Serif, DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 
 const instrumentSerif = Instrument_Serif({
@@ -22,6 +22,13 @@ const jetbrainsMono = JetBrains_Mono({
   weight:   ["400", "500", "600"],
   display:  "swap",
   variable: "--font-mono",
+})
+
+const spaceGrotesk = Space_Grotesk({
+  subsets:  ["latin"],
+  weight:   ["600"],
+  display:  "swap",
+  variable: "--font-space-grotesk",
 })
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://trana.so"
@@ -81,7 +88,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="en"
       suppressHydrationWarning
-      className={`dark scroll-smooth ${instrumentSerif.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}
+      className={`dark scroll-smooth ${instrumentSerif.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable}`}
     >
       <body className="bg-bg text-ink antialiased font-sans">{children}</body>
     </html>

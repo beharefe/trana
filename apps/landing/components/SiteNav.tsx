@@ -1,18 +1,58 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { TranaWordmark } from "./Logo"
 
 const NAV_LINKS = [
-  { href: "#how",      label: "How it works" },
-  { href: "#policies", label: "Policies" },
-  { href: "#code",     label: "Integrate" },
-  { href: "#trust",    label: "Trust" },
-  { href: "/try",      label: "/try" },
+  { href: "#how",      label: "How it works", sectionId: "how"      },
+  { href: "#policies", label: "Policies",      sectionId: "policies" },
+  { href: "#code",     label: "Integrate",     sectionId: "code"     },
+  { href: "#trust",    label: "Trust",         sectionId: "trust"    },
+  { href: "/try",      label: "/try",          sectionId: null       },
 ]
 
 export function SiteNav() {
   const [open, setOpen] = useState(false)
+  const [activeHref, setActiveHref] = useState<string | null>(null)
+  const pathname = usePathname()
+
+  // Route-based active for /try; IntersectionObserver for section links on homepage
+  useEffect(() => {
+    if (pathname === "/try") { setActiveHref("/try"); return }
+
+    const sectionIds = NAV_LINKS.map(n => n.sectionId).filter(Boolean) as string[]
+    const ratios = new Map<string, number>()
+
+    const pick = () => {
+      let best: string | null = null, top = 0
+      ratios.forEach((r, id) => { if (r > top) { top = r; best = id } })
+      setActiveHref(best ? `#${best}` : null)
+    }
+
+    const observers = sectionIds.flatMap(id => {
+      const el = document.getElementById(id)
+      if (!el) return []
+      const obs = new IntersectionObserver(
+        ([entry]) => {
+          entry.isIntersecting ? ratios.set(id, entry.intersectionRatio) : ratios.delete(id)
+          pick()
+        },
+        { rootMargin: "-25% 0px -25% 0px", threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] },
+      )
+      obs.observe(el)
+      return [obs]
+    })
+
+    return () => observers.forEach(o => o.disconnect())
+  }, [pathname])
+
+  const isActive = (href: string) => activeHref === href
+
+  // Anchor links only work on the homepage; prefix with / elsewhere
+  const resolvedHref = (href: string) =>
+    href.startsWith("/") || pathname === "/" ? href : `/${href}`
 
   return (
     <>
@@ -23,27 +63,34 @@ export function SiteNav() {
         <div className="sec-wrap flex items-center h-[60px]">
 
           {/* Mark */}
-          <Link href="/" className="flex items-center gap-[10px] shrink-0 mr-8">
-            <NestedSquareMark />
-            <span className="font-serif text-[22px] leading-none tracking-[-0.01em]" style={{ color: "var(--bone)" }}>
-              trana
-            </span>
+          <Link href="/" className="flex items-center shrink-0 mr-8">
+            <TranaWordmark size="22px" />
           </Link>
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-[26px]">
-            {NAV_LINKS.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className="font-mono text-[11.5px] tracking-[0.14em] uppercase transition-colors"
-                style={{ color: "var(--bone-3)" }}
-                onMouseEnter={e => (e.currentTarget.style.color = "var(--bone)")}
-                onMouseLeave={e => (e.currentTarget.style.color = "var(--bone-3)")}
-              >
-                {label}
-              </Link>
-            ))}
+            {NAV_LINKS.map(({ href, label }) => {
+              const active = isActive(href)
+              return (
+                <Link
+                  key={href}
+                  href={resolvedHref(href)}
+                  className="relative font-mono text-[11.5px] tracking-[0.14em] uppercase transition-colors"
+                  style={{ color: active ? "var(--bone)" : "var(--bone-3)" }}
+                  onMouseEnter={e => (e.currentTarget.style.color = "var(--bone)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = active ? "var(--bone)" : "var(--bone-3)")}
+                >
+                  {active && (
+                    <span
+                      className="absolute inset-x-0 pointer-events-none"
+                      style={{ top: "50%", height: 1.5, background: "var(--lime)", transform: "translateY(-50%)" }}
+                      aria-hidden
+                    />
+                  )}
+                  {label}
+                </Link>
+              )
+            })}
           </nav>
 
           {/* Right side */}
@@ -98,18 +145,24 @@ export function SiteNav() {
           style={{ background: "var(--ink-2)", borderColor: "var(--rule)" }}
         >
           <nav className="sec-wrap flex flex-col py-3">
-            {NAV_LINKS.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 py-[13px] border-b font-mono text-[12px] tracking-[0.14em] uppercase"
-                style={{ borderColor: "var(--rule)", color: "var(--bone-2)" }}
-              >
-                <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: "var(--bone-5)" }} />
-                {label}
-              </Link>
-            ))}
+            {NAV_LINKS.map(({ href, label }) => {
+              const active = isActive(href)
+              return (
+                <Link
+                  key={href}
+                  href={resolvedHref(href)}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 py-[13px] border-b font-mono text-[12px] tracking-[0.14em] uppercase"
+                  style={{ borderColor: "var(--rule)", color: active ? "var(--lime)" : "var(--bone-2)" }}
+                >
+                  <span
+                    className="w-[5px] h-[5px] rounded-full shrink-0"
+                    style={{ background: active ? "var(--lime)" : "var(--bone-5)" }}
+                  />
+                  {label}
+                </Link>
+              )
+            })}
             <Link
               href="/try"
               onClick={() => setOpen(false)}
@@ -122,13 +175,5 @@ export function SiteNav() {
         </div>
       )}
     </>
-  )
-}
-
-function NestedSquareMark() {
-  return (
-    <span className="relative inline-block w-[22px] h-[22px] shrink-0" style={{ border: "1.5px solid var(--bone)" }}>
-      <span className="absolute" style={{ inset: "4px", border: "1.5px solid var(--lime)" }} />
-    </span>
   )
 }

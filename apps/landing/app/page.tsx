@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { SiteNav }              from "@/components/SiteNav"
+import { TranaWordmark }        from "@/components/Logo"
 import { Hero }                 from "@/components/Hero"
 import { TwoPrimitivesSection } from "@/components/TwoPrimitivesSection"
 import { HowItWorksSection }    from "@/components/HowItWorksSection"
@@ -79,11 +80,8 @@ function Footer() {
           style={{ borderColor: "var(--rule)" }}
         >
           <div className="flex flex-col gap-[14px]">
-            <div className="flex items-center gap-[10px]">
-              <span className="relative inline-block w-[22px] h-[22px] shrink-0" style={{ border: "1.5px solid var(--bone)" }}>
-                <span className="absolute" style={{ inset: "4px", border: "1.5px solid var(--lime)" }} />
-              </span>
-              <span className="font-serif text-[22px] leading-none tracking-[-0.01em]" style={{ color: "var(--bone)" }}>trana</span>
+            <div className="flex items-center">
+              <TranaWordmark size="22px" />
             </div>
             <p className="text-[13px] leading-[1.55] font-light m-0" style={{ color: "var(--bone-3)" }}>
               Execution-time authorization for Solana programs.
