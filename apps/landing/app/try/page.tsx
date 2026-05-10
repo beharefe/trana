@@ -1,7 +1,25 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { SiteNav } from "@/components/SiteNav"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useWallet, useConnection }   from "@solana/wallet-adapter-react"
+import { useWalletModal }             from "@solana/wallet-adapter-react-ui"
+import { PublicKey, Transaction }     from "@solana/web3.js"
+import { SiteNav }                    from "@/components/SiteNav"
+import {
+  TRANA_GUARD_ID,
+  TRANA_AUTHORITY_ID,
+  DEMO_VAULT_AUTHORITY,
+} from "@/lib/devnet"
+import {
+  getPoolPda,
+  getUserDepositPda,
+  getRegistryPda,
+  fetchPoolState,
+  fetchUserDeposit,
+  buildDepositIx,
+  buildWithdrawIx,
+  WITHDRAW_LIMIT,
+} from "@/lib/vault"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,50 +36,44 @@ interface ConsoleLine { ts: string; cls: "eval" | "ok" | "err"; msg: string }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-function fakeSig() {
-  const a = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789"
-  let s = ""
-  for (let i = 0; i < 88; i++) s += a[Math.floor(Math.random() * a.length)]
-  return s
-}
-const shortSig = (s: string) => s.slice(0, 4) + "…" + s.slice(-4)
+const shortAddr = (s: string) => s.slice(0, 4) + "…" + s.slice(-4)
+const shortSig  = (s: string) => s.slice(0, 4) + "…" + s.slice(-4)
 const nowTs = () => {
   const t = new Date()
   return `${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}:${String(t.getSeconds()).padStart(2,"0")}`
 }
-function fakePda(kind: string, target: string): string | null {
-  if (!target || target.length < 8) return null
-  const seed = (kind + target).split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)
-  const alpha = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789"
-  let s = "", n = seed
-  for (let i = 0; i < 44; i++) { s += alpha[n % alpha.length]; n = (n * 1103515245 + 12345) >>> 0 }
-  return s.slice(0, 4) + "…" + s.slice(-6)
-}
 function wait(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
+
+function parseErrMsg(e: unknown): string {
+  if (e instanceof Error) {
+    // Anchor/program error message sits inside the logs
+    const m = e.message
+    const custom = m.match(/custom program error: (0x[0-9a-f]+)/i)
+    if (custom) return `Program error ${custom[1]}`
+    if (m.includes("passkey") || m.includes("proof") || m.includes("Secp256r1"))
+      return "Proof required — passkey needed for this withdrawal"
+    if (m.includes("insufficient")) return "Insufficient funds"
+    return m.slice(0, 90)
+  }
+  return String(e).slice(0, 90)
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { route: "vault/withdraw" as Route, ix: "01", label: "The vault attack",   group: "demo" },
-  { route: "vault/deposit"  as Route, ix: "02", label: "Deposit",            group: "demo" },
-  { route: "vault/upgrade"  as Route, ix: "03", label: "Program upgrade",    group: "demo" },
-  { route: "auth/programs"  as Route, ix: "04", label: "Secure a program",   group: "auth" },
-  { route: "auth/list"      as Route, ix: "05", label: "Secured authorities",group: "auth" },
+  { route: "vault/withdraw" as Route, ix: "01", label: "The vault attack",    group: "demo" },
+  { route: "vault/deposit"  as Route, ix: "02", label: "Deposit",             group: "demo" },
+  { route: "vault/upgrade"  as Route, ix: "03", label: "Program upgrade",     group: "demo" },
+  { route: "auth/programs"  as Route, ix: "04", label: "Secure a program",    group: "auth" },
+  { route: "auth/list"      as Route, ix: "05", label: "Secured authorities", group: "auth" },
 ] as const
-
-const AUTH_CFG = {
-  lbl:    "Program ID",
-  step2t: "Transfer upgrade authority to the PDA",
-  step2s: "solana program set-upgrade-authority <TARGET> --new-upgrade-authority <PDA>",
-  ph:     "paste a program ID — e.g. TRAqCh…wsG",
-}
 
 const VAULT_META: Record<string, { title: string; lede: React.ReactNode }> = {
   "vault/withdraw": {
     title: "The vault attack.",
     lede: (
-      <>We give you the <em>seed phrase</em> for the program owner. With it,
-      you control the wallet that deployed this vault.{" "}
+      <>We give you the <em>seed phrase</em> for the pool authority. With it,
+      you control the wallet that owns this vault.{" "}
       <span style={{ color: "var(--plasma)" }}>Drain it.</span> If you can.</>
     ),
   },
@@ -126,51 +138,83 @@ function LastResult({ r }: { r: TxResult }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TryPage() {
-  const [route, setRoute] = useState<Route>("vault/withdraw")
-  const [connected, setConnected] = useState(false)
-  const [slot, setSlot] = useState(317_409_221)
+  const { connection }                            = useConnection()
+  const { publicKey, connected, sendTransaction } = useWallet()
+  const { setVisible: openWalletModal }           = useWalletModal()
+
+  const [route, setRoute]     = useState<Route>("vault/withdraw")
+  const [slot, setSlot]       = useState<number | null>(null)
   const [sideOpen, setSideOpen] = useState(false)
 
-  // vault state
-  const [pool, setPool] = useState(12.4)
-  const [wAmt, setWAmt] = useState("0.40")
-  const [depAmt, setDepAmt] = useState("0.5")
+  // pool / deposit state
+  const [poolLamports, setPoolLamports]   = useState<number | null>(null)
+  const [poolExists, setPoolExists]       = useState<boolean | null>(null)
+  const [userBalance, setUserBalance]     = useState<bigint>(0n)
+  const [poolPda, setPoolPda]             = useState<PublicKey | null>(null)
+
+  // tx state
+  const [wAmt, setWAmt]       = useState("0.40")
+  const [depAmt, setDepAmt]   = useState("0.5")
   const [activeChip, setActiveChip] = useState("0.5")
-  const [wLast, setWLast] = useState<TxResult>({ s: "idle" })
+  const [wLast, setWLast]     = useState<TxResult>({ s: "idle" })
   const [depLast, setDepLast] = useState<TxResult>({ s: "idle" })
-  const [upgLast, setULast] = useState<TxResult>({ s: "idle" })
-  const [drainSecs, setDrainSecs] = useState<number | null>(null)
-  const [discovered, setDiscovered] = useState<Set<string>>(new Set())
+  const [upgLast, setULast]   = useState<TxResult>({ s: "idle" })
 
   // auth state
-  const [authTarget, setAuthTarget] = useState("")
-  const [authBusy, setAuthBusy] = useState(false)
-  const [authStatus, setAuthStatus] = useState<string | null>(null)
-  const [amTxsig, setAmTxsig] = useState<string | null>(null)
-  const [step2Done, setStep2Done] = useState(false)
-  const [step3Done, setStep3Done] = useState(false)
+  const [authTarget, setAuthTarget]   = useState("")
+  const [authBusy, setAuthBusy]       = useState(false)
+  const [authStatus, setAuthStatus]   = useState<string | null>(null)
+  const [amTxsig, setAmTxsig]         = useState<string | null>(null)
+  const [step2Done, setStep2Done]     = useState(false)
+  const [step3Done, setStep3Done]     = useState(false)
   const [lines, setLines] = useState<ConsoleLine[]>([
     { ts: nowTs(), cls: "eval", msg: "$ trana auth secure --kind program-upgrade" },
     { ts: nowTs(), cls: "eval", msg: "awaiting target program ID…" },
   ])
 
-  const consoleRef   = useRef<HTMLDivElement>(null)
-  const authRunning  = useRef(false)
+  const consoleRef  = useRef<HTMLDivElement>(null)
+  const authRunning = useRef(false)
 
-  // slot ticker
+  // ── Compute pool PDA when demo authority is set ───────────────────────────
   useEffect(() => {
-    const id = setInterval(() => setSlot(s => s + Math.floor(2 + Math.random() * 3)), 480)
-    return () => clearInterval(id)
+    if (!DEMO_VAULT_AUTHORITY) { setPoolExists(false); return }
+    try {
+      const auth = new PublicKey(DEMO_VAULT_AUTHORITY)
+      setPoolPda(getPoolPda(auth))
+    } catch {
+      setPoolExists(false)
+    }
   }, [])
 
-  // drain countdown
-  useEffect(() => {
-    if (drainSecs === null || drainSecs <= 0) { if (drainSecs === 0) setDrainSecs(null); return }
-    const id = setTimeout(() => setDrainSecs(s => s !== null ? s - 1 : null), 1000)
-    return () => clearTimeout(id)
-  }, [drainSecs])
+  // ── Fetch pool state ──────────────────────────────────────────────────────
+  const refreshPool = useCallback(async () => {
+    if (!poolPda) return
+    const state = await fetchPoolState(connection, poolPda)
+    setPoolExists(state.exists)
+    setPoolLamports(state.lamports)
+  }, [connection, poolPda])
 
-  // console auto-scroll
+  useEffect(() => {
+    refreshPool()
+    const id = setInterval(refreshPool, 8_000)
+    return () => clearInterval(id)
+  }, [refreshPool])
+
+  // ── Fetch user deposit balance ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!publicKey || !poolPda) return
+    const depositPda = getUserDepositPda(poolPda, publicKey)
+    fetchUserDeposit(connection, depositPda).then(s => setUserBalance(s.balance))
+  }, [connection, publicKey, poolPda])
+
+  // ── Live slot ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    connection.getSlot("confirmed").then(setSlot)
+    const id = setInterval(() => connection.getSlot("confirmed").then(setSlot), 2_000)
+    return () => clearInterval(id)
+  }, [connection])
+
+  // ── Console auto-scroll ───────────────────────────────────────────────────
   useEffect(() => {
     if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight
   }, [lines])
@@ -179,62 +223,92 @@ export default function TryPage() {
     setLines(prev => [...prev, { ts: nowTs(), cls, msg }])
   }
 
-  const wSliderVal = Math.max(0.01, Math.min(5, parseFloat(wAmt) || 0))
-  const wFillPct   = ((wSliderVal - 0.01) / 4.99) * 100
-  const wOver      = wSliderVal >= 1
-
-  function handleWithdraw() {
-    const v = parseFloat(wAmt)
-    if (isNaN(v) || v <= 0) return
-    if (v >= 1) {
-      setWLast({ s: "err", msg: `Reverted · policy::Limit · passkey required for ≥ 1 SOL`, sig: fakeSig() })
-      setDiscovered(prev => new Set([...prev, "B"]))
+  // ── Withdraw ──────────────────────────────────────────────────────────────
+  async function handleWithdraw() {
+    const lamports = BigInt(Math.round((parseFloat(wAmt) || 0) * 1e9))
+    if (lamports <= 0n) return
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    if (!poolPda || !poolExists) {
+      setWLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
-    if (drainSecs !== null) {
-      setWLast({ s: "pending", msg: "Awaiting passkey…" })
-      setDiscovered(prev => new Set([...prev, "C"]))
-      setTimeout(() => {
-        const sig = fakeSig()
-        setPool(p => Math.max(0, p - v))
-        setWLast({ s: "ok", msg: `Withdrawn ${v.toFixed(2)} SOL · proof verified`, sig })
-        setDiscovered(prev => new Set([...prev, "D"]))
-      }, 1600)
+
+    setWLast({ s: "pending", msg: "Sending transaction…" })
+    try {
+      const depositPda = getUserDepositPda(poolPda, publicKey)
+      const registryPda = getRegistryPda(publicKey)
+      const ix = buildWithdrawIx(poolPda, depositPda, publicKey, publicKey, registryPda, lamports)
+      const tx = new Transaction().add(ix)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash
+      tx.feePayer = publicKey
+      const sig = await sendTransaction(tx, connection)
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+      await refreshPool()
+      setWLast({ s: "ok", msg: `Withdrawn ${wAmt} SOL`, sig })
+    } catch (e) {
+      setWLast({ s: "err", msg: parseErrMsg(e) })
+    }
+  }
+
+  // ── Deposit ───────────────────────────────────────────────────────────────
+  async function handleDeposit() {
+    const lamports = BigInt(Math.round((parseFloat(depAmt) || 0) * 1e9))
+    if (lamports <= 0n) return
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    if (!poolPda || !poolExists) {
+      setDepLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
-    const sig = fakeSig()
-    setPool(p => Math.max(0, p - v))
-    setWLast({ s: "ok", msg: `Withdrawn ${v.toFixed(2)} SOL · wallet sign only`, sig })
-    setDiscovered(prev => new Set([...prev, "A"]))
-    setDrainSecs(60)
+
+    setDepLast({ s: "pending", msg: "Sending transaction…" })
+    try {
+      const depositPda = getUserDepositPda(poolPda, publicKey)
+      const ix = buildDepositIx(poolPda, depositPda, publicKey, lamports)
+      const tx = new Transaction().add(ix)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash
+      tx.feePayer = publicKey
+      const sig = await sendTransaction(tx, connection)
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+      await refreshPool()
+      setDepLast({ s: "ok", msg: `Deposited ${depAmt} SOL`, sig })
+    } catch (e) {
+      setDepLast({ s: "err", msg: parseErrMsg(e) })
+    }
   }
 
-  function handleDeposit() {
-    const v = parseFloat(depAmt)
-    if (isNaN(v) || v <= 0) return
-    const sig = fakeSig()
-    setPool(p => p + v)
-    setDepLast({ s: "ok", msg: `Deposited ${v.toFixed(2)} SOL · pool now ${(pool + v).toFixed(2)} SOL`, sig })
-  }
-
+  // ── Auth secure (simulated — passkey UX coming) ───────────────────────────
   async function handleAuthSecure() {
     if (authRunning.current || authBusy) return
     authRunning.current = true
-    if (!connected) setConnected(true)
+    if (!connected && publicKey === null) { openWalletModal(true); authRunning.current = false; return }
     if (authTarget.length < 6) {
       setLines(prev => [...prev, { ts: nowTs(), cls: "err", msg: "no target supplied" }])
       authRunning.current = false
       return
     }
-    const pda = fakePda("upgrade", authTarget) ?? "—"
+
+    let targetPubkey: PublicKey
+    try { targetPubkey = new PublicKey(authTarget) }
+    catch { addLine("err", "invalid program ID"); authRunning.current = false; return }
+
+    const owner = publicKey ?? new PublicKey(authTarget)
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("trana-authority"), owner.toBuffer(), targetPubkey.toBuffer()],
+      new PublicKey(TRANA_AUTHORITY_ID),
+    )
+    const pdaShort = shortAddr(pda.toBase58())
+
     setLines([])
     setAuthBusy(true); setAuthStatus("submitting…")
 
     const push = (cls: ConsoleLine["cls"], msg: string) =>
       setLines(prev => [...prev, { ts: nowTs(), cls, msg }])
 
-    push("eval", `$ trana auth secure --kind program-upgrade --target ${authTarget}`)
-    await wait(400); push("eval", `derived PDA: ${pda}`)
+    push("eval", `$ trana auth secure --kind program-upgrade --target ${shortAddr(authTarget)}`)
+    await wait(400); push("eval", `owner: ${owner ? shortAddr(owner.toBase58()) : "—"}`)
+    await wait(300); push("eval", `derived PDA: ${pdaShort}`)
     await wait(400); push("eval", "ix[0] secp256r1::verify P-256")
     await wait(350); push("eval", "ix[1] trana_guard::record_proof → sysvar")
     await wait(350); push("eval", "ix[2] trana_authority::register")
@@ -242,25 +316,44 @@ export default function TryPage() {
     await wait(500)
     push("ok", "PROOF · VERIFIED ✓")
     push("ok", "AuthorityRecord PDA initialized")
-    push("ok", `upgrade_authority → ${pda}`)
+    push("ok", `upgrade_authority → ${pdaShort}`)
 
     setStep2Done(true); setStep3Done(true)
     setAuthStatus("confirmed")
-    setAmTxsig("5Fv" + Math.random().toString(36).slice(2, 8) + "…M6s")
+    const fakeSig = Array.from({ length: 12 }, () => Math.random().toString(36)[2]).join("")
+    setAmTxsig(fakeSig + "…" + fakeSig.slice(-4))
     setAuthBusy(false)
     authRunning.current = false
   }
 
-  const kindCfg  = AUTH_CFG
-  const pda      = fakePda("upgrade", authTarget)
-  const isVault  = route.startsWith("vault/")
-  const vTab     = isVault ? (route.split("/")[1] as "withdraw" | "deposit" | "upgrade") : null
-  const crumbA   = isVault ? "vault" : "authority"
-  const crumbB   = route.split("/")[1]
-  const vMeta    = VAULT_META[route]
-  const aMeta    = AUTH_META[route]
+  // ── Derived values ────────────────────────────────────────────────────────
 
-  // ── render ──────────────────────────────────────────────────────────────────
+  const poolSol    = poolLamports !== null ? poolLamports / 1e9 : null
+  const wSliderVal = Math.max(0.01, Math.min(5, parseFloat(wAmt) || 0))
+  const wFillPct   = ((wSliderVal - 0.01) / 4.99) * 100
+  const wOver      = wSliderVal >= 1
+
+  const isVault = route.startsWith("vault/")
+  const vTab    = isVault ? (route.split("/")[1] as "withdraw" | "deposit" | "upgrade") : null
+  const crumbA  = isVault ? "vault" : "authority"
+  const crumbB  = route.split("/")[1]
+  const vMeta   = VAULT_META[route]
+  const aMeta   = AUTH_META[route]
+
+  // PDA for auth section
+  let authPda: string | null = null
+  if (authTarget.length >= 32 && publicKey) {
+    try {
+      const target = new PublicKey(authTarget)
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("trana-authority"), publicKey.toBuffer(), target.toBuffer()],
+        new PublicKey(TRANA_AUTHORITY_ID),
+      )
+      authPda = shortAddr(pda.toBase58())
+    } catch { /* invalid input */ }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
       <SiteNav />
@@ -273,7 +366,7 @@ export default function TryPage() {
           className="try-sidebar border-r flex flex-col"
           style={{ borderColor: "var(--rule)", background: "var(--ink)" }}
         >
-          {/* Header: devnet indicator + live slot + mobile toggle */}
+          {/* Header */}
           <div className="flex items-center justify-between px-[14px] py-[13px] border-b" style={{ borderColor: "var(--rule)" }}>
             <span className="font-mono text-[10px] tracking-[0.16em] uppercase flex items-center gap-[7px]" style={{ color: "var(--plasma)" }}>
               <span className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--plasma)" }} />
@@ -281,7 +374,7 @@ export default function TryPage() {
             </span>
             <div className="flex items-center gap-[10px]">
               <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--bone-4)" }}>
-                #{slot.toLocaleString()}
+                {slot !== null ? `#${slot.toLocaleString()}` : "…"}
               </span>
               <button
                 className="flex md:hidden items-center justify-center w-[22px] h-[22px] cursor-pointer"
@@ -333,7 +426,7 @@ export default function TryPage() {
             >
               ← trana.so
             </a>
-            <span className="tracking-[0.06em]">v0.4.2</span>
+            <span className="tracking-[0.06em]">v0.1.0</span>
           </div>
         </aside>
 
@@ -358,7 +451,7 @@ export default function TryPage() {
               <button
                 className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
                 style={{ border: "1px solid var(--rule-2)", color: "var(--bone-2)", background: "transparent" }}
-                onClick={() => alert("seed: cliff donor sword fortune embark crowd ramp insect dish enrich gauge tuition\n\n— demo seed bound to the devnet vault. drain it if you can.")}
+                onClick={() => alert("seed phrase: set NEXT_PUBLIC_DEMO_VAULT_AUTHORITY in .env.local after deploying the demo vault\n\n— this key controls the pool authority. passkey still guards withdrawals.")}
               >
                 <KeyIcon />
                 <span className="hidden sm:inline">Seed phrase</span>
@@ -374,14 +467,14 @@ export default function TryPage() {
               <button
                 className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
                 style={{
-                  border: connected ? "1px solid rgba(198,255,58,0.35)" : "1px solid var(--rule-2)",
-                  background: connected ? "rgba(198,255,58,0.06)" : "transparent",
-                  color: connected ? "var(--lime)" : "var(--bone-2)",
+                  border:      connected ? "1px solid rgba(198,255,58,0.35)" : "1px solid var(--rule-2)",
+                  background:  connected ? "rgba(198,255,58,0.06)"           : "transparent",
+                  color:       connected ? "var(--lime)"                     : "var(--bone-2)",
                 }}
-                onClick={() => setConnected(true)}
+                onClick={() => connected ? undefined : openWalletModal(true)}
               >
                 <WalletIcon />
-                <span>{connected ? "HxRyP…7Cmf" : "Connect"}</span>
+                <span>{connected && publicKey ? shortAddr(publicKey.toBase58()) : "Connect"}</span>
               </button>
             </div>
           </div>
@@ -406,9 +499,9 @@ export default function TryPage() {
                 {/* Tab cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-[14px] mb-7">
                   {[
-                    { tab: "deposit",  icon: <DepositIcon />, name: "Deposit",         sub: "Top up the shared pool",     tag: "no passkey required",      tagCls: "" },
-                    { tab: "withdraw", icon: <WithdrawIcon />, name: "Withdraw",       sub: "Try to drain the pool",      tag: "3 policies — discover them", tagCls: "lime" },
-                    { tab: "upgrade",  icon: <UpgradeIcon />, name: "Program upgrade", sub: "Try to patch the program",   tag: "Authority PDA primitive",    tagCls: "plasma" },
+                    { tab: "deposit",  icon: <DepositIcon />, name: "Deposit",          sub: "Top up the shared pool",     tag: "no passkey required",       tagCls: "" },
+                    { tab: "withdraw", icon: <WithdrawIcon />, name: "Withdraw",        sub: "Try to drain the pool",      tag: "3 policies — discover them", tagCls: "lime" },
+                    { tab: "upgrade",  icon: <UpgradeIcon />, name: "Program upgrade",  sub: "Try to patch the program",   tag: "Authority PDA primitive",    tagCls: "plasma" },
                   ].map(({ tab, icon, name, sub, tag, tagCls }) => (
                     <button
                       key={tab}
@@ -416,7 +509,7 @@ export default function TryPage() {
                       className="text-left flex flex-col gap-2 p-[18px] border transition-colors cursor-pointer"
                       style={{
                         borderColor: vTab === tab ? "rgba(198,255,58,0.45)" : "var(--rule-2)",
-                        background: vTab === tab ? "rgba(198,255,58,0.04)" : "var(--ink-2)",
+                        background:  vTab === tab ? "rgba(198,255,58,0.04)" : "var(--ink-2)",
                       }}
                     >
                       <span style={{ color: vTab === tab ? "var(--lime)" : "var(--bone-3)" }}>{icon}</span>
@@ -426,7 +519,7 @@ export default function TryPage() {
                         className="inline-flex items-center gap-[6px] mt-[6px] px-[9px] py-[5px] w-fit font-mono font-medium text-[10px] tracking-[0.16em] uppercase"
                         style={{
                           border: tagCls === "lime" ? "1px solid rgba(198,255,58,0.30)" : tagCls === "plasma" ? "1px solid rgba(255,91,31,0.30)" : "1px solid var(--rule-2)",
-                          color: tagCls === "lime" ? "var(--lime)" : tagCls === "plasma" ? "var(--plasma)" : "var(--bone-3)",
+                          color:  tagCls === "lime" ? "var(--lime)"                     : tagCls === "plasma" ? "var(--plasma)"                  : "var(--bone-3)",
                         }}
                       >
                         {tag}
@@ -435,7 +528,7 @@ export default function TryPage() {
                   ))}
                 </div>
 
-                {/* Withdraw panel */}
+                {/* ── Withdraw panel ── */}
                 {vTab === "withdraw" && (
                   <Panel
                     dot="lime"
@@ -448,12 +541,11 @@ export default function TryPage() {
                       <Label>Amount &middot; <span style={{ color: "var(--bone-2)", textTransform: "none", letterSpacing: 0 }}>0.01 — 5 SOL</span></Label>
                       <AmountInput value={wAmt} onChange={v => setWAmt(v)} unit="SOL" />
 
-                      {/* Slider */}
                       <div className="mt-3 relative pt-[14px] pb-[6px]">
                         <input
                           type="range" min="0.01" max="5" step="0.01"
                           value={wSliderVal}
-                          onChange={e => { setWAmt(Number(e.target.value).toFixed(2)) }}
+                          onChange={e => setWAmt(Number(e.target.value).toFixed(2))}
                           className={`try-slider${wOver ? " over" : ""}`}
                           style={{
                             background: `linear-gradient(to right,
@@ -465,7 +557,6 @@ export default function TryPage() {
                               var(--rule-2) 100%)`,
                           }}
                         />
-                        {/* Limit marker */}
                         <div className="absolute pointer-events-none" style={{ left: "20.2%", top: 0, bottom: 6, width: 1, background: "var(--plasma)" }}>
                           <span className="absolute left-[6px] top-0 font-mono text-[9.5px] tracking-[0.2em] uppercase whitespace-nowrap" style={{ color: "var(--plasma)" }}>
                             LIMIT · 1 SOL
@@ -480,62 +571,47 @@ export default function TryPage() {
                       </div>
 
                       <ActionBtn over={wOver} onClick={handleWithdraw}>
-                        {wOver ? "Approve & Withdraw ⚿" : "Withdraw →"}
+                        {!connected ? "Connect wallet →" : wOver ? "Approve & Withdraw ⚿" : "Withdraw →"}
                       </ActionBtn>
                       <div className="mt-3 font-mono text-[11.5px]" style={{ color: "var(--bone-3)" }}>
-                        Pool balance · <span style={{ color: "var(--bone)" }}>{pool.toFixed(2)}</span> SOL. Try a small amount first.
+                        Pool balance ·{" "}
+                        <span style={{ color: "var(--bone)" }}>
+                          {poolExists === null ? "…" : poolExists ? `${(poolSol ?? 0).toFixed(2)} SOL` : "not deployed"}
+                        </span>
                       </div>
                     </PanelBody>
 
                     <PanelAside>
-                      {/* Drain window */}
-                      <Label>Drain window</Label>
-                      <div
-                        className="flex items-center gap-[10px] border p-[14px] font-mono text-[12.5px] mb-4"
-                        style={{
-                          borderColor: drainSecs !== null ? "rgba(198,255,58,0.30)" : "var(--rule)",
-                          background: drainSecs !== null ? "rgba(198,255,58,0.04)" : "var(--ink)",
-                          color: drainSecs !== null ? "var(--lime)" : "var(--bone-3)",
-                        }}
-                      >
-                        <ClockIcon />
-                        {drainSecs !== null
-                          ? <span><span style={{ color: "var(--bone)" }}>Open</span> · closes in {drainSecs}s</span>
-                          : <span><span style={{ color: "var(--bone)" }}>Closed</span> · <span style={{ color: "var(--bone-3)" }}>60s window opens after a withdrawal</span></span>
-                        }
+                      <Label>Program IDs</Label>
+                      <div className="flex flex-col gap-1 mb-4">
+                        <MetaRow k="trana_guard"  v={shortAddr(TRANA_GUARD_ID)} />
+                        <MetaRow k="vault"        v={shortAddr("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa")} />
+                        {poolPda && <MetaRow k="pool PDA" v={shortAddr(poolPda.toBase58())} />}
                       </div>
 
                       <Label>Last result</Label>
                       <LastResult r={wLast} />
 
-                      {/* Discovered states */}
                       <div className="mt-5">
-                        <Label>Discovered states</Label>
+                        <Label>What to expect</Label>
                         <div className="flex flex-col gap-[10px] mt-2">
                           {[
-                            { id: "A", title: "Small + no window", sub: "< 1 SOL · wallet sign only" },
-                            { id: "B", title: "Large amount",      sub: "≥ 1 SOL · passkey required" },
-                            { id: "C", title: "Rapid consecutive", sub: "Window open · passkey required" },
-                            { id: "D", title: "Passkey approved",  sub: "Proof verified · executed" },
-                          ].map(st => (
-                            <div
-                              key={st.id}
-                              className="grid gap-[10px] items-start p-[10px] border"
-                              style={{
-                                gridTemplateColumns: "22px 1fr",
-                                borderColor: discovered.has(st.id) ? "rgba(198,255,58,0.30)" : "var(--rule)",
-                                background: discovered.has(st.id) ? "rgba(198,255,58,0.04)" : "var(--ink)",
-                              }}
-                            >
-                              <span className="font-mono font-medium text-[10.5px] tracking-[0.12em]"
-                                    style={{ color: discovered.has(st.id) ? "var(--lime)" : "var(--bone-3)" }}>
-                                {st.id}
+                            { ok: null,  title: "< 1 SOL",          sub: "wallet sign only — goes through" },
+                            { ok: false, title: "≥ 1 SOL",          sub: "guard rejects — passkey required" },
+                            { ok: false, title: "60 s burst",        sub: "drain window — passkey required" },
+                          ].map((st, i) => (
+                            <div key={i} className="grid gap-[10px] items-start p-[10px] border"
+                                 style={{
+                                   gridTemplateColumns: "22px 1fr",
+                                   borderColor: st.ok === false ? "rgba(255,91,31,0.25)" : st.ok ? "rgba(198,255,58,0.25)" : "var(--rule)",
+                                   background: st.ok === false ? "rgba(255,91,31,0.04)" : st.ok ? "rgba(198,255,58,0.04)" : "var(--ink)",
+                                 }}>
+                              <span className="font-mono font-medium text-[10.5px] tracking-[0.12em] mt-[1px]"
+                                    style={{ color: st.ok === false ? "var(--plasma)" : "var(--bone-3)" }}>
+                                {st.ok === false ? "×" : st.ok ? "✓" : "·"}
                               </span>
                               <div>
-                                <div className="font-mono text-[12.5px] mb-[2px]"
-                                     style={{ color: discovered.has(st.id) ? "var(--lime)" : "var(--bone)" }}>
-                                  {st.title}
-                                </div>
+                                <div className="font-mono text-[12.5px] mb-[2px]" style={{ color: "var(--bone)" }}>{st.title}</div>
                                 <div className="font-mono text-[11.5px]" style={{ color: "var(--bone-3)" }}>{st.sub}</div>
                               </div>
                             </div>
@@ -546,7 +622,7 @@ export default function TryPage() {
                   </Panel>
                 )}
 
-                {/* Deposit panel */}
+                {/* ── Deposit panel ── */}
                 {vTab === "deposit" && (
                   <Panel dot="lime" title="Deposit" subtitle="add to the pool" policyLabel="None" policyColor="var(--bone-3)">
                     <PanelBody>
@@ -559,13 +635,15 @@ export default function TryPage() {
                             className="py-[9px] text-center font-mono text-[13px] border cursor-pointer"
                             style={{
                               borderColor: activeChip === c ? "rgba(198,255,58,0.40)" : "var(--rule-2)",
-                              background: activeChip === c ? "rgba(198,255,58,0.05)" : "transparent",
-                              color: activeChip === c ? "var(--lime)" : "var(--bone-2)",
+                              background:  activeChip === c ? "rgba(198,255,58,0.05)" : "transparent",
+                              color:       activeChip === c ? "var(--lime)"            : "var(--bone-2)",
                             }}
                           >{c}</button>
                         ))}
                       </div>
-                      <ActionBtn over={false} onClick={handleDeposit}>Deposit →</ActionBtn>
+                      <ActionBtn over={false} onClick={handleDeposit}>
+                        {!connected ? "Connect wallet →" : "Deposit →"}
+                      </ActionBtn>
                       <div className="mt-3 font-mono text-[11.5px]" style={{ color: "var(--bone-3)" }}>
                         Anyone can deposit. No passkey required.
                       </div>
@@ -573,26 +651,20 @@ export default function TryPage() {
                     <PanelAside>
                       <Label>Last result</Label>
                       <div style={{ marginBottom: 16 }}>
-                        {depLast.s === "idle"
-                          ? <div className="flex items-center gap-[10px] border p-[14px] font-mono text-[12.5px]"
-                                 style={{ borderColor: "var(--rule)", color: "var(--bone-3)", background: "var(--ink)" }}>
-                              <ClockIcon /><span>Awaiting deposit</span>
-                            </div>
-                          : <LastResult r={depLast} />
-                        }
+                        <LastResult r={depLast} />
                       </div>
                       <div className="font-mono text-[12.5px] leading-[1.7]" style={{ color: "var(--bone-2)" }}>
                         The vault is a shared pool. Deposits open the door <em style={{ color: "var(--bone)" }}>in</em>;
                         only <span style={{ color: "var(--lime)" }}>withdrawals</span> are policy-gated.
                       </div>
-                      <MetaRow k="Pool balance" v={`${pool.toFixed(1)} SOL`} />
-                      <MetaRow k="Total deposits" v="847" />
-                      <MetaRow k="Vault PDA" v="8Qf…a3L" />
+                      <MetaRow k="Pool balance"    v={poolExists === null ? "…" : poolExists ? `${(poolSol ?? 0).toFixed(2)} SOL` : "—"} />
+                      <MetaRow k="Your deposit"    v={userBalance > 0n ? `${(Number(userBalance) / 1e9).toFixed(4)} SOL` : "—"} />
+                      {poolPda && <MetaRow k="Pool PDA" v={shortAddr(poolPda.toBase58())} />}
                     </PanelAside>
                   </Panel>
                 )}
 
-                {/* Upgrade panel */}
+                {/* ── Upgrade panel ── */}
                 {vTab === "upgrade" && (
                   <Panel
                     dot="plasma"
@@ -605,7 +677,7 @@ export default function TryPage() {
                       <Label>Upgrade authority</Label>
                       <div className="border p-[14px] flex flex-col gap-1 mb-4" style={{ borderColor: "var(--rule-2)", background: "var(--ink)" }}>
                         <span className="font-mono text-[10.5px] tracking-[0.18em] uppercase" style={{ color: "var(--bone-3)" }}>trana_authority PDA</span>
-                        <span className="font-mono text-[16px]" style={{ color: "var(--bone)" }}>KoXv…vGEE</span>
+                        <span className="font-mono text-[14px] break-all" style={{ color: "var(--bone)" }}>{shortAddr(TRANA_AUTHORITY_ID)}</span>
                       </div>
                       <button
                         className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase border cursor-pointer mb-3 transition-colors"
@@ -618,8 +690,8 @@ export default function TryPage() {
                         className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors"
                         style={{ background: "var(--lime)", color: "var(--ink)" }}
                         onClick={() => {
-                          setULast({ s: "pending", msg: "Awaiting passkey…" })
-                          setTimeout(() => setULast({ s: "ok", msg: "UpgradeExecuted · trana_authority::execute_upgrade", sig: fakeSig() }), 1400)
+                          setULast({ s: "pending", msg: "Passkey flow coming in next release…" })
+                          setTimeout(() => setULast({ s: "ok", msg: "UpgradeExecuted · trana_authority::execute_upgrade (simulated)" }), 1400)
                         }}
                       >
                         Upgrade with passkey
@@ -634,11 +706,11 @@ export default function TryPage() {
                       <div className="mt-5 flex flex-col gap-[10px]">
                         <Label>What this proves</Label>
                         <CheckRow ok={false} title="Wallet key alone" sub="BPF Loader rejects — not the authority" />
-                        <CheckRow ok={true} title="Passkey approved" sub="execute_upgrade CPI succeeds" />
+                        <CheckRow ok={true}  title="Passkey approved" sub="execute_upgrade CPI succeeds" />
                       </div>
-                      <MetaRow k="Program ID" v="TRAqCh…wsG" color="var(--bone)" />
-                      <MetaRow k="Upgrade auth" v="TRNA8i…G4AN" color="var(--plasma)" />
-                      <MetaRow k="Program state" v="● live" color="var(--lime)" />
+                      <MetaRow k="Program ID"   v={shortAddr(TRANA_GUARD_ID)}    color="var(--bone)" />
+                      <MetaRow k="Upgrade auth" v={shortAddr(TRANA_AUTHORITY_ID)} color="var(--plasma)" />
+                      <MetaRow k="Program"      v="● live"                        color="var(--lime)" />
                     </PanelAside>
                   </Panel>
                 )}
@@ -663,7 +735,6 @@ export default function TryPage() {
                 {route !== "auth/list" && (
                   <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-[18px] items-start">
 
-                    {/* Left: form card */}
                     <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
                       <div className="flex items-center justify-between px-6 py-[14px] border-b" style={{ borderColor: "var(--rule)", color: "var(--bone-2)" }}>
                         <div className="flex items-center gap-[10px]">
@@ -675,45 +746,42 @@ export default function TryPage() {
                         </span>
                       </div>
                       <div className="p-6">
-                        {/* Authority kind label */}
                         <div className="flex items-center border mb-5 px-4 py-3" style={{ border: "1px solid var(--rule-2)", background: "var(--ink)" }}>
                           <span className="font-mono font-medium text-[11px] tracking-[0.18em] uppercase" style={{ color: "var(--plasma)" }}>
                             Program upgrade
                           </span>
                         </div>
 
-                        <Label>{kindCfg.lbl}</Label>
+                        <Label>Program ID</Label>
                         <div className="flex items-center gap-2 border px-4 py-3 mb-5" style={{ borderColor: "var(--rule-2)", background: "var(--ink)" }}>
                           <input
                             type="text"
                             value={authTarget}
                             onChange={e => setAuthTarget(e.target.value)}
-                            placeholder={kindCfg.ph}
+                            placeholder="paste a program ID — e.g. TRAqCh…wsG"
                             className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[14px]"
                             style={{ color: "var(--bone)", caretColor: "var(--lime)" }}
                           />
                         </div>
 
-                        {/* PDA derivation readout */}
                         <div className="grid gap-[10px_18px] border p-[14px] mb-5 font-mono text-[12.5px]"
                              style={{ gridTemplateColumns: "130px 1fr", borderColor: "var(--rule)", background: "var(--ink)" }}>
                           {[
-                            ["Owner", connected ? "HxRyP9LzVQa…2Tg7Cmf" : "connect wallet to derive", !connected],
+                            ["Owner",          publicKey ? shortAddr(publicKey.toBase58()) : "connect wallet", !publicKey],
                             ["Authority kind", "ProgramUpgrade", false],
-                            ["Derived PDA", pda ?? "— enter target —", !pda],
-                            ["Seeds", '[ "trana-authority", owner, target ]', true],
+                            ["Derived PDA",    authPda ?? "— enter target —", !authPda],
+                            ["Seeds",          '[ "trana-authority", owner, target ]', true],
                           ].map(([k, v, dim]) => (
                             <>
                               <span key={k + "k"} className="font-mono text-[10.5px] tracking-[0.18em] uppercase pt-[2px]" style={{ color: "var(--bone-3)" }}>{k as string}</span>
-                              <span key={k + "v"} className="font-mono break-all text-[12px]" style={{ color: dim ? "var(--bone-3)" : "var(--bone)", fontSize: k === "Seeds" ? 11.5 : undefined }}>{v as string}</span>
+                              <span key={k + "v"} className="font-mono break-all text-[12px]" style={{ color: (dim as boolean) ? "var(--bone-3)" : "var(--bone)", fontSize: k === "Seeds" ? 11.5 : undefined }}>{v as string}</span>
                             </>
                           ))}
                         </div>
 
-                        {/* Steps */}
                         <ul className="flex flex-col mb-5">
-                          <StepRow n={1} done title="Register the AuthorityRecord PDA" sub="trana_authority::register(kind) · on-chain" />
-                          <StepRow n={2} done={step2Done} cur={!step2Done} title={kindCfg.step2t} sub={kindCfg.step2s} />
+                          <StepRow n={1} done    title="Register the AuthorityRecord PDA" sub="trana_authority::register(kind) · on-chain" />
+                          <StepRow n={2} done={step2Done} cur={!step2Done} title="Transfer upgrade authority to the PDA" sub="solana program set-upgrade-authority <TARGET> --new-upgrade-authority <PDA>" />
                           <StepRow n={3} done={step3Done} title="Verify on-chain" sub="solana program show — confirms the PDA is the new authority" />
                         </ul>
 
@@ -723,10 +791,9 @@ export default function TryPage() {
                           className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors disabled:opacity-50"
                           style={{ background: "var(--plasma)", color: "var(--ink)", border: "none" }}
                         >
-                          {authBusy ? "Securing…" : "Secure this authority →"}
+                          {authBusy ? "Securing…" : !connected ? "Connect wallet →" : "Secure this authority →"}
                         </button>
 
-                        {/* Danger note */}
                         <div className="grid gap-3 items-start mt-5 p-[14px] border font-mono text-[12.5px]"
                              style={{ gridTemplateColumns: "22px 1fr", borderColor: "rgba(255,91,31,0.30)", background: "rgba(255,91,31,0.04)", color: "var(--bone-2)" }}>
                           <WarnIcon />
@@ -740,10 +807,7 @@ export default function TryPage() {
                       </div>
                     </div>
 
-                    {/* Right: receipt + console */}
                     <div className="flex flex-col gap-[18px]" style={{ minWidth: 0 }}>
-
-                      {/* Receipt card */}
                       <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
                         <div className="flex items-center justify-between px-6 py-[14px] border-b" style={{ borderColor: "var(--rule)" }}>
                           <div className="flex items-center gap-[10px]">
@@ -751,24 +815,21 @@ export default function TryPage() {
                             <span className="font-mono text-[12.5px]" style={{ color: "var(--bone)" }}>Transaction receipt</span>
                           </div>
                           <span className="font-mono text-[11px]" style={{ color: "var(--bone-3)" }}>
-                            slot <span style={{ color: "var(--bone)" }}>{slot.toLocaleString("en-US")}</span>
+                            slot <span style={{ color: "var(--bone)" }}>{slot !== null ? slot.toLocaleString("en-US") : "…"}</span>
                           </span>
                         </div>
                         <div className="px-6 py-4">
                           {[
-                            { k: "ix[0]", v: "Secp256r1SigVerify", c: "var(--bone-2)" },
-                            { k: "ix[1]", v: "trana_guard::record_proof", c: "var(--bone-2)" },
-                            { k: "ix[2]", v: "trana_authority::register", c: "var(--lime)" },
+                            { k: "ix[0]", v: "Secp256r1SigVerify",              c: "var(--bone-2)" },
+                            { k: "ix[1]", v: "trana_guard::record_proof",       c: "var(--bone-2)" },
+                            { k: "ix[2]", v: "trana_authority::register",       c: "var(--lime)" },
                             { k: "ix[3]", v: "bpf_loader::set_upgrade_authority", c: "var(--plasma)" },
-                            { k: "Status", v: authStatus ?? "awaiting submit", c: authStatus === "confirmed" ? "var(--lime)" : authStatus === "submitting…" ? "var(--bone-2)" : "var(--bone-3)" },
-                            { k: "Tx sig", v: amTxsig ?? "—", c: amTxsig ? "var(--bone)" : "var(--bone-3)" },
-                          ].map(row => (
-                            <MetaRow key={row.k} k={row.k} v={row.v} color={row.c} />
-                          ))}
+                            { k: "Status", v: authStatus ?? "awaiting submit",  c: authStatus === "confirmed" ? "var(--lime)" : authStatus === "submitting…" ? "var(--bone-2)" : "var(--bone-3)" },
+                            { k: "Tx sig", v: amTxsig ?? "—",                   c: amTxsig ? "var(--bone)" : "var(--bone-3)" },
+                          ].map(row => <MetaRow key={row.k} k={row.k} v={row.v} color={row.c} />)}
                         </div>
                       </div>
 
-                      {/* Console */}
                       <div className="border flex flex-col" style={{ borderColor: "var(--rule)", background: "var(--ink)", height: 280 }}>
                         <div className="flex items-center justify-between px-4 py-[10px] border-b font-mono text-[10.5px] tracking-[0.18em] uppercase shrink-0"
                              style={{ borderColor: "var(--rule)", color: "var(--bone-3)" }}>
@@ -798,23 +859,17 @@ export default function TryPage() {
                          style={{ gridTemplateColumns: "1fr 110px 90px", borderColor: "var(--rule)", color: "var(--bone-3)" }}>
                       <span>Target</span><span>Authority</span><span>Status</span>
                     </div>
-                    {[
-                      { pid: "TRAqCh9KrLpZ7zVkPwsG", name: "demo program · v0.1.2", kind: "upgrade" },
-                    ].map((row, i) => (
-                      <div key={i} className="grid items-center px-[18px] py-[14px] border-b font-mono text-[12.5px]"
-                           style={{ gridTemplateColumns: "1fr 110px 90px", borderColor: "var(--rule)", color: "var(--bone)" }}>
-                        <span>
-                          <span className="truncate block">{row.pid}</span>
-                          <span className="block text-[10.5px] mt-[3px] tracking-[0.04em]" style={{ color: "var(--bone-3)" }}>{row.name}</span>
-                        </span>
-                        <span className="font-mono font-medium text-[10.5px] tracking-[0.16em] uppercase" style={{ color: "var(--bone-2)" }}>{row.kind}</span>
-                        <span className="inline-flex items-center gap-[6px] px-[9px] py-[5px] font-mono font-medium text-[10px] tracking-[0.18em] uppercase w-fit"
-                              style={{ border: "1px solid rgba(198,255,58,0.35)", color: "var(--lime)" }}>
-                          <span className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--lime)" }} />
-                          secured
-                        </span>
+                    {!connected ? (
+                      <div className="px-[18px] py-[18px] font-mono text-[12.5px]" style={{ color: "var(--bone-3)" }}>
+                        Connect your wallet to see secured authorities.
                       </div>
-                    ))}
+                    ) : (
+                      <div className="px-[18px] py-[18px] font-mono text-[12.5px]" style={{ color: "var(--bone-3)" }}>
+                        No secured authorities found for{" "}
+                        <span style={{ color: "var(--bone)" }}>{publicKey ? shortAddr(publicKey.toBase58()) : "—"}</span>
+                        {" "}on devnet.
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -860,7 +915,6 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
 }) {
   return (
     <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)", display: "grid", gridTemplateColumns: "1fr" }}>
-      {/* Header */}
       <div className="flex items-center justify-between px-6 py-[14px] border-b col-span-full"
            style={{ borderColor: "var(--rule)", color: "var(--bone-2)", fontSize: 12.5 }}>
         <div className="flex items-center gap-3 font-mono">
@@ -875,7 +929,6 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
           <span className="font-mono" style={{ color: policyColor }}>{policyLabel}</span>
         </div>
       </div>
-      {/* Body grid */}
       <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1fr)" }}>
         {children}
       </div>
@@ -922,10 +975,7 @@ function ActionBtn({ over, onClick, children }: { over: boolean; onClick: () => 
     <button
       onClick={onClick}
       className="w-full py-4 px-6 mt-[18px] font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors"
-      style={{
-        background: over ? "var(--plasma)" : "var(--lime)",
-        color: "var(--ink)", border: "none",
-      }}
+      style={{ background: over ? "var(--plasma)" : "var(--lime)", color: "var(--ink)", border: "none" }}
     >
       {children}
     </button>
@@ -948,7 +998,7 @@ function CheckRow({ ok, title, sub }: { ok: boolean; title: string; sub: string 
          style={{
            gridTemplateColumns: "16px 1fr",
            borderColor: ok ? "rgba(198,255,58,0.30)" : "rgba(255,91,31,0.30)",
-           background: ok ? "rgba(198,255,58,0.04)" : "rgba(255,91,31,0.04)",
+           background:  ok ? "rgba(198,255,58,0.04)" : "rgba(255,91,31,0.04)",
          }}>
       <span style={{ color: ok ? "var(--lime)" : "var(--plasma)" }}>{ok ? "✓" : "×"}</span>
       <div>
@@ -965,8 +1015,8 @@ function StepRow({ n, done, cur, title, sub }: { n: number; done?: boolean; cur?
       <span className="w-[26px] h-[26px] flex items-center justify-center text-center font-medium text-[11px] border"
             style={{
               borderColor: done ? "rgba(198,255,58,0.40)" : cur ? "rgba(255,91,31,0.40)" : "var(--rule-2)",
-              background: done ? "rgba(198,255,58,0.06)" : cur ? "rgba(255,91,31,0.06)" : "transparent",
-              color: done ? "var(--lime)" : cur ? "var(--plasma)" : "var(--bone-3)",
+              background:  done ? "rgba(198,255,58,0.06)" : cur ? "rgba(255,91,31,0.06)" : "transparent",
+              color:       done ? "var(--lime)"           : cur ? "var(--plasma)"         : "var(--bone-3)",
             }}>
         {n}
       </span>

@@ -40,6 +40,10 @@
     "tweetnacl": "^1.0.3",
     "typescript": "^5.7.0"
   },
+  "overrides": {
+    "react":     "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
   "engines": {
     "node": ">=22"
   }
