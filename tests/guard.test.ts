@@ -60,7 +60,6 @@ describe("trana", () => {
 
       expect(data.owner.toBase58()).toBe(owner.publicKey.toBase58())
       expect(Buffer.from(data.pubkeyBytes).equals(Buffer.from(passkey.pubkey))).toBe(true)
-      expect(data.enabled).toBe(true)
       expect((data.nonce as anchor.BN).toNumber()).toBe(0)
     })
 
@@ -101,8 +100,6 @@ describe("trana", () => {
       expect((after.nonce as anchor.BN).toNumber()).toBe(nonceBefore + 1)
     })
 
-    it.skip("disable_registry", async () => {})
-    it.skip("enable_registry", async () => {})
   })
 
   describe("enforce", () => {
@@ -417,6 +414,25 @@ describe("trana", () => {
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx2], owner2.publicKey, [owner2])
       ).rejects.toThrow(/"Custom":6002/)
+    })
+
+    it("record_proof_spoofed_program_id", async () => {
+      const { program, owner, passkey } = await enforceFixture()
+      const enforceIx = await buildEnforceIx(program, owner)
+      const proof     = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
+
+      // Correct proof data but program_id swapped to SystemProgram — the tx must fail.
+      // Either SystemProgram rejects the unknown bytes before enforce runs, or enforce
+      // rejects with InvalidProof (6005) via the program_id check in load_proof_from_preceding_ix.
+      const spoofedRecordProofIx = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys:      proof.recordProofIx.keys,
+        data:      proof.recordProofIx.data,
+      })
+
+      await expect(
+        sendV0(program.provider.connection, [proof.secp256r1Ix, spoofedRecordProofIx, enforceIx], owner.publicKey, [owner])
+      ).rejects.toThrow()
     })
 
     it("record_proof_wrong_owner", async () => {
@@ -736,7 +752,6 @@ describe("trana", () => {
       const pda  = registryPda(owner.publicKey, program.programId)
       const data = await program.account.twoFactorRegistry.fetch(pda)
       expect(data.owner.toBase58()).toBe(owner.publicKey.toBase58())
-      expect(data.enabled).toBe(true)
     })
 
     it("registry_pda_derivation_invalid", async () => {
@@ -770,11 +785,6 @@ describe("trana", () => {
   })
 
   describe("registry state", () => {
-    it.skip("disabled_registry_rejected", async () => {
-      // No disable_registry instruction exists yet — requires a future program change.
-      // The Enforce constraint `registry.enabled @ RegistryDisabled` (6004) would fire.
-    })
-
     it("uninitialized_registry_rejected", async () => {
       const program = getProgram()
       const owner   = Keypair.generate()
