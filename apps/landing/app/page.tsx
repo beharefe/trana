@@ -117,10 +117,7 @@ function Footer() {
           style={{ borderColor: "var(--rule)", color: "var(--bone-4)" }}
         >
           <span>© 2026 TRANA, INC. · MIT-LICENSED</span>
-          <span className="flex items-center gap-3">
-            <span className="relative inline-block w-[7px] h-[7px] rounded-full" style={{ background: "var(--lime)" }} />
-            DEVNET · LIVE
-          </span>
+          <span>BUILT WITH ♥ FOR SOLANA</span>
           <span className="hidden md:inline">1111B S GOVERNORS AVE STE 39117, DOVER DE 19904</span>
         </div>
 
