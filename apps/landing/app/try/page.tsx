@@ -7,9 +7,7 @@ import { SiteNav } from "@/components/SiteNav"
 
 type Route =
   | "vault/withdraw" | "vault/deposit" | "vault/upgrade"
-  | "auth/programs"  | "auth/mints"    | "auth/list"
-
-type AuthKind = "ProgramUpgrade" | "TokenMint" | "TokenFreeze"
+  | "auth/programs"  | "auth/list"
 type TxResult =
   | { s: "idle" }
   | { s: "pending"; msg: string }
@@ -48,29 +46,14 @@ const NAV_ITEMS = [
   { route: "vault/deposit"  as Route, ix: "02", label: "Deposit",            group: "demo" },
   { route: "vault/upgrade"  as Route, ix: "03", label: "Program upgrade",    group: "demo" },
   { route: "auth/programs"  as Route, ix: "04", label: "Secure a program",   group: "auth" },
-  { route: "auth/mints"     as Route, ix: "05", label: "Secure a mint",      group: "auth" },
-  { route: "auth/list"      as Route, ix: "06", label: "Secured authorities",group: "auth" },
+  { route: "auth/list"      as Route, ix: "05", label: "Secured authorities",group: "auth" },
 ] as const
 
-const AUTH_KIND_CFG: Record<AuthKind, { lbl: string; step2t: string; step2s: string; ph: string }> = {
-  ProgramUpgrade: {
-    lbl: "Program ID",
-    step2t: "Transfer upgrade authority to the PDA",
-    step2s: "solana program set-upgrade-authority <target> --new-upgrade-authority <PDA>",
-    ph: "paste a program ID — e.g. TRAqCh…wsG",
-  },
-  TokenMint: {
-    lbl: "Mint address",
-    step2t: "Transfer mint_authority to the PDA",
-    step2s: "spl-token authorize <MINT> mint <PDA>",
-    ph: "paste a mint address — e.g. EPjFW…Dt1v",
-  },
-  TokenFreeze: {
-    lbl: "Mint address",
-    step2t: "Transfer freeze_authority to the PDA",
-    step2s: "spl-token authorize <MINT> freeze <PDA>",
-    ph: "paste a mint address — e.g. EPjFW…Dt1v",
-  },
+const AUTH_CFG = {
+  lbl:    "Program ID",
+  step2t: "Transfer upgrade authority to the PDA",
+  step2s: "solana program set-upgrade-authority <TARGET> --new-upgrade-authority <PDA>",
+  ph:     "paste a program ID — e.g. TRAqCh…wsG",
 }
 
 const VAULT_META: Record<string, { title: string; lede: React.ReactNode }> = {
@@ -99,13 +82,6 @@ const AUTH_META: Record<string, { title: string; lede: React.ReactNode }> = {
       <>Transfer your program's <span style={{ color: "var(--bone)" }}>upgrade_authority</span> to a Trana PDA.
       From then on, only a <em>passkey-approved</em> instruction can ship a new binary — even if your deploy key leaks.
       Zero changes to the target program.</>
-    ),
-  },
-  "auth/mints": {
-    title: "Secure a mint.",
-    lede: (
-      <>Move <span style={{ color: "var(--bone)" }}>mint_authority</span> off your wallet and onto a Trana PDA.
-      Inflation, treasury draws, supply shocks — every mint now requires a passkey-approved instruction.</>
     ),
   },
   "auth/list": {
@@ -167,7 +143,6 @@ export default function TryPage() {
   const [discovered, setDiscovered] = useState<Set<string>>(new Set())
 
   // auth state
-  const [authKind, setAuthKind] = useState<AuthKind>("ProgramUpgrade")
   const [authTarget, setAuthTarget] = useState("")
   const [authBusy, setAuthBusy] = useState(false)
   const [authStatus, setAuthStatus] = useState<string | null>(null)
@@ -178,6 +153,7 @@ export default function TryPage() {
     { ts: nowTs(), cls: "eval", msg: "$ trana auth secure --kind program-upgrade" },
     { ts: nowTs(), cls: "eval", msg: "awaiting target program ID…" },
   ])
+
   const consoleRef   = useRef<HTMLDivElement>(null)
   const authRunning  = useRef(false)
 
@@ -250,23 +226,23 @@ export default function TryPage() {
       authRunning.current = false
       return
     }
-    const pda = fakePda(authKind, authTarget) ?? "—"
+    const pda = fakePda("upgrade", authTarget) ?? "—"
     setLines([])
     setAuthBusy(true); setAuthStatus("submitting…")
 
     const push = (cls: ConsoleLine["cls"], msg: string) =>
       setLines(prev => [...prev, { ts: nowTs(), cls, msg }])
 
-    push("eval", `$ trana auth secure --kind ${authKind.toLowerCase()} --target ${authTarget}`)
+    push("eval", `$ trana auth secure --kind program-upgrade --target ${authTarget}`)
     await wait(400); push("eval", `derived PDA: ${pda}`)
     await wait(400); push("eval", "ix[0] secp256r1::verify P-256")
     await wait(350); push("eval", "ix[1] trana_guard::record_proof → sysvar")
     await wait(350); push("eval", "ix[2] trana_authority::register")
-    await wait(350); push("eval", authKind === "ProgramUpgrade" ? "ix[3] bpf_loader::set_upgrade_authority" : "ix[3] spl_token::set_authority")
+    await wait(350); push("eval", "ix[3] bpf_loader::set_upgrade_authority")
     await wait(500)
     push("ok", "PROOF · VERIFIED ✓")
     push("ok", "AuthorityRecord PDA initialized")
-    push("ok", `${authKind === "ProgramUpgrade" ? "upgrade_authority" : "mint_authority"} → ${pda}`)
+    push("ok", `upgrade_authority → ${pda}`)
 
     setStep2Done(true); setStep3Done(true)
     setAuthStatus("confirmed")
@@ -275,8 +251,8 @@ export default function TryPage() {
     authRunning.current = false
   }
 
-  const kindCfg  = AUTH_KIND_CFG[authKind]
-  const pda      = fakePda(authKind, authTarget)
+  const kindCfg  = AUTH_CFG
+  const pda      = fakePda("upgrade", authTarget)
   const isVault  = route.startsWith("vault/")
   const vTab     = isVault ? (route.split("/")[1] as "withdraw" | "deposit" | "upgrade") : null
   const crumbA   = isVault ? "vault" : "authority"
@@ -699,27 +675,11 @@ export default function TryPage() {
                         </span>
                       </div>
                       <div className="p-6">
-                        {/* Kind segmented control */}
-                        <div className="grid grid-cols-3 border mb-5" style={{ border: "1px solid var(--rule-2)", background: "var(--ink)" }}>
-                          {(["ProgramUpgrade", "TokenMint", "TokenFreeze"] as AuthKind[]).map((k, i) => (
-                            <button
-                              key={k}
-                              onClick={() => setAuthKind(k)}
-                              className="py-3 px-2 font-mono font-medium text-[11px] tracking-[0.18em] uppercase cursor-pointer"
-                              style={{
-                                background: authKind === k ? "rgba(255,91,31,0.06)" : "transparent",
-                                color: authKind === k ? "var(--plasma)" : "var(--bone-3)",
-                                borderRight: i < 2 ? "1px solid var(--rule-2)" : "none",
-                                border: i < 2 ? "0 0 0 0" : "none",
-                                borderRightWidth: i < 2 ? 1 : 0,
-                                borderRightStyle: "solid",
-                                borderRightColor: "var(--rule-2)",
-                                borderTop: "none", borderLeft: "none", borderBottom: "none",
-                              }}
-                            >
-                              {k === "ProgramUpgrade" ? "Program" : k === "TokenMint" ? "Token mint" : "Token freeze"}
-                            </button>
-                          ))}
+                        {/* Authority kind label */}
+                        <div className="flex items-center border mb-5 px-4 py-3" style={{ border: "1px solid var(--rule-2)", background: "var(--ink)" }}>
+                          <span className="font-mono font-medium text-[11px] tracking-[0.18em] uppercase" style={{ color: "var(--plasma)" }}>
+                            Program upgrade
+                          </span>
                         </div>
 
                         <Label>{kindCfg.lbl}</Label>
@@ -739,7 +699,7 @@ export default function TryPage() {
                              style={{ gridTemplateColumns: "130px 1fr", borderColor: "var(--rule)", background: "var(--ink)" }}>
                           {[
                             ["Owner", connected ? "HxRyP9LzVQa…2Tg7Cmf" : "connect wallet to derive", !connected],
-                            ["Authority kind", authKind, false],
+                            ["Authority kind", "ProgramUpgrade", false],
                             ["Derived PDA", pda ?? "— enter target —", !pda],
                             ["Seeds", '[ "trana-authority", owner, target ]', true],
                           ].map(([k, v, dim]) => (
@@ -799,7 +759,7 @@ export default function TryPage() {
                             { k: "ix[0]", v: "Secp256r1SigVerify", c: "var(--bone-2)" },
                             { k: "ix[1]", v: "trana_guard::record_proof", c: "var(--bone-2)" },
                             { k: "ix[2]", v: "trana_authority::register", c: "var(--lime)" },
-                            { k: "ix[3]", v: authKind === "ProgramUpgrade" ? "bpf_loader::set_upgrade_authority" : "spl_token::set_authority", c: "var(--plasma)" },
+                            { k: "ix[3]", v: "bpf_loader::set_upgrade_authority", c: "var(--plasma)" },
                             { k: "Status", v: authStatus ?? "awaiting submit", c: authStatus === "confirmed" ? "var(--lime)" : authStatus === "submitting…" ? "var(--bone-2)" : "var(--bone-3)" },
                             { k: "Tx sig", v: amTxsig ?? "—", c: amTxsig ? "var(--bone)" : "var(--bone-3)" },
                           ].map(row => (
@@ -840,8 +800,6 @@ export default function TryPage() {
                     </div>
                     {[
                       { pid: "TRAqCh9KrLpZ7zVkPwsG", name: "demo program · v0.1.2", kind: "upgrade" },
-                      { pid: "MNtUsdC7VnPq8wJk2sLxF", name: "USDC fork · stable mint", kind: "mint" },
-                      { pid: "FZxq8RkwZpL3vNcM6YuTd", name: "governance vote", kind: "freeze" },
                     ].map((row, i) => (
                       <div key={i} className="grid items-center px-[18px] py-[14px] border-b font-mono text-[12.5px]"
                            style={{ gridTemplateColumns: "1fr 110px 90px", borderColor: "var(--rule)", color: "var(--bone)" }}>

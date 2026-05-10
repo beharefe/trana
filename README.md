@@ -34,7 +34,7 @@ CPI call. No custody change. No trusted bridge. No server key.
 | Program | ID | Purpose |
 |---|---|---|
 | `trana_guard` | `GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn` | Passkey registry + enforcement |
-| `trana_authority` | `KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE` | PDA upgrade / mint / freeze authority |
+| `trana_authority` | `KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE` | PDA upgrade authority |
 | `trana_test_vault` | `8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa` | Demo shared pool (devnet) |
 
 ---
@@ -175,7 +175,7 @@ wallet key.
 ```typescript
 // Register the PDA as upgrade authority for a program
 await authority.methods
-  .register({ programUpgrade: {} })
+  .register()
   .accounts({ owner: yourWallet, target: TARGET_PROGRAM_ID })
   .rpc()
 
@@ -248,7 +248,7 @@ setup guide.
 ```
 programs/
   trana_guard/        Authorization primitive (enforce, record_proof, registry)
-  trana_authority/    PDA upgrade/mint/freeze authority
+  trana_authority/    PDA upgrade authority
   trana_test_vault/   Demo shared pool
 packages/
   sdk/                @tranaprotocol/guard-sdk — TypeScript/React client
