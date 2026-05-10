@@ -42,12 +42,11 @@ pub struct Withdraw<'info> {
     pub trana_guard_program: Program<'info, Trana>,
     #[account(
         mut,
-        seeds  = [b"2fa", owner.key().as_ref()],
+        seeds  = [b"passkey", owner.key().as_ref()],
         bump,
         seeds::program = trana_guard_program.key(),
-        constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::PasskeyRegistry>,
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -137,7 +136,7 @@ A few things worth knowing:
 ### Setup
 
 ```tsx
-import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/guard-sdk"
+import { TranaProvider, TranaModal, useTrana } from "@tranaprotocol/sdk"
 import { PublicKey } from "@solana/web3.js"
 
 const TRANA_GUARD_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)
@@ -181,6 +180,41 @@ await authorizeAndSend({
 
 `instruction` tells the SDK what you're authorizing. It derives the intent hash from it and inserts the `(secp256r1, record_proof)` pair immediately before it in the final transaction. The instruction can appear anywhere in the transaction.
 
+### Managing passkeys (browser-only)
+
+Use `TranaGuardClient` directly to add or remove passkeys — these operations require the native WebAuthn browser API:
+
+```ts
+import { TranaGuardClient } from "@tranaprotocol/sdk/guard"
+
+const client = new TranaGuardClient({ connection, cluster: "devnet" })
+
+// Register the first passkey (triggers OS passkey dialog)
+const { instruction, handle } = await client.registerPasskey({
+  owner:           walletPubkey,
+  rpId:            window.location.hostname,
+  userDisplayName: walletPubkey.toBase58().slice(0, 8),
+})
+
+// Add a backup passkey (signs with an existing key, registers a new one)
+const { instruction, handle } = await client.addPasskey({
+  owner:        walletPubkey,
+  credentialId: existingHandle.credentialId,
+  rpId:         window.location.hostname,
+  userDisplayName: "Backup iPhone",
+})
+
+// Remove a passkey (authorized by a different registered key)
+const { instruction } = await client.removePasskey({
+  owner:                   walletPubkey,
+  credentialIdToRemove:    lostHandle.credentialId,
+  authorizingCredentialId: otherHandle.credentialId,
+  rpId:                    window.location.hostname,
+})
+```
+
+See [Passkey management](/passkeys) for the full multi-device flow.
+
 ### Low-level helpers
 
 ```ts
@@ -191,7 +225,7 @@ import {
   intentFromInstruction,
   buildIntent,
   hashIntent,
-} from "@tranaprotocol/guard-sdk"
+} from "@tranaprotocol/sdk"
 ```
 
 ---
@@ -202,9 +236,13 @@ import {
 |---|---|---|
 | `MissingProof` | `0x1770` | No `record_proof` at `ix[N-1]` or no `secp256r1` at `ix[N-2]` |
 | `ProofExpired` | `0x1771` | `proof.expiry < clock.unix_timestamp` |
-| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
-| `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
-| `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
-| `ClusterMismatch` | `0x177a` | `proof.cluster` doesn't match the cluster baked into this binary |
-| `RegistryDisabled` | — | `trana_registry.enabled == false` — fails at account validation |
-| `PasskeyNotRegistered` | — | No registry PDA found — your constraint, not the guard's |
+| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, or nonce changed |
+| `WrongSigner` | `0x1773` | Pubkey in `secp256r1` is not in the registry |
+| `InvalidProof` | `0x1774` | Malformed proof data — bad offsets or discriminator |
+| `NonceOverflow` | `0x1775` | Registry nonce at u64::MAX |
+| `PolicyMismatch` | `0x1776` | Policy string in `record_proof` doesn't match enforced policy |
+| `Unauthorized` | `0x1777` | Caller is not the config authority, or registry already occupied |
+| `InvalidTreasury` | `0x1778` | Treasury account doesn't match `config.treasury` |
+| `MaxKeysReached` | `0x1779` | Registry already has 10 passkeys |
+| `LastKeyCannotBeRemoved` | `0x177a` | Cannot remove the only remaining passkey |
+| `CredentialNotFound` | `0x177b` | Credential ID not found in registry |

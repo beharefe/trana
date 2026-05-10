@@ -24,7 +24,7 @@ use anchor_lang::solana_program::system_instruction;
 use trana_guard::{
     cpi::accounts::Enforce,
     program::TranaGuard,
-    state::TwoFactorRegistry,
+    state::PasskeyRegistry,
     Policy,
 };
 
@@ -293,11 +293,11 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         seeds::program = trana_guard_program.key(),
         bump,
     )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
+    pub trana_registry: Account<'info, PasskeyRegistry>,
 
     /// CHECK: instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]

@@ -52,7 +52,7 @@ A security model where protected actions require explicit approval at the moment
 
 ### Intent hash
 
-A 32-byte SHA-256 that cryptographically binds a passkey signature to a specific authorized action. It commits to: version, domain, cluster, wallet pubkey, guard program ID, target program ID, policy ID, instruction discriminator, accounts hash, params hash, nonce, and expiry timestamp. The intent hash becomes the **WebAuthn challenge**.
+A 32-byte SHA-256 that cryptographically binds a passkey signature to a specific authorized action. It commits to: version, domain, wallet pubkey, guard program ID, target program ID, policy ID, instruction discriminator, accounts hash, params hash, nonce, and expiry timestamp. The intent hash becomes the **WebAuthn challenge**.
 
 ---
 
@@ -68,27 +68,33 @@ A 32-byte SHA-256 of the raw instruction parameter bytes. Any change to amounts,
 
 ---
 
-### TwoFactorRegistry
+### PasskeyRegistry
 
-The on-chain PDA storing a user's registered P-256 public key and enforcement nonce. Seeds: `["2fa", wallet_pubkey]` on the guard program. Fields: `owner`, `pubkey_bytes` (33-byte compressed P-256), `credential_id` (up to 128 bytes), `enabled`, `nonce`.
+The on-chain PDA storing all registered P-256 public keys for a wallet and the enforcement nonce. Seeds: `["passkey", wallet_pubkey]` on the guard program. Holds up to 10 `PasskeyEntry` records. Any registered key can authorize `enforce()`.
+
+---
+
+### PasskeyEntry
+
+One entry in a `PasskeyRegistry`. Fields: `key_kind` (Secp256r1Passkey or Ed25519), `pubkey_bytes` (33-byte compressed P-256), `credential_id` (up to 128 bytes WebAuthn credential ID).
 
 ---
 
 ### Enforcement nonce
 
-A u64 counter in the TwoFactorRegistry, incremented after every successful `enforce()` call. A captured proof becomes invalid after the next enforcement because the nonce no longer matches.
+A u64 counter in the `PasskeyRegistry`, incremented after every successful `enforce()` call. A captured proof becomes invalid after the next enforcement because the nonce no longer matches.
 
 ---
 
 ### enforce CPI
 
-The onchain entry point into the guard program. Called by external programs via `guard::cpi::enforce(ctx, policy)`. Verifies the proof, increments the nonce, emits a `ProofVerified` event. If any check fails, the entire transaction reverts.
+The onchain entry point into the guard program. Called by external programs via `guard::cpi::enforce(ctx, policy)`. Verifies the proof against any registered key, increments the nonce, emits a `ProofVerified` event. If any check fails, the entire transaction reverts.
 
 ---
 
 ### record_proof instruction
 
-A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]` — one position before the protected instruction.
+A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, and policy ID. Must appear at `ix[N-1]` — one position before the protected instruction.
 
 ---
 
@@ -112,7 +118,7 @@ An Anchor event emitted after every successful `enforce()` call. Fields: `owner`
 
 ### TranaConfig
 
-The global fee configuration PDA, seeded at `["config"]` on the guard program. Stores `authority`, `treasury`, `register_fee`, and `recovery_fee`. Anyone can read it on-chain to verify what fees are charged. Only the `authority` can update it via `update_config`.
+The global fee configuration PDA, seeded at `["config"]` on the guard program. Stores `authority`, `treasury`, `register_fee`, and `add_key_fee`. Anyone can read it on-chain to verify what fees are charged. Only the `authority` can update it via `update_config`.
 
 ---
 
@@ -125,9 +131,3 @@ The enum passed to `guard::cpi::enforce()`. Four variants: `Require` (always req
 ### param_offset
 
 The byte offset of a `u64` parameter inside the protected instruction's data, measured **after** the 8-byte Anchor discriminator. Used with `Policy::Limit` to tell the guard which field to read. For `fn action(ctx, amount: u64)` the offset is `0`. For `fn action(ctx, recipient: Pubkey, amount: u64)` the offset is `32`. Compute it by summing the byte sizes of all parameters before the target `u64`: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
-
----
-
-### ClusterMismatch
-
-Error `0x177a`. Returned by `enforce()` when `proof.cluster` does not match the cluster string baked into the program binary at build time. Prevents a valid mainnet proof from being replayed against a devnet deployment of the same program — even if both binaries share the same program ID.

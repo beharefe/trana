@@ -5,6 +5,11 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::sysvar::instructions::ID as INSTRUCTIONS_ID;
 use crate::error::GuardError;
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/// Maximum number of passkeys a single wallet can register.
+pub const MAX_KEYS: usize = 10;
+
 // ── Wire type ─────────────────────────────────────────────────────────────────
 
 #[derive(AnchorDeserialize, AnchorSerialize, Clone)]
@@ -24,21 +29,34 @@ pub enum KeyKind {
     Ed25519,
 }
 
-/// Per-user onchain 2FA registry.
-/// Seeds: `[b"2fa", owner]`
-#[account]
-#[derive(InitSpace)]
-pub struct TwoFactorRegistry {
-    pub owner:    Pubkey,
+/// A single registered passkey credential.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+pub struct PasskeyEntry {
     pub key_kind: KeyKind,
     #[max_len(33)]
     pub pubkey_bytes:  Vec<u8>,
     #[max_len(128)]
     pub credential_id: Vec<u8>,
-    pub nonce: u64,
 }
 
-impl TwoFactorRegistry {
+/// Per-user passkey registry.
+/// Seeds: `[b"passkey", owner]`
+///
+/// Holds all registered passkeys for a wallet. Any entry can authorize
+/// any `enforce()` call — sign with whichever device is available.
+/// Add or remove entries at any time using `add_passkey` / `remove_passkey`.
+#[account]
+#[derive(InitSpace)]
+pub struct PasskeyRegistry {
+    pub owner: Pubkey,
+    /// Incremented after every successful `enforce()`, `add_passkey`, or
+    /// `remove_passkey` call to prevent proof replay.
+    pub nonce: u64,
+    #[max_len(10)]
+    pub keys:  Vec<PasskeyEntry>,
+}
+
+impl PasskeyRegistry {
     pub const MAX_PUBKEY_LEN:  usize = 33;
     pub const MAX_CRED_ID_LEN: usize = 128;
 }
@@ -58,24 +76,24 @@ pub struct TranaConfig {
     pub authority:    Pubkey,
     /// Where registration fees are sent.
     pub treasury:     Pubkey,
-    /// Lamports charged for a first-time passkey registration.
+    /// Lamports charged for first-time passkey registration.
     pub register_fee: u64,
-    /// Lamports charged for a key recovery (re-registration).
-    pub recovery_fee: u64,
+    /// Lamports charged for adding an additional passkey (`add_passkey`).
+    pub add_key_fee:  u64,
 }
 
 // ── Account contexts ──────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct RegisterTwoFa<'info> {
+pub struct RegisterPasskey<'info> {
     #[account(
         init_if_needed,
         payer = owner,
-        space = TwoFactorRegistry::DISCRIMINATOR.len() + TwoFactorRegistry::INIT_SPACE,
-        seeds = [b"2fa", owner.key().as_ref()],
+        space = PasskeyRegistry::DISCRIMINATOR.len() + PasskeyRegistry::INIT_SPACE,
+        seeds = [b"passkey", owner.key().as_ref()],
         bump,
     )]
-    pub registry: Account<'info, TwoFactorRegistry>,
+    pub registry: Account<'info, PasskeyRegistry>,
 
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -86,7 +104,7 @@ pub struct RegisterTwoFa<'info> {
     #[account(seeds = [b"config"], bump)]
     pub config: Account<'info, TranaConfig>,
 
-    /// CHECK: treasury — receives the registration or recovery fee.
+    /// CHECK: treasury — receives the registration fee.
     #[account(
         mut,
         constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
@@ -94,16 +112,16 @@ pub struct RegisterTwoFa<'info> {
     pub treasury: UncheckedAccount<'info>,
 }
 
-/// Accounts for recover_two_fa — replaces an existing passkey.
-/// Requires the current passkey proof at ix[N-2..N-1].
+/// Accounts for `add_passkey` — appends a new passkey to an existing registry.
+/// Requires a proof from any currently registered key at ix[N-2..N-1].
 #[derive(Accounts)]
-pub struct RecoverTwoFa<'info> {
+pub struct AddPasskey<'info> {
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         bump,
     )]
-    pub registry: Account<'info, TwoFactorRegistry>,
+    pub registry: Account<'info, PasskeyRegistry>,
 
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -113,14 +131,32 @@ pub struct RecoverTwoFa<'info> {
     #[account(seeds = [b"config"], bump)]
     pub config: Account<'info, TranaConfig>,
 
-    /// CHECK: treasury — receives the recovery fee.
+    /// CHECK: treasury — receives the add-key fee.
     #[account(
         mut,
         constraint = treasury.key() == config.treasury @ GuardError::InvalidTreasury,
     )]
     pub treasury: UncheckedAccount<'info>,
 
-    /// CHECK: Solana Instructions sysvar
+    /// CHECK: Instructions sysvar
+    #[account(address = INSTRUCTIONS_ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
+
+/// Accounts for `remove_passkey` — removes a passkey entry by credential ID.
+/// Requires a proof from any REMAINING key at ix[N-2..N-1]. Free (no fee).
+#[derive(Accounts)]
+pub struct RemovePasskey<'info> {
+    #[account(
+        mut,
+        seeds = [b"passkey", owner.key().as_ref()],
+        bump,
+    )]
+    pub registry: Account<'info, PasskeyRegistry>,
+
+    pub owner: Signer<'info>,
+
+    /// CHECK: Instructions sysvar
     #[account(address = INSTRUCTIONS_ID)]
     pub instructions: UncheckedAccount<'info>,
 }
@@ -138,10 +174,10 @@ pub struct Enforce<'info> {
     /// Registry PDA — nonce incremented on every successful verification.
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         bump,
     )]
-    pub registry: Account<'info, TwoFactorRegistry>,
+    pub registry: Account<'info, PasskeyRegistry>,
 
     /// The wallet whose registered passkey must authorize this action.
     pub owner: Signer<'info>,
@@ -169,7 +205,7 @@ pub struct InitConfig<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Update registration/recovery fees or treasury address.
+/// Update registration/add-key fees or treasury address.
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
     #[account(
@@ -182,4 +218,3 @@ pub struct UpdateConfig<'info> {
 
     pub authority: Signer<'info>,
 }
-

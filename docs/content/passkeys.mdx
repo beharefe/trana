@@ -1,0 +1,170 @@
+# Passkey management
+
+A wallet can hold up to **10 passkeys** in its `PasskeyRegistry`. Any registered key can authorize `enforce()` — add a backup before you lose the primary.
+
+---
+
+## Overview
+
+| Operation | Who can call | Fee |
+|---|---|---|
+| `register_passkey` | Wallet owner (first key only) | `register_fee` |
+| `add_passkey` | Any registered key | `add_key_fee` |
+| `remove_passkey` | Any OTHER registered key | Free |
+
+The registry never drops below one key. Attempting to remove the last passkey fails with `LastKeyCannotBeRemoved`.
+
+---
+
+## Register the first passkey
+
+Call this once per wallet — subsequent passkeys use `add_passkey`.
+
+**Browser (SDK):**
+
+```ts
+import { TranaGuardClient } from "@tranaprotocol/sdk/guard"
+
+const client = new TranaGuardClient({ connection, cluster: "devnet" })
+
+const { instruction, handle } = await client.registerPasskey({
+  owner:           walletPubkey,
+  rpId:            window.location.hostname,
+  userDisplayName: walletPubkey.toBase58().slice(0, 8),
+})
+
+// Sign and send the transaction containing `instruction`
+const tx = new Transaction().add(instruction)
+await sendAndConfirm(tx)
+
+// Store handle.credentialId — you'll need it for every future operation
+localStorage.setItem("trana_credential", Buffer.from(handle.credentialId).toString("base64"))
+```
+
+This triggers the native OS passkey creation dialog. The SDK extracts the compressed P-256 public key from the SPKI attestation and builds the `register_passkey` instruction.
+
+**Transaction shape:**
+
+```
+ix[0]: register_passkey   (no proof required — first key)
+```
+
+---
+
+## Add a backup passkey
+
+After the first key is registered, add a second device at any time. This requires a proof from the **existing** key, and registration of the **new** key — both happen in one call.
+
+```ts
+// Retrieve your stored credential ID
+const credentialId = Buffer.from(localStorage.getItem("trana_credential")!, "base64")
+
+const { secp256r1Ix, recordProofIx, instruction, handle } = await client.addPasskey({
+  owner:           walletPubkey,
+  credentialId,                   // existing key authorizes the add
+  rpId:            window.location.hostname,
+  userDisplayName: "Backup iPhone",
+})
+
+// Transaction must include all three instructions in order
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, instruction)
+await sendAndConfirm(tx)
+
+// Store the new handle too
+storeHandle(handle)
+```
+
+The OS will show two dialogs: first the **new device's** passkey creation (to register the backup), then the **existing device's** authentication (to authorize adding it).
+
+**Transaction shape:**
+
+```
+ix[N-2]: secp256r1           existing key signs
+ix[N-1]: record_proof
+ix[N]:   add_passkey
+```
+
+---
+
+## Remove a passkey
+
+Remove a lost or revoked device. Must be authorized by a **different** registered key.
+
+```ts
+const { secp256r1Ix, recordProofIx, instruction } = await client.removePasskey({
+  owner:                   walletPubkey,
+  credentialIdToRemove:    lostHandle.credentialId,
+  authorizingCredentialId: otherHandle.credentialId,  // a key you still have
+  rpId:                    window.location.hostname,
+})
+
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, instruction)
+await sendAndConfirm(tx)
+```
+
+**Transaction shape:**
+
+```
+ix[N-2]: secp256r1           authorizing key signs
+ix[N-1]: record_proof
+ix[N]:   remove_passkey
+```
+
+---
+
+## Reading the registry
+
+```ts
+// Via TranaGuardClient
+const registry = await client.fetchRegistry(walletPubkey)
+// registry.keys — array of PasskeyEntry: { pubkeyBytes, credentialId }
+// registry.nonce — current nonce
+
+// Via React hook (live subscription)
+const { passkeys, hasBackup } = useTranaPasskeys()
+// passkeys[0], passkeys[1], ...
+// hasBackup — true when passkeys.length >= 2
+```
+
+---
+
+## Security properties
+
+**Any key authorizes enforcement.** `enforce()` accepts a proof from any key in the registry — so either your primary or your backup device can authorize a transaction.
+
+**Adding a key requires an existing key.** `add_passkey` verifies a proof from a registered key before accepting the new one. A wallet key alone cannot add passkeys.
+
+**Removing a key requires a different key.** `remove_passkey` requires a proof from any key *other than* the one being removed. This prevents a compromised device from locking out all others.
+
+**The last key cannot be removed.** A registry with zero keys would be permanently locked. The program enforces a minimum of one.
+
+**Nonce is preserved across add/remove.** Adding or removing a passkey consumes a nonce via the authorization proof. The nonce never resets — existing proofs cannot be replayed after a key change.
+
+---
+
+## Backup nudge UI
+
+The SDK includes `useBackupNudge` — a hook that fires a one-time prompt 2 seconds after the first successful approval:
+
+```tsx
+import { useBackupNudge } from "@tranaprotocol/sdk"
+
+function App() {
+  const { show, dismiss, openKeyManagement } = useBackupNudge({
+    onOpen: () => setShowKeyMgmt(true),
+  })
+
+  return (
+    <>
+      {show && (
+        <BackupBanner
+          onDismiss={dismiss}
+          onSetupBackup={openKeyManagement}
+        />
+      )}
+    </>
+  )
+}
+```
+
+The banner is shown once per browser profile (stored in `localStorage`). Render whatever component fits your design — the hook just controls visibility.

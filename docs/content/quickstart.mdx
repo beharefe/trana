@@ -35,12 +35,11 @@ pub struct Withdraw<'info> {
     pub trana_guard_program: Program<'info, Trana>,
     #[account(
         mut,
-        seeds  = [b"2fa", owner.key().as_ref()],
+        seeds  = [b"passkey", owner.key().as_ref()],
         bump,
         seeds::program = trana_guard_program.key(),
-        constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::PasskeyRegistry>,
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,
@@ -90,7 +89,7 @@ Wrap your app once, then call `authorizeAndSend` wherever you trigger a protecte
 
 ```tsx
 // _app.tsx
-import { TranaProvider, TranaModal } from "@tranaprotocol/guard-sdk"
+import { TranaProvider, TranaModal } from "@tranaprotocol/sdk"
 import { PublicKey } from "@solana/web3.js"
 
 const TRANA_GUARD_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)

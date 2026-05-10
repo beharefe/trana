@@ -124,10 +124,10 @@ function Steps({ current }: { current: 1 | 2 }) {
   )
 }
 
-// ── register_two_fa instruction ────────────────────────────────────────────────
+// ── register_passkey instruction ──────────────────────────────────────────────
 
-// sha256("global:register_two_fa")[0:8]
-const REGISTER_DISC = Buffer.from([0xd0, 0x77, 0x84, 0xf6, 0xfb, 0xec, 0x77, 0x36])
+// sha256("global:register_passkey")[0:8]
+const REGISTER_DISC = Buffer.from([16, 2, 121, 116, 194, 17, 247, 233])
 
 function buildRegisterIx(
   walletPubkey:        PublicKey,
@@ -138,7 +138,7 @@ function buildRegisterIx(
   treasury:            PublicKey,
 ): TransactionInstruction {
   const [registryPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("2fa"), walletPubkey.toBuffer()],
+    [Buffer.from("passkey"), walletPubkey.toBuffer()],
     tranaGuardProgramId,
   )
   const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); new DataView(b.buffer, b.byteOffset, 4).setUint32(0, n, true); return b }
@@ -288,8 +288,10 @@ function ApprovalModal() {
     if (!registry) { setError("Device not set up"); return }
     setBusy(true); setError(null)
     try {
+      const credentialId = registry.keys[0]?.credentialId
+      if (!credentialId) { setError("No passkey registered"); setBusy(false); return }
       const challenge = hashIntent(intent)
-      const result    = await doApproval(registry.credentialId, challenge, config.rpId)
+      const result    = await doApproval(credentialId, challenge, config.rpId)
       _resolveApproval(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed")

@@ -15,7 +15,7 @@ pub use state::*;
 use trana_guard::{
     cpi::accounts::Enforce,
     program::TranaGuard,
-    state::TwoFactorRegistry,
+    state::PasskeyRegistry,
     Policy,
 };
 
@@ -225,11 +225,11 @@ pub struct ExecuteUpgrade<'info> {
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         seeds::program = trana_guard_program.key(),
         bump,
     )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
+    pub trana_registry: Account<'info, PasskeyRegistry>,
 
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
@@ -272,11 +272,11 @@ pub struct ReclaimAuthority<'info> {
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         seeds::program = trana_guard_program.key(),
         bump,
     )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
+    pub trana_registry: Account<'info, PasskeyRegistry>,
 
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]

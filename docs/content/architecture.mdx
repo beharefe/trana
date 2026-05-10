@@ -6,7 +6,7 @@ Trana has three layers. The Solana runtime ties them together — all three exec
 ┌─────────────────────────────────────────────────────┐
 │  dApp / Frontend  (React)                           │
 └──────────────────┬──────────────────────────────────┘
-                   │  @tranaprotocol/guard-sdk
+                   │  @tranaprotocol/sdk
 ┌──────────────────▼──────────────────────────────────┐
 │  packages/sdk                                       │
 │  Intent hash  │  WebAuthn  │  Tx builder            │
@@ -26,29 +26,36 @@ Trana has three layers. The Solana runtime ties them together — all three exec
 
 ### programs/guard — the authorization primitive
 
-One deployed program. Three instructions.
+One deployed program. Five instructions.
 
-`register_two_fa` writes a P-256 public key and credential ID into a PDA (`["2fa", wallet_pubkey]`). Re-registering updates the key and preserves the nonce.
+`register_passkey` initializes the `PasskeyRegistry` PDA for a wallet and writes the first P-256 public key and credential ID. Only succeeds when the registry is empty — subsequent passkeys must be added via `add_passkey`.
 
-`record_proof` is a data carrier. It holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in instruction data and modifies no accounts.
+`add_passkey` adds a second (or further) passkey to an existing registry. Requires a proof signed by any currently registered passkey. Charges `add_key_fee`. Up to 10 passkeys per wallet.
 
-`enforce` is called by your program via CPI. It reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against the registry pubkey, checks the intent hash, and increments the nonce. If anything fails, the whole transaction reverts.
+`remove_passkey` removes a passkey by its credential ID. Requires a proof signed by any OTHER registered passkey. Cannot remove the last key.
+
+`record_proof` is a data carrier. It holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, and policy) in instruction data and modifies no accounts.
+
+`enforce` is called by your program via CPI. It reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against any key in the registry, checks the intent hash, and increments the nonce. If anything fails, the whole transaction reverts.
 
 ### packages/sdk — TypeScript client
 
 ```
 packages/sdk/src/
-├── secp256r1.ts       buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx
-├── utils.ts           sha256, decodeParamsU64
-├── policy.ts          Policy type, policyString(), evaluatePolicy()
-├── requirement.ts     checkRequirement() — client-side condition check
+├── core/
+│   ├── secp256r1.ts   buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx
+│   ├── intent.ts      buildIntent(), hashIntent(), intentFromInstruction()
+│   ├── webauthn.ts    registerPasskey(), signIntent()
+│   └── types.ts       TranaCluster, PasskeyHandle, Policy
+├── guard/
+│   └── client.ts      TranaGuardClient — registerPasskey, addPasskey, removePasskey, buildProof
 └── react/
-    ├── intent.ts      buildIntent(), hashIntent(), intentFromInstruction()
-    ├── useTrana.ts    authorizeAndSend() — the main integration hook
-    ├── provider.tsx   TranaProvider — context and deferred promise hub
-    ├── modal.tsx      TranaModal — registration, confirmation, approval, error
-    ├── detector.ts    detectEnforcement() — simulation-based policy detection
-    └── registry.ts    fetchRegistry(), findRegistryPda()
+    ├── provider.tsx          TranaProvider — context and deferred promise hub
+    ├── modal.tsx             TranaModal — registration, confirmation, approval, error
+    ├── useTrana.ts           authorizeAndSend() — the main integration hook
+    ├── useTranaPasskeys.ts   passkeys list, hasBackup
+    ├── registry.ts           fetchRegistry(), findRegistryPda()
+    └── detector.ts           detectEnforcement() — simulation-based policy detection
 ```
 
 ---
@@ -62,10 +69,10 @@ Device                   Client                        Solana
 1.  Simulate the transaction to detect which policy fires
     (reads "trana.limit" / "trana.require" etc. from logs)
 
-2.  Fetch registry PDA ──────────────────────────► nonce, pubkey
+2.  Fetch registry PDA ──────────────────────────► nonce, keys[]
 
 3.  Compute intent hash:
-    SHA-256(version, domain, cluster, wallet, guard,
+    SHA-256(version, domain, wallet, guard,
             target, policy, discriminator,
             accounts_hash, params_hash, nonce, expiry)
 
@@ -86,6 +93,7 @@ Device                   Client                        Solana
                                                       your_program::action()
                                                         └─ guard::enforce()
                                                              verify P-256 sig
+                                                             (any registered key)
                                                              check intent hash
                                                              nonce += 1
 ```
@@ -94,13 +102,12 @@ Device                   Client                        Solana
 
 ## Intent hash
 
-The 32-byte challenge that binds the passkey signature to the exact authorized action. Computed identically in `packages/sdk/src/react/intent.ts` → `hashIntent()` and `programs/guard/src/verify.rs` → `compute_intent_hash()`.
+The 32-byte challenge that binds the passkey signature to the exact authorized action. Computed identically in `packages/sdk/src/core/intent.ts` → `hashIntent()` and `programs/trana_guard/src/verify.rs` → `compute_intent_hash()`.
 
 ```
 SHA-256(
   u8           version = 1
   u16LE + utf8 "trana:v1"
-  u16LE + utf8 cluster
   32 bytes     wallet pubkey
   32 bytes     guard program ID
   32 bytes     target program ID
@@ -113,24 +120,27 @@ SHA-256(
 )
 ```
 
-Three things prevent replay: the nonce (incremented on-chain after every approval), the expiry timestamp (proof rejected if `clock.unix_timestamp >= expiry`), and exact field binding (changing any account, parameter, or cluster produces a different hash and fails verification).
-
-The expected cluster (`"mainnet-beta"`, `"devnet"`, `"localnet"`) is a compile-time constant baked into the program binary via Cargo feature flags — not stored in a mutable config account. A proof signed for devnet will fail with `ClusterMismatch` when submitted to a mainnet binary, even if both binaries share the same program ID.
+Three things prevent replay: the nonce (incremented on-chain after every approval), the expiry timestamp (proof rejected if `clock.unix_timestamp >= expiry`), and exact field binding (changing any account, parameter, or program produces a different hash and fails verification).
 
 ---
 
 ## Registry PDA
 
-Seeds: `["2fa", wallet_pubkey]`, program: guard.
+Seeds: `["passkey", wallet_pubkey]`, program: guard.
 
-| Field | Bytes | Notes |
+| Field | Type | Notes |
 |---|---|---|
-| Anchor discriminator | 8 | |
-| owner | 32 | wallet pubkey |
-| key_kind | 1 | |
-| pubkey_bytes | 4 + ≤33 | compressed P-256 |
-| credential_id | 4 + ≤128 | WebAuthn credential ID |
-| enabled | 1 | constraint-checked before enforce() |
-| nonce | 8 | u64 LE, increments on each approval |
+| Anchor discriminator | 8 bytes | |
+| owner | Pubkey (32) | wallet pubkey |
+| nonce | u64 (8) | increments on each `enforce()` |
+| keys | Vec\<PasskeyEntry\> | up to 10 entries |
 
-Total: 219 bytes allocated.
+Each `PasskeyEntry`:
+
+| Field | Type | Notes |
+|---|---|---|
+| key_kind | u8 (1) | `Secp256r1Passkey` or `Ed25519` |
+| pubkey_bytes | Vec\<u8\> (≤33) | compressed P-256 public key |
+| credential_id | Vec\<u8\> (≤128) | WebAuthn credential ID |
+
+Full max space (1752 bytes) is allocated at `register_passkey` time — no realloc needed when adding keys.
