@@ -68,7 +68,7 @@ pub(crate) fn verify_at_idx<'info>(
         msg!("TRANA_MISSING_PROOF");
         return Err(error!(GuardError::MissingProof));
     }
-    let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx)?;
+    let proof = load_proof_from_preceding_ix(ix_sysvar, current_idx, trana_guard_program_id)?;
     require!(proof.policy == expected_policy, GuardError::PolicyMismatch);
     // proof.policy == expected_policy is guaranteed above; pass expected_policy directly
     run_verification(ix_sysvar, registry, owner, trana_guard_program_id, current_idx, proof, expected_policy)
@@ -205,13 +205,15 @@ fn run_verification<'info>(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn load_proof_from_preceding_ix(
-    ix_sysvar:   &AccountInfo,
-    current_idx: u16,
+    ix_sysvar:              &AccountInfo,
+    current_idx:            u16,
+    trana_guard_program_id: &Pubkey,
 ) -> Result<ProofData> {
     let idx      = (current_idx as usize) - 1;
     let proof_ix = load_instruction_at_checked(idx, ix_sysvar)
         .map_err(|_| error!(GuardError::InvalidProof))?;
 
+    require!(proof_ix.program_id == *trana_guard_program_id,    GuardError::InvalidProof);
     require!(proof_ix.data.len() >= 8,                          GuardError::InvalidProof);
     require!(proof_ix.data[..8] == RECORD_PROOF_DISC,           GuardError::InvalidProof);
 
