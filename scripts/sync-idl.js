@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright 2025 Trana, Inc.
+// Copyright 2026 Trana, Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Sync Anchor build artifacts into the SDK package.

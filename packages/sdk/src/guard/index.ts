@@ -1,4 +1,4 @@
-// Copyright 2025 Trana, Inc.
+// Copyright 2026 Trana, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 // trana_guard module — passkey registry, proof building, policy enforcement
