@@ -3,6 +3,18 @@ name = "trana_guard"
 version = "0.1.0"
 description = "Trana Guard — Onchain passkey authorization primitive for Solana"
 edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/tranaprotocol/trana"
+homepage = "https://trana.so"
+documentation = "https://trana.so/docs"
+keywords = ["solana", "passkey", "webauthn", "secp256r1", "anchor"]
+categories = ["cryptography::cryptocurrencies", "authentication"]
+exclude = [
+  "target/",
+  "tests/",
+  ".github/",
+  "*.sh",
+]
 
 [lib]
 crate-type = ["cdylib", "lib"]
