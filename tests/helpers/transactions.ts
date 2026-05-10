@@ -47,14 +47,25 @@ export async function sendV0(
     throw err
   }
 
-  // Use signature-based confirmation (WebSocket subscription) rather than the
-  // blockhash-expiry strategy. On a freshly started anchor test-validator the
-  // first few transactions can outlive a stale lastValidBlockHeight estimate.
-  const result = await connection.confirmTransaction(signature, "confirmed")
-  if (result.value.err) {
-    throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`)
+  // Poll getSignatureStatuses rather than using the WebSocket confirmTransaction
+  // overload (30s hard timeout) or the blockhash-expiry overload (stale on
+  // freshly started validators). 150 × 400 ms = 60 s ceiling.
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    const { value } = await connection.getSignatureStatuses([signature])
+    const status = value[0]
+    if (status) {
+      if (status.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`)
+      }
+      const level = status.confirmationStatus
+      if (level === "confirmed" || level === "finalized") {
+        return signature
+      }
+    }
+    await new Promise(r => setTimeout(r, 400))
   }
-  return signature
+  throw new Error(`Transaction ${signature} not confirmed within 60 s`)
 }
 
 export async function airdrop(

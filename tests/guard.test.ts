@@ -74,7 +74,12 @@ describe("trana", () => {
       await registerPasskey(program, owner, passkey, treasury)
       const treasuryAfter = await program.provider.connection.getBalance(treasury)
 
-      expect(treasuryAfter - treasuryBefore).toBe(registerFee)
+      const delta = treasuryAfter - treasuryBefore
+      // treasury = payer = test-validator identity, so it also accrues a small
+      // leader-fee share per block. Assert ≥ registerFee (program transfer) and
+      // < registerFee + 10_000 (noise ceiling) rather than exact equality.
+      expect(delta).toBeGreaterThanOrEqual(registerFee)
+      expect(delta - registerFee).toBeLessThan(10_000)
     })
 
     it("update_passkey", async () => {

@@ -9,7 +9,6 @@ import {
   setupWallet,
   registerPasskey,
   generateTestPasskey,
-  SOL,
 } from "./helpers/setup"
 import { sendV0, airdrop } from "./helpers/transactions"
 import { buildProofInstructions } from "./helpers/proof"
@@ -64,6 +63,25 @@ async function buildWithdrawProof(
   )
 }
 
+// deposit() — pool is a PDA with seeds that reference pool.authority (a field
+// read from the pool account data). Anchor v1 types incorrectly mark it as
+// auto-resolvable via `never`, but the resolver can't derive it without an
+// on-chain fetch. Pass it explicitly with `as any`.
+function depositAccounts(pool: PublicKey, depositor: PublicKey): any {
+  return { pool, depositor }
+}
+
+// withdraw() — same issue for pool + userDeposit. All other accounts (registry,
+// guardProgram, instructions sysvar) are auto-resolved by Anchor from the IDL.
+function withdrawAccounts(
+  pool:        PublicKey,
+  userDeposit: PublicKey,
+  owner:       PublicKey,
+  destination: PublicKey,
+): any {
+  return { pool, userDeposit, owner, destination }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("trana_test_vault", () => {
@@ -100,7 +118,7 @@ describe("trana_test_vault", () => {
       const before = await conn.getBalance(pool)
       await vault.methods
         .deposit(new anchor.BN(0.5 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: stranger.publicKey })
+        .accounts(depositAccounts(pool, stranger.publicKey))
         .signers([stranger])
         .rpc()
 
@@ -110,30 +128,20 @@ describe("trana_test_vault", () => {
 
     it("small_withdrawal_needs_no_proof", async () => {
       const { conn, pool } = await limitPoolFixture()
-      const { owner, passkey } = await setupGuardedUser(tranaGuard)
+      const { owner } = await setupGuardedUser(tranaGuard)
 
-      // Fund the pool and register the user's deposit
       await vault.methods
         .deposit(new anchor.BN(2 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey })
+        .accounts(depositAccounts(pool, owner.publicKey))
         .signers([owner])
         .rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       // 0.1 SOL < 1 SOL limit — no proof triple in the tx
       const ix = await vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // Plain tx, no secp256r1 preamble
@@ -148,24 +156,15 @@ describe("trana_test_vault", () => {
 
       await vault.methods
         .deposit(new anchor.BN(2 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey })
+        .accounts(depositAccounts(pool, owner.publicKey))
         .signers([owner])
         .rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(1.5 * LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // 1.5 SOL ≥ limit → enforce(Limit) requires proof → MissingProof
@@ -180,25 +179,15 @@ describe("trana_test_vault", () => {
 
       await vault.methods
         .deposit(new anchor.BN(2 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey })
+        .accounts(depositAccounts(pool, owner.publicKey))
         .signers([owner])
         .rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
-      const destBefore = await conn.getBalance(owner.publicKey)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       const proof = await buildWithdrawProof(tranaGuard, ix, owner, passkey, 0n, "trana.limit")
@@ -214,24 +203,15 @@ describe("trana_test_vault", () => {
 
       await vault.methods
         .deposit(new anchor.BN(3 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey })
+        .accounts(depositAccounts(pool, owner.publicKey))
         .signers([owner])
         .rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const buildIx = (amount: number) => vault.methods
         .withdraw(new anchor.BN(amount))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // Two small pulls: 0.4 + 0.4 = 0.8 SOL — still under 1 SOL window total
@@ -254,34 +234,28 @@ describe("trana_test_vault", () => {
 
     it("drain_window_is_per_user_not_global", async () => {
       const { conn, pool } = await limitPoolFixture()
-      const { owner: alice, passkey: aliceKey } = await setupGuardedUser(tranaGuard)
-      const { owner: bob }                      = await setupGuardedUser(tranaGuard)
+      const { owner: alice } = await setupGuardedUser(tranaGuard)
+      const { owner: bob }   = await setupGuardedUser(tranaGuard)
 
       await vault.methods.deposit(new anchor.BN(2 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: alice.publicKey }).signers([alice]).rpc()
+        .accounts(depositAccounts(pool, alice.publicKey)).signers([alice]).rpc()
       await vault.methods.deposit(new anchor.BN(2 * LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: bob.publicKey }).signers([bob]).rpc()
+        .accounts(depositAccounts(pool, bob.publicKey)).signers([bob]).rpc()
 
-      const aliceUd   = userDepositPda(pool, alice.publicKey, vault.programId)
-      const bobUd     = userDepositPda(pool, bob.publicKey, vault.programId)
-      const aliceReg  = registryPda(alice.publicKey, tranaGuard.programId)
-      const bobReg    = registryPda(bob.publicKey, tranaGuard.programId)
+      const aliceUd = userDepositPda(pool, alice.publicKey, vault.programId)
+      const bobUd   = userDepositPda(pool, bob.publicKey, vault.programId)
 
       // Alice drains her window
       for (let i = 0; i < 2; i++) {
         const ix = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
-          .accounts({ pool, userDeposit: aliceUd, owner: alice.publicKey,
-            destination: alice.publicKey, tranaGuardProgram: tranaGuard.programId,
-            tranaRegistry: aliceReg, instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY })
+          .accounts(withdrawAccounts(pool, aliceUd, alice.publicKey, alice.publicKey))
           .instruction()
         await sendV0(conn, [ix], alice.publicKey, [alice])
       }
 
       // Bob's window is untouched — his 0.4 SOL pull is still free
       const bobIx = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
-        .accounts({ pool, userDeposit: bobUd, owner: bob.publicKey,
-          destination: bob.publicKey, tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry: bobReg, instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY })
+        .accounts(withdrawAccounts(pool, bobUd, bob.publicKey, bob.publicKey))
         .instruction()
       await expect(
         sendV0(conn, [bobIx], bob.publicKey, [bob])
@@ -313,22 +287,13 @@ describe("trana_test_vault", () => {
       const { owner } = await setupGuardedUser(tranaGuard)
 
       await vault.methods.deposit(new anchor.BN(LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey }).signers([owner]).rpc()
+        .accounts(depositAccounts(pool, owner.publicKey)).signers([owner]).rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // No proof — first-ever pull, cooldown not yet started
@@ -346,22 +311,13 @@ describe("trana_test_vault", () => {
       const { owner } = await setupGuardedUser(tranaGuard)
 
       await vault.methods.deposit(new anchor.BN(LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey }).signers([owner]).rpc()
+        .accounts(depositAccounts(pool, owner.publicKey)).signers([owner]).rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const buildIx = () => vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // First pull (free)
@@ -378,30 +334,20 @@ describe("trana_test_vault", () => {
       const { owner, passkey } = await setupGuardedUser(tranaGuard)
 
       await vault.methods.deposit(new anchor.BN(LAMPORTS_PER_SOL))
-        .accounts({ pool, depositor: owner.publicKey }).signers([owner]).rpc()
+        .accounts(depositAccounts(pool, owner.publicKey)).signers([owner]).rpc()
 
-      const ud      = userDepositPda(pool, owner.publicKey, vault.programId)
-      const registry = registryPda(owner.publicKey, tranaGuard.programId)
+      const ud = userDepositPda(pool, owner.publicKey, vault.programId)
 
       const buildIx = () => vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts({
-          pool,
-          userDeposit:       ud,
-          owner:             owner.publicKey,
-          destination:       owner.publicKey,
-          tranaGuardProgram: tranaGuard.programId,
-          tranaRegistry:     registry,
-          instructions:      anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
         .instruction()
 
       // First pull (free, no proof)
       await sendV0(conn, [await buildIx()], owner.publicKey, [owner])
 
       // Read the stored last_withdraw_slot to compute the unlock slot the program will use
-      const udData     = await vault.account.userDeposit.fetch(ud)
-      const unlockSlot = BigInt(udData.lastWithdrawSlot.toString()) + COOLDOWN_SLOTS
+      const udData = await vault.account.userDeposit.fetch(ud)
 
       // Sign the proof with the correct policyId and the slot the program will compute
       const ix2 = await buildIx()
