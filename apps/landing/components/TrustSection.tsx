@@ -105,8 +105,8 @@ export function TrustSection() {
               },
               {
                 k: "Audit",
-                v: <span style={{ color: "var(--bone-2)" }}>Coming · Q3 2026</span>,
-                desc: "Independent firm engaged · report published before mainnet freeze",
+                v: <span style={{ color: "var(--bone-2)" }}>Planned · before mainnet launch</span>,
+                desc: "Independent security review · report published before mainnet",
               },
             ].map((row, i) => {
               // Mobile (1-col): items 0-2 get bottom border.
