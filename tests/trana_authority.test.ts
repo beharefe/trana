@@ -2419,7 +2419,7 @@ describe("trana_authority", () => {
       // ix[N-1]=secp256r1 as a record_proof discriminator → InvalidProof (6005)
       await expect(
         sendV0(tranaGuard.provider.connection, [proof.recordProofIx, proof.secp256r1Ix, ix], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("execute_any_wrong_owner_registry_pair_fails", async () => {

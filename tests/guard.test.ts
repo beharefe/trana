@@ -187,7 +187,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
 
     it("enforce_wrong_instruction_discriminator", async () => {
@@ -374,7 +374,7 @@ describe("trana", () => {
       // No record_proof: secp256r1 fills both ix[0] and ix[1]; ix[1] fails the discriminator check
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.secp256r1Ix, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("record_proof_wrong_order", async () => {
@@ -385,7 +385,7 @@ describe("trana", () => {
       // Swapped order: record_proof at ix[0], secp256r1 at ix[1] — secp256r1 fails the discriminator check at ix[N-1]
       await expect(
         sendV0(program.provider.connection, [proof.recordProofIx, proof.secp256r1Ix, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("record_proof_wrong_payload_hash", async () => {
@@ -511,7 +511,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, tamperedEnforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
   })
 
@@ -724,7 +724,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("instruction_introspection_fails_wrong_program", async () => {
@@ -880,7 +880,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, tamperedIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("malformed_authenticator_data", async () => {
@@ -1089,7 +1089,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, limitEnforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
   })
 
@@ -1238,7 +1238,7 @@ describe("trana", () => {
       // owner signs the tx (attacker HAS the wallet key in the demo scenario)
       await expect(
         sendV0(program.provider.connection, [ix], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6008/)  // Unauthorized — registry already occupied
+      ).rejects.toThrow(/"Custom":6007/)  // Unauthorized — registry already occupied
     })
 
     it("wallet_key_cannot_recover_without_existing_passkey", async () => {
@@ -1409,7 +1409,7 @@ describe("trana", () => {
       // Swap secp256r1 and record_proof — ix[N-1] is secp256r1, disc check fails → 6005
       await expect(
         sendV0(program.provider.connection, [proof.recordProofIx, proof.secp256r1Ix, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6005/)
+      ).rejects.toThrow(/"Custom":6004/)
     })
 
     it("attack_fake_record_proof_ix", async () => {
@@ -1450,7 +1450,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
 
     it("enforce_with_long_policy", async () => {
@@ -1460,7 +1460,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
 
     it("enforce_with_unicode_policy", async () => {
@@ -1470,7 +1470,7 @@ describe("trana", () => {
 
       await expect(
         sendV0(program.provider.connection, [proof.secp256r1Ix, proof.recordProofIx, enforceIx], owner.publicKey, [owner])
-      ).rejects.toThrow(/"Custom":6007/)
+      ).rejects.toThrow(/"Custom":6006/)
     })
   })
 })
