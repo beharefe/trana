@@ -12,7 +12,7 @@
  *
  * Environment support:
  *   Web browsers — fully supported
- *   Node.js       — IN PROGRESS: use `@trana-so/sdk/testing` for Node test environments
+ *   Node.js       — IN PROGRESS: use `@tranaprotocol/sdk/testing` for Node test environments
  *   React Native  — IN PROGRESS: device-specific WebAuthn wrappers planned
  *
  * Device hints / conditional UI:
@@ -223,11 +223,11 @@ function normalizeLowS(compact: Uint8Array): Uint8Array {
 
 function assertWebAuthnAvailable(): void {
   if (typeof navigator === "undefined" || !navigator.credentials?.create) {
-    // IN PROGRESS: Node.js support — use `@trana-so/sdk/testing` for Node test environments
+    // IN PROGRESS: Node.js support — use `@tranaprotocol/sdk/testing` for Node test environments
     throw new TranaWebAuthnError(
       "unavailable",
       "WebAuthn not available. Run in a browser environment. " +
-      "For Node.js / test environments, use @trana-so/sdk/testing instead.",
+      "For Node.js / test environments, use @tranaprotocol/sdk/testing instead.",
     )
   }
 }

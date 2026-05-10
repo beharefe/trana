@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * @trana-so/sdk — top-level barrel.
+ * @tranaprotocol/sdk — top-level barrel.
  *
  * For most use-cases, import from the sub-path that matches your module:
- *   import { TranaGuardClient }     from "@trana-so/sdk/guard"
- *   import { TranaAuthorityClient } from "@trana-so/sdk/authority"
- *   import { generateTestPasskey }  from "@trana-so/sdk/testing"  // never in prod
+ *   import { TranaGuardClient }     from "@tranaprotocol/sdk/guard"
+ *   import { TranaAuthorityClient } from "@tranaprotocol/sdk/authority"
+ *   import { generateTestPasskey }  from "@tranaprotocol/sdk/testing"  // never in prod
  *
  * This root export re-exports the most commonly used types and the two clients
  * for convenience when tree-shaking is handled by your bundler.

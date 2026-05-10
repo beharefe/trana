@@ -5,10 +5,10 @@
  * Shared types and constants for the Trana SDK.
  *
  * Import from the sub-path that matches your use-case:
- *   import { ... } from "@trana-so/sdk"          — core + guard re-exports
- *   import { ... } from "@trana-so/sdk/guard"    — guard module only
- *   import { ... } from "@trana-so/sdk/authority"— authority module only
- *   import { ... } from "@trana-so/sdk/testing"  — test utilities (never ship to prod)
+ *   import { ... } from "@tranaprotocol/sdk"          — core + guard re-exports
+ *   import { ... } from "@tranaprotocol/sdk/guard"    — guard module only
+ *   import { ... } from "@tranaprotocol/sdk/authority"— authority module only
+ *   import { ... } from "@tranaprotocol/sdk/testing"  — test utilities (never ship to prod)
  */
 
 import { Connection, PublicKey } from "@solana/web3.js"

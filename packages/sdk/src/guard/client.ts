@@ -151,7 +151,7 @@ export class TranaGuardClient {
    * Register a new passkey for an owner wallet.
    *
    * **Browser only** — triggers the native OS passkey creation dialog.
-   * For Node.js test environments, use `registerTestPasskey()` from `@trana-so/sdk/testing`.
+   * For Node.js test environments, use `registerTestPasskey()` from `@tranaprotocol/sdk/testing`.
    *
    * Flow:
    *   1. Triggers `navigator.credentials.create()` (no SDK modal)
@@ -193,7 +193,7 @@ export class TranaGuardClient {
    * Build the `secp256r1Ix + recordProofIx` proof pair for a protected instruction.
    *
    * **Browser only** — triggers the native OS passkey authentication dialog.
-   * For Node.js test environments, use `buildTestProof()` from `@trana-so/sdk/testing`.
+   * For Node.js test environments, use `buildTestProof()` from `@tranaprotocol/sdk/testing`.
    *
    * Flow:
    *   1. Fetches registry nonce (or uses provided `nonce`)
