@@ -1,0 +1,23 @@
+OWNERSHIP
+
+This software is owned and maintained by Trana, Inc.
+
+  Legal Name:  Trana, Inc.
+  Address:     1111B S Governors Ave STE 39117, Dover DE 19904
+  Website:     https://trana.so
+  Contact:     legal@trana.so
+
+All source code in this repository — including on-chain programs, the TypeScript
+SDK, and associated tooling — is copyright 2025 Trana, Inc. and licensed under
+the Apache License, Version 2.0 (see LICENSE).
+
+Contributions
+─────────────
+By submitting a pull request you agree that your contribution may be
+incorporated into this project under the Apache License 2.0, and that you have
+the right to make such a contribution (DCO: https://developercertificate.org).
+
+Trademarks
+──────────
+"Trana", the Trana logo, and "trana.so" are trademarks of Trana, Inc.
+This License does not grant permission to use these marks.

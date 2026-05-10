@@ -1,3 +1,6 @@
+// Copyright 2025 Trana, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use anchor_lang::prelude::*;
 
 /// PDA record that IS the on-chain upgrade authority for a program.

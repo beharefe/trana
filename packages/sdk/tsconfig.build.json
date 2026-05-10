@@ -3,7 +3,6 @@
     "target":           "ES2020",
     "module":           "ESNext",
     "moduleResolution": "bundler",
-    "jsx":              "react-jsx",
     "lib":              ["ES2020", "DOM"],
     "outDir":           "dist",
     "rootDir":          "src",
@@ -13,8 +12,18 @@
     "strict":           true,
     "esModuleInterop":  true,
     "skipLibCheck":     true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl":          ".",
+    "paths": {
+      "@noble/curves/nist": ["../../node_modules/@noble/curves/nist.d.ts"]
+    }
   },
-  "include": ["src/**/*"],
-  "exclude": ["src/testing.ts", "src/proof.ts", "node_modules"]
+  "include": [
+    "src/index.ts",
+    "src/core/**/*",
+    "src/guard/**/*",
+    "src/authority/**/*",
+    "src/testing/**/*",
+    "src/types/**/*"
+  ]
 }

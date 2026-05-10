@@ -2,10 +2,10 @@ import * as anchor from "@coral-xyz/anchor"
 import { Keypair, PublicKey } from "@solana/web3.js"
 import type { TranaGuard } from "../../target/types/trana_guard"
 import { airdrop, sendV0 } from "./transactions"
-import { generateTestPasskey } from "../../packages/sdk/src/testing"
+import { generateTestPasskey } from "../../packages/sdk/src/testing/index"
 import { buildProofInstructions } from "./proof"
 
-export type { TestPasskeyHandle } from "../../packages/sdk/src/testing"
+export type { TestPasskeyHandle } from "../../packages/sdk/src/testing/index"
 export { generateTestPasskey }
 
 export const SOL = 1_000_000_000

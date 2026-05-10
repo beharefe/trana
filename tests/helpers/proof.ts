@@ -1,9 +1,9 @@
 import { p256 } from "@noble/curves/nist"
 import { PublicKey, TransactionInstruction } from "@solana/web3.js"
-import { buildSecp256r1Ix, buildRecordProofIx } from "../../packages/sdk/src/secp256r1"
-import { buildIntent, hashIntent, intentFromInstruction } from "../../packages/sdk/src/react/intent"
-import { sha256Bytes } from "../../packages/sdk/src/utils"
-import type { TestPasskeyHandle } from "../../packages/sdk/src/testing"
+import { buildSecp256r1Ix, buildRecordProofIx } from "../../packages/sdk/src/core/secp256r1"
+import { buildIntent, hashIntent, intentFromInstruction } from "../../packages/sdk/src/core/intent"
+import { sha256Bytes } from "../../packages/sdk/src/core/sha256"
+import type { TestPasskeyHandle } from "../../packages/sdk/src/testing/index"
 
 export type { TestPasskeyHandle }
 

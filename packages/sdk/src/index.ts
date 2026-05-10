@@ -1,56 +1,45 @@
-// ── Policy helpers ────────────────────────────────────────────────────────────
-export { evaluatePolicy, policyString, type Policy } from "./policy"
+// Copyright 2025 Trana, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
-// ── Requirement check (client-side, UX only) ──────────────────────────────────
-export { checkRequirement } from "./requirement"
+/**
+ * @trana-so/sdk — top-level barrel.
+ *
+ * For most use-cases, import from the sub-path that matches your module:
+ *   import { TranaGuardClient }     from "@trana-so/sdk/guard"
+ *   import { TranaAuthorityClient } from "@trana-so/sdk/authority"
+ *   import { generateTestPasskey }  from "@trana-so/sdk/testing"  // never in prod
+ *
+ * This root export re-exports the most commonly used types and the two clients
+ * for convenience when tree-shaking is handled by your bundler.
+ */
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-export { sha256, sha256Bytes, generateNonce, decodeParamsU64 } from "./utils"
+// ── Guard module ──────────────────────────────────────────────────────────────
+export { TranaGuardClient }               from "./guard/client"
+export type {
+  TranaGuardClientOptions,
+  TwoFactorRegistryAccount,
+  TranaConfigAccount,
+  RegisterPasskeyResult,
+  BuildProofResult,
+  TranaGuard,
+}                                         from "./guard/client"
+export { IDL as GUARD_IDL }              from "./guard/idl"
 
-// ── secp256r1 precompile ──────────────────────────────────────────────────────
-export {
-  SECP256R1_PROGRAM_ID,
-  buildSecp256r1Ix,
-  buildWebAuthnMessage,
-  buildRecordProofIx,
-} from "./secp256r1"
+// ── Authority module ──────────────────────────────────────────────────────────
+export { TranaAuthorityClient }           from "./authority/client"
+export type {
+  TranaAuthorityClientOptions,
+  AuthorityRecordAccount,
+  TranaAuthority,
+}                                         from "./authority/client"
+export { IDL as AUTHORITY_IDL }          from "./authority/idl"
 
-// ── React: provider + hook ────────────────────────────────────────────────────
-//
-//   1. Wrap app:  <TranaProvider config={...}><App /><TranaModal /></TranaProvider>
-//   2. Hook:      const { authorizeAndSend } = useTrana()
-//   3. Call:      await authorizeAndSend({ instruction: ix, label: "..." })
-//
-export { TranaProvider, useTranaContext } from "./react/provider"
-export type { TranaContextValue } from "./react/provider"
-export { useTrana } from "./react/useTrana"
-export type { AuthorizeAndSendArgs, IntentInput } from "./react/useTrana"
-export { TranaModal } from "./react/modal"
-export type { TranaConfig, TranaState, TranaAction } from "./react/state"
-
-// ── Intent ────────────────────────────────────────────────────────────────────
-export type { TranaIntent } from "./react/intent"
-export { buildIntent, hashIntent, intentToPayloadHash, intentFromInstruction } from "./react/intent"
-
-// ── Registry ──────────────────────────────────────────────────────────────────
-export { findRegistryPda, fetchRegistry } from "./react/registry"
-export type { RegistryState } from "./react/registry"
-
-// ── Detection ─────────────────────────────────────────────────────────────────
-export { detectEnforcement, hasSecp256r1Ix } from "./react/detector"
-export type { DetectionResult } from "./react/detector"
-
-// ── WebAuthn (browser only) ───────────────────────────────────────────────────
-export { doRegistration, doApproval, derToCompact, lowS, extractPubkeyFromAttestation } from "./react/webauthn"
-
-// ── Error helpers ─────────────────────────────────────────────────────────────
-export { isTranaError, parseTranaError } from "./react/error"
-export type { TranaErrorKind } from "./react/error"
-
-// ── Passkey management ────────────────────────────────────────────────────────
-export { useTranaPasskeys } from "./react/useTranaPasskeys"
-export type { PasskeyEntry, RecoveryState, UseTranaPasskeysResult } from "./react/useTranaPasskeys"
-
-// ── Backup nudge ──────────────────────────────────────────────────────────────
-export { useBackupNudge } from "./react/useBackupNudge"
-export type { BackupNudgeState } from "./react/useBackupNudge"
+// ── Core types (shared by both modules) ──────────────────────────────────────
+export { Policy, policyId, createConnection, PROGRAM_IDS, ENDPOINTS } from "./core/types"
+export type { PasskeyHandle, TranaCluster }                             from "./core/types"
+export { buildIntent, hashIntent, intentFromInstruction }               from "./core/intent"
+export type { TranaIntent, IntentInput }                                from "./core/intent"
+export { buildSecp256r1Ix, buildWebAuthnMessage, buildRecordProofIx,
+         SECP256R1_PROGRAM_ID }                                         from "./core/secp256r1"
+export { registerPasskey, signIntent, TranaWebAuthnError }             from "./core/webauthn"
+export type { RegistrationResult, SigningResult, WebAuthnErrorCode }   from "./core/webauthn"
