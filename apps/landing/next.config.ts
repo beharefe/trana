@@ -7,15 +7,6 @@ const withNextra = nextra({
 
 const config: NextConfig = {
   pageExtensions: ["ts", "tsx", "mdx"],
-  async redirects() {
-    return [
-      {
-        source:      "/docs/try-it-live",
-        destination: "/docs/try-it-live/deposit",
-        permanent:   false,
-      },
-    ]
-  },
 }
 
 export default withNextra(config)
