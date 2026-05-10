@@ -177,7 +177,7 @@ export default function TryPage() {
 
   // ── Compute pool PDA when demo authority is set ───────────────────────────
   useEffect(() => {
-    if (!DEMO_VAULT_AUTHORITY) { setPoolExists(false); return }
+    if (!DEMO_VAULT_AUTHORITY) return   // leave poolExists as null → shows "…"
     try {
       const auth = new PublicKey(DEMO_VAULT_AUTHORITY)
       setPoolPda(getPoolPda(auth))
@@ -690,7 +690,7 @@ export default function TryPage() {
                         className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors"
                         style={{ background: "var(--lime)", color: "var(--ink)" }}
                         onClick={() => {
-                          setULast({ s: "pending", msg: "Passkey flow coming in next release…" })
+                          setULast({ s: "pending", msg: "Simulating passkey approval…" })
                           setTimeout(() => setULast({ s: "ok", msg: "UpgradeExecuted · trana_authority::execute_upgrade (simulated)" }), 1400)
                         }}
                       >

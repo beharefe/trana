@@ -13,7 +13,7 @@ export function SolanaProvider({ children }: { children: React.ReactNode }) {
   // the Wallet Standard. No legacy adapter list needed.
   return (
     <ConnectionProvider endpoint={DEVNET_RPC}>
-      <WalletProvider wallets={[]} autoConnect>
+      <WalletProvider wallets={[]}>
         <WalletModalProvider>
           {children}
         </WalletModalProvider>

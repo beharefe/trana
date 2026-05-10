@@ -16,7 +16,7 @@ import { TRANA_GUARD_ID, TRANA_VAULT_ID } from "./devnet"
 
 const POOL_SEED    = Buffer.from("trana-pool")
 const DEPOSIT_SEED = Buffer.from("deposit")
-const REGISTRY_SEED = Buffer.from("2fa")
+const REGISTRY_SEED = Buffer.from("passkey")
 
 export const VAULT_PROGRAM  = new PublicKey(TRANA_VAULT_ID)
 export const GUARD_PROGRAM  = new PublicKey(TRANA_GUARD_ID)
