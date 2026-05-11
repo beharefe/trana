@@ -1007,7 +1007,7 @@ export default function TryPage() {
           )}
 
           {/* Page content */}
-          <div className="px-5 sm:px-8 pt-5 md:pt-9 pb-16">
+          <div className="sm:px-8 pt-5 md:pt-9 pb-16">
 
             {/* ── Vault routes ── */}
             {isVault && vMeta && (
@@ -1512,18 +1512,22 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
 }) {
   return (
     <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)", display: "grid", gridTemplateColumns: "1fr" }}>
-      <div className="flex items-center justify-between px-6 py-[14px] border-b col-span-full"
+      <div className="flex items-center justify-between px-4 sm:px-6 py-[12px] sm:py-[14px] border-b col-span-full"
            style={{ borderColor: "var(--rule)", color: "var(--bone-2)", fontSize: 12.5 }}>
-        <div className="flex items-center gap-3 font-mono">
-          <span className="w-[7px] h-[7px] rounded-full"
+        <div className="flex items-center gap-3 font-mono min-w-0">
+          <span className="shrink-0 w-[7px] h-[7px] rounded-full"
                 style={{ background: dot === "lime" ? "var(--lime)" : "var(--plasma)", boxShadow: dot === "lime" ? "0 0 0 3px rgba(198,255,58,0.12)" : "0 0 0 3px rgba(255,91,31,0.12)" }} />
-          <span>{title}</span>
-          <span style={{ color: "var(--bone-4)" }}>·</span>
-          <span style={{ color: "var(--bone-3)" }}>{subtitle}</span>
+          <span className="truncate">{title}</span>
+          <span className="hidden sm:inline shrink-0" style={{ color: "var(--bone-4)" }}>·</span>
+          <span className="hidden sm:inline truncate" style={{ color: "var(--bone-3)" }}>{subtitle}</span>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px]" style={{ color: "var(--bone-3)" }}>
+        <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] shrink-0" style={{ color: "var(--bone-3)" }}>
           <span>policy in play</span>
           <span className="font-mono" style={{ color: policyColor }}>{policyLabel}</span>
+        </div>
+        {/* Mobile: show policy label only */}
+        <div className="sm:hidden font-mono text-[11px] shrink-0 ml-3" style={{ color: policyColor }}>
+          {policyLabel === "None" ? "" : policyLabel}
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
@@ -1534,12 +1538,12 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
 }
 
 function PanelBody({ children }: { children: React.ReactNode }) {
-  return <div className="p-5 sm:p-6 min-w-0">{children}</div>
+  return <div className="p-4 sm:p-6 min-w-0">{children}</div>
 }
 
 function PanelAside({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-5 sm:p-6 min-w-0 border-t md:border-t-0 md:border-l" style={{ borderColor: "var(--rule)", background: "rgba(255,255,255,0.012)" }}>
+    <div className="p-4 sm:p-6 min-w-0 border-t md:border-t-0 md:border-l" style={{ borderColor: "var(--rule)", background: "rgba(255,255,255,0.012)" }}>
       {children}
     </div>
   )
