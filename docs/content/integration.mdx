@@ -8,6 +8,8 @@ Complete Rust/Anchor and TypeScript SDK reference.
 
 ### 1. Dependency
 
+[![crates.io](https://img.shields.io/crates/v/trana-guard.svg)](https://crates.io/crates/trana-guard)
+
 ```toml
 [dependencies]
 anchor-lang = "0.32.1"
@@ -123,6 +125,8 @@ ix[N]    your instruction           calls trana_guard::cpi::enforce() via CPI
 
 ## Client: TypeScript SDK
 
+[![npm](https://img.shields.io/npm/v/@tranaprotocol/sdk.svg)](https://www.npmjs.com/package/@tranaprotocol/sdk)
+
 ### Setup
 
 ```ts
@@ -180,7 +184,7 @@ const withdrawIx = await program.methods
   .instruction()
 
 // 2. Load stored credential
-const stored      = JSON.parse(localStorage.getItem("trana_credential")!)
+const stored       = JSON.parse(localStorage.getItem("trana_credential")!)
 const credentialId = new Uint8Array(stored.credentialId)
 
 // 3. Build proof — triggers biometric prompt
