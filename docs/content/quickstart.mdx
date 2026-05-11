@@ -1,6 +1,6 @@
 # Quickstart
 
-Three instructions. One CPI call.
+Three instructions. One CPI call. Five minutes.
 
 ---
 
@@ -8,54 +8,53 @@ Three instructions. One CPI call.
 
 ```toml
 [dependencies]
-anchor-lang = "0.32.0"
-trana       = { version = "0.1", features = ["cpi"] }
+anchor-lang = "0.32.1"
+trana_guard = { version = "0.1.0", features = ["cpi", "devnet"] }
+# localnet: features = ["cpi", "localnet"]
 ```
 
 ## 2. Add Trana accounts
 
-Add a `trana_cpi_ctx()` helper on your accounts struct so the enforce call is one line everywhere you use it.
+Add a `trana_cpi_ctx()` helper on your accounts struct so the enforce call is one line everywhere.
 
 ```rust
-use trana::cpi::accounts::Enforce;
-use trana::program::Trana;
-use trana::Policy;
+use trana_guard::{cpi::accounts::Enforce, program::TranaGuard, Policy};
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    #[account(mut, has_one = owner, seeds = [b"vault", owner.key().as_ref()], bump)]
-    pub vault: Account<'info, VaultState>,
+    #[account(mut, has_one = owner)]
+    pub vault:       Account<'info, VaultState>,
     #[account(mut)]
-    pub owner: Signer<'info>,
+    pub owner:       Signer<'info>,
     /// CHECK: withdrawal destination
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    // Trana — three accounts
-    pub trana_guard_program: Program<'info, Trana>,
-    #[account(
-        mut,
-        seeds  = [b"2fa", owner.key().as_ref()],
-        bump,
-        seeds::program = trana_guard_program.key(),
-        constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
-    )]
-    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
-    /// CHECK: Instructions sysvar
+    // --- trana_guard ---
+    pub trana_guard_program: Program<'info, TranaGuard>,
+    /// CHECK: guard validates ownership and proof internally
+    #[account(mut)]
+    pub trana_registry: UncheckedAccount<'info>,
+    /// CHECK: instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
-    pub trana_instructions: UncheckedAccount<'info>,
+    pub instructions: UncheckedAccount<'info>,
 }
 
 impl<'info> Withdraw<'info> {
-    pub fn trana_cpi_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
-        CpiContext::new(self.trana_guard_program.to_account_info(), Enforce {
-            registry:     self.trana_registry.to_account_info(),
-            owner:        self.owner.to_account_info(),
-            instructions: self.trana_instructions.to_account_info(),
-        })
+    fn trana_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Enforce<'info>> {
+        CpiContext::new(
+            self.trana_guard_program.to_account_info(),
+            Enforce {
+                registry:     self.trana_registry.to_account_info(),
+                owner:        self.owner.to_account_info(),
+                instructions: self.instructions.to_account_info(),
+            },
+        )
     }
 }
 ```
+
+The registry PDA is derived client-side with seeds `["passkey", owner]` and passed in as `UncheckedAccount`. The guard validates it.
 
 ## 3. Call enforce
 
@@ -64,25 +63,23 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     require!(amount > 0,                           VaultError::ZeroAmount);
     require!(amount <= ctx.accounts.vault.balance, VaultError::InsufficientFunds);
 
-    // Passkey required when amount >= 1 SOL. Guard reads amount directly; the caller can't fake it.
-    trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
+    // Passkey required when amount >= 1 SOL. Guard reads amount directly from
+    // instruction data — the caller cannot fake it.
+    trana_guard::cpi::enforce(
+        ctx.accounts.trana_ctx(),
+        Policy::Limit { param_offset: 0, limit: 1_000_000_000 },
+    )?;
 
-    let vault_info = ctx.accounts.vault.to_account_info();
-    let dest_info  = ctx.accounts.destination.to_account_info();
-    **vault_info.try_borrow_mut_lamports()? -= amount;
-    **dest_info.try_borrow_mut_lamports()?  += amount;
-
-    ctx.accounts.vault.balance = ctx.accounts.vault.balance
-        .checked_sub(amount)
-        .ok_or(VaultError::Overflow)?;
-
+    **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= amount;
+    **ctx.accounts.destination.to_account_info().try_borrow_mut_lamports()? += amount;
+    ctx.accounts.vault.balance -= amount;
     Ok(())
 }
 ```
 
-Below 1 SOL, `enforce()` returns `Ok(())`. No passkey needed.
+Below 1 SOL the guard returns `Ok(())` immediately — no proof needed. Above the limit it verifies the secp256r1 proof from `ix[N-2]`.
 
-`param_offset` is the byte position of your target `u64`, counted after the 8-byte Anchor discriminator. The guard reads this value directly from the instruction data — the caller cannot fake it.
+`param_offset` is the byte position of your `u64` after the 8-byte Anchor discriminator:
 
 | Instruction | `param_offset` |
 |---|---|
@@ -90,63 +87,66 @@ Below 1 SOL, `enforce()` returns `Ok(())`. No passkey needed.
 | `fn transfer(ctx, recipient: Pubkey, amount: u64)` | `32` |
 | `fn action(ctx, flag: bool, amount: u64)` | `1` |
 
-Each type occupies its byte size: `Pubkey` = 32, `u64` = 8, `u32` = 4, `bool`/`u8` = 1.
+## 4. Client — derive registry PDA
 
-## 4. Client
-
-Wrap your app once, then call `authorizeAndSend` wherever you trigger a protected transaction.
-
-```tsx
-// _app.tsx
-import { TranaProvider, TranaModal } from "@tranaprotocol/guard-sdk"
+```ts
 import { PublicKey } from "@solana/web3.js"
 
-const TRANA_GUARD_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)
+const TRANA_GUARD_ID = new PublicKey("TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG")
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
-  return (
-<TranaProvider config={{
-  tranaGuardProgramId: TRANA_GUARD_PROGRAM_ID,
-  policy: "trana.limit",
-}}>
-  {children}
-  <TranaModal />
-</TranaProvider>
+function registryPda(owner: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("passkey"), owner.toBuffer()],
+    TRANA_GUARD_ID,
   )
+  return pda
 }
 ```
 
-```tsx
-// withdraw.tsx
-const { authorizeAndSend } = useTrana()
+## 5. Client — build and send a protected transaction
 
-const withdrawIx = await program.methods.withdraw(amount).instruction()
+```ts
+import { TranaGuardClient, Policy } from "@tranaprotocol/sdk"
 
-await authorizeAndSend({
-  instruction: withdrawIx,
-  label: `Withdraw ${amount / 1e9} SOL`,
-  buildTransaction: async ({ recentBlockhash }) => {
-    const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
-    tx.add(withdrawIx)
-    return tx
-  },
+const client = new TranaGuardClient({ connection, cluster: "devnet" })
+
+// Build your protected instruction as usual
+const withdrawIx = await program.methods
+  .withdraw(new BN(amount))
+  .accounts({
+    vault,
+    owner:              wallet.publicKey,
+    destination:        wallet.publicKey,
+    tranaGuardProgram:  TRANA_GUARD_ID,
+    tranaRegistry:      registryPda(wallet.publicKey),
+    instructions:       SYSVAR_INSTRUCTIONS_PUBKEY,
+  })
+  .instruction()
+
+// Build the secp256r1 + record_proof proof pair
+const { secp256r1Ix, recordProofIx } = await client.buildProof({
+  protectedIx:  withdrawIx,
+  owner:        wallet.publicKey,
+  credentialId: storedHandle.credentialId,  // saved from registerPasskey()
+  policy:       Policy.Limit(0, 1_000_000_000n),
+  rpId:         window.location.hostname,
 })
-```
 
-The SDK handles everything on the client side: simulation, first-time registration, the review modal, the biometric prompt, and proof construction. Your program code stays the same.
+// Assemble the triplet and send
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, withdrawIx)
+await wallet.sendTransaction(tx, connection)
+```
 
 ---
 
 ## Policies
 
-| Variant | Fires when |
+| Variant | Requires proof when |
 |---|---|
 | `Policy::Require` | Always |
-| `Policy::Limit { param_offset, limit }` | u64 at offset ≥ limit |
+| `Policy::Limit { param_offset, limit }` | u64 at offset >= limit |
 | `Policy::NotBefore { slot }` | current slot < slot |
 | `Policy::NotAfter { slot }` | current slot > slot |
-
-When a conditional policy doesn't fire, `enforce()` returns `Ok(())`. No proof required.
 
 ---
 
