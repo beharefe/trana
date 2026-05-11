@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useWallet, useConnection }   from "@solana/wallet-adapter-react"
-import { useWalletModal }             from "@solana/wallet-adapter-react-ui"
-import { PublicKey, Transaction }     from "@solana/web3.js"
+import { useWalletModal } from "@solana/wallet-adapter-react-ui"
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js"
 import { SiteNav }                    from "@/components/SiteNav"
 import {
   TRANA_GUARD_ID,
@@ -18,14 +18,33 @@ import {
   fetchUserDeposit,
   buildDepositIx,
   buildWithdrawIx,
+  buildRegisterPasskeyIx,
+  fetchRegistryNonce,
+  fetchFirstPasskey,
+  fetchAllPasskeys,
+  buildAddPasskeyIx,
   WITHDRAW_LIMIT,
+  COOLDOWN_SLOTS,
+  DRAIN_WINDOW_SEC,
+  type UserDepositState,
 } from "@/lib/vault"
+import {
+  registerPasskey,
+  signIntent,
+  buildSecp256r1Ix,
+  buildRecordProofIx,
+  buildWebAuthnMessage,
+  buildIntent,
+  hashIntent,
+  intentFromInstruction,
+  TranaAuthorityClient,
+} from "@tranaprotocol/sdk"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Route =
-  | "vault/withdraw" | "vault/deposit" | "vault/upgrade"
-  | "auth/programs"  | "auth/list"
+  | "vault/withdraw" | "vault/deposit"
+  | "auth/programs"  | "auth/upgrade" | "auth/passkeys" | "auth/list"
 type TxResult =
   | { s: "idle" }
   | { s: "pending"; msg: string }
@@ -36,6 +55,12 @@ interface ConsoleLine { ts: string; cls: "eval" | "ok" | "err"; msg: string }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+function uint8Equal(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
 const shortAddr = (s: string) => s.slice(0, 4) + "…" + s.slice(-4)
 const shortSig  = (s: string) => s.slice(0, 4) + "…" + s.slice(-4)
 const nowTs = () => {
@@ -45,27 +70,52 @@ const nowTs = () => {
 function wait(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
 
 function parseErrMsg(e: unknown): string {
-  if (e instanceof Error) {
-    // Anchor/program error message sits inside the logs
-    const m = e.message
-    const custom = m.match(/custom program error: (0x[0-9a-f]+)/i)
-    if (custom) return `Program error ${custom[1]}`
-    if (m.includes("passkey") || m.includes("proof") || m.includes("Secp256r1"))
-      return "Proof required — passkey needed for this withdrawal"
-    if (m.includes("insufficient")) return "Insufficient funds"
-    return m.slice(0, 90)
+  if (!(e instanceof Error)) return String(e).slice(0, 120)
+
+  // WalletSendTransactionError wraps a SendTransactionError which may have tx logs
+  const inner = (e as any).error ?? (e as any).cause
+  if (inner instanceof Error) {
+    const logs: string[] | undefined = (inner as any).logs
+    if (logs?.length) {
+      const anchorErr = [...logs].reverse().find(l => l.includes("Error Message:"))
+      if (anchorErr) return anchorErr.replace(/.*Error Message: /, "")
+      const prog = [...logs].reverse().find(l => l.includes("custom program error"))
+      if (prog) {
+        const hex = prog.match(/custom program error: (0x[0-9a-f]+)/i)?.[1]
+        if (hex) return codeToMsg(parseInt(hex, 16), hex)
+      }
+    }
+    return parseErrMsg(inner)
   }
-  return String(e).slice(0, 90)
+
+  const m = e.message
+  const custom = m.match(/custom program error: (0x[0-9a-f]+)/i)
+  if (custom) return codeToMsg(parseInt(custom[1], 16), custom[1])
+  if (m.toLowerCase().includes("not connected") || m.toLowerCase().includes("wallet not connected"))
+    return "Wallet disconnected — reconnect and try again"
+  if (m.includes("passkey") || m.includes("proof") || m.includes("Secp256r1"))
+    return "Proof required — passkey needed for this withdrawal"
+  if (m.includes("insufficient")) return "Insufficient funds"
+  return m.slice(0, 120)
+}
+
+function codeToMsg(code: number, hex: string): string {
+  if (code === 0x1773) return "WrongSigner — passkey in registry doesn't match this device. Use a fresh wallet."
+  if (code === 0x1770) return "MissingProof — passkey proof required for this withdrawal"
+  if (code === 0x1771) return "Proof expired — try again"
+  if (code === 0x1772) return "PayloadMismatch — intent hash mismatch"
+  return `Program error ${hex}`
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { route: "vault/withdraw" as Route, ix: "01", label: "The vault attack",    group: "demo" },
-  { route: "vault/deposit"  as Route, ix: "02", label: "Deposit",             group: "demo" },
-  { route: "vault/upgrade"  as Route, ix: "03", label: "Program upgrade",     group: "demo" },
-  { route: "auth/programs"  as Route, ix: "04", label: "Secure a program",    group: "auth" },
-  { route: "auth/list"      as Route, ix: "05", label: "Secured authorities", group: "auth" },
+  { route: "vault/deposit"  as Route, ix: "01", label: "Deposit",             group: "demo" },
+  { route: "vault/withdraw" as Route, ix: "02", label: "The vault attack",    group: "demo" },
+  { route: "auth/programs"  as Route, ix: "03", label: "Secure a program",    group: "auth", soon: true },
+  { route: "auth/upgrade"   as Route, ix: "04", label: "Upgrade program",     group: "auth", soon: true },
+  { route: "auth/passkeys"  as Route, ix: "05", label: "Manage passkeys",     group: "auth", soon: true },
+  { route: "auth/list"      as Route, ix: "06", label: "Secured authorities", group: "auth", soon: true },
 ] as const
 
 const VAULT_META: Record<string, { title: string; lede: React.ReactNode }> = {
@@ -81,10 +131,6 @@ const VAULT_META: Record<string, { title: string; lede: React.ReactNode }> = {
     title: "Deposit.",
     lede: <>Anyone can deposit into the shared pool. <em>No passkey required.</em> Withdrawals are policy-gated.</>,
   },
-  "vault/upgrade": {
-    title: "Program upgrade.",
-    lede: <>The upgrade authority has been transferred to a Trana Authority PDA. The wallet key alone cannot patch this program.</>,
-  },
 }
 
 const AUTH_META: Record<string, { title: string; lede: React.ReactNode }> = {
@@ -95,6 +141,14 @@ const AUTH_META: Record<string, { title: string; lede: React.ReactNode }> = {
       From then on, only a <em>passkey-approved</em> instruction can ship a new binary — even if your deploy key leaks.
       Zero changes to the target program.</>
     ),
+  },
+  "auth/upgrade": {
+    title: "Upgrade a secured program.",
+    lede: <>Write the new binary to a buffer, paste the address, approve with your passkey. The wallet key alone is rejected.</>,
+  },
+  "auth/passkeys": {
+    title: "Manage passkeys.",
+    lede: <>Add a backup passkey to your registry. Proof from your current key required — you control which devices can approve transactions.</>,
   },
   "auth/list": {
     title: "Secured authorities.",
@@ -135,6 +189,65 @@ function LastResult({ r }: { r: TxResult }) {
   )
 }
 
+// ── Wallet button ─────────────────────────────────────────────────────────────
+
+function WalletButton() {
+  const { publicKey, connected, disconnect } = useWallet()
+  const { setVisible } = useWalletModal()
+  const [open, setOpen] = useState(false)
+
+  if (!connected || !publicKey) {
+    return (
+      <button
+        className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
+        style={{ border: "1px solid var(--lime)", color: "var(--ink)", background: "var(--lime)" }}
+        onClick={() => setVisible(true)}
+      >
+        Connect
+      </button>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <button
+        className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
+        style={{ border: "1px solid rgba(198,255,58,0.35)", background: "rgba(198,255,58,0.06)", color: "var(--lime)" }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: "var(--lime)" }} />
+        {shortAddr(publicKey.toBase58())}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 top-full mt-1 z-20 flex flex-col min-w-[160px] py-1"
+            style={{ background: "var(--ink-2)", border: "1px solid var(--rule-2)" }}
+          >
+            {[
+              { label: "Copy address", action: () => { navigator.clipboard.writeText(publicKey.toBase58()); setOpen(false) } },
+              { label: "Change wallet", action: () => { setVisible(true); setOpen(false) } },
+              { label: "Disconnect",    action: () => { disconnect(); setOpen(false) } },
+            ].map(({ label, action }) => (
+              <button
+                key={label}
+                onClick={action}
+                className="px-4 py-[9px] text-left font-mono text-[11px] tracking-[0.06em] cursor-pointer transition-colors"
+                style={{ color: "var(--bone-2)", background: "transparent" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(235,232,224,0.05)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TryPage() {
@@ -142,15 +255,18 @@ export default function TryPage() {
   const { publicKey, connected, sendTransaction } = useWallet()
   const { setVisible: openWalletModal }           = useWalletModal()
 
-  const [route, setRoute]     = useState<Route>("vault/withdraw")
+  const [route, setRoute]     = useState<Route>("vault/deposit")
   const [slot, setSlot]       = useState<number | null>(null)
   const [sideOpen, setSideOpen] = useState(false)
 
   // pool / deposit state
   const [poolLamports, setPoolLamports]   = useState<number | null>(null)
   const [poolExists, setPoolExists]       = useState<boolean | null>(null)
-  const [userBalance, setUserBalance]     = useState<bigint>(0n)
+  const [userDeposit, setUserDeposit]     = useState<UserDepositState | null>(null)
   const [poolPda, setPoolPda]             = useState<PublicKey | null>(null)
+
+  // passkey credential (persisted across retries within the session)
+  const passkeyRef = useRef<{ credentialId: Uint8Array; pubkeyBytes: Uint8Array } | null>(null)
 
   // tx state
   const [wAmt, setWAmt]       = useState("0.40")
@@ -159,6 +275,10 @@ export default function TryPage() {
   const [wLast, setWLast]     = useState<TxResult>({ s: "idle" })
   const [depLast, setDepLast] = useState<TxResult>({ s: "idle" })
   const [upgLast, setULast]   = useState<TxResult>({ s: "idle" })
+  const [upgTarget, setUpgTarget] = useState("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa")
+  const [upgBuffer, setUpgBuffer] = useState("")
+  const [pkLast, setPkLast]   = useState<TxResult>({ s: "idle" })
+  const [pkGenerated, setPkGenerated] = useState<{ pubkeyHex: string; credIdHex: string } | null>(null)
 
   // auth state
   const [authTarget, setAuthTarget]   = useState("")
@@ -177,7 +297,7 @@ export default function TryPage() {
 
   // ── Compute pool PDA when demo authority is set ───────────────────────────
   useEffect(() => {
-    if (!DEMO_VAULT_AUTHORITY) { setPoolExists(false); return }
+    if (!DEMO_VAULT_AUTHORITY) return   // leave poolExists as null → shows "…"
     try {
       const auth = new PublicKey(DEMO_VAULT_AUTHORITY)
       setPoolPda(getPoolPda(auth))
@@ -200,12 +320,26 @@ export default function TryPage() {
     return () => clearInterval(id)
   }, [refreshPool])
 
-  // ── Fetch user deposit balance ─────────────────────────────────────────────
+  // ── Restore passkey credential from on-chain registry when wallet connects ─
   useEffect(() => {
+    if (!publicKey) return
+    fetchFirstPasskey(connection, publicKey).then(p => {
+      if (p) passkeyRef.current = p
+    })
+  }, [publicKey, connection])
+
+  // ── Fetch user deposit state ───────────────────────────────────────────────
+  const refreshDeposit = useCallback(async () => {
     if (!publicKey || !poolPda) return
     const depositPda = getUserDepositPda(poolPda, publicKey)
-    fetchUserDeposit(connection, depositPda).then(s => setUserBalance(s.balance))
+    setUserDeposit(await fetchUserDeposit(connection, depositPda))
   }, [connection, publicKey, poolPda])
+
+  useEffect(() => {
+    refreshDeposit()
+    const id = setInterval(refreshDeposit, 6_000)
+    return () => clearInterval(id)
+  }, [refreshDeposit])
 
   // ── Live slot ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -232,22 +366,161 @@ export default function TryPage() {
       setWLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
+    if (poolLamports !== null && BigInt(poolLamports) < lamports) {
+      setWLast({ s: "err", msg: `Pool only has ${(poolLamports / 1e9).toFixed(4)} SOL — deposit more or reduce amount` })
+      return
+    }
 
-    setWLast({ s: "pending", msg: "Sending transaction…" })
+    const rpId        = window.location.hostname
+    const registryPda = getRegistryPda(publicKey)
+    const depositPda  = getUserDepositPda(poolPda, publicKey)
+    const GUARD       = new PublicKey(TRANA_GUARD_ID)
+
+    setWLast({ s: "pending", msg: "Simulating…" })
     try {
-      const depositPda = getUserDepositPda(poolPda, publicKey)
-      const registryPda = getRegistryPda(publicKey)
-      const ix = buildWithdrawIx(poolPda, depositPda, publicKey, publicKey, registryPda, lamports)
-      const tx = new Transaction().add(ix)
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
-      tx.recentBlockhash = blockhash
-      tx.feePayer = publicKey
-      const sig = await sendTransaction(tx, connection)
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
-      await refreshPool()
-      setWLast({ s: "ok", msg: `Withdrawn ${wAmt} SOL`, sig })
+      const withdrawIx = buildWithdrawIx(poolPda, depositPda, publicKey, publicKey, registryPda, lamports)
+
+      // ── Step 1: ensure registry exists ───────────────────────────────────
+      const registryInfo = await connection.getAccountInfo(registryPda)
+      if (!registryInfo) {
+        setWLast({ s: "pending", msg: "No passkey registered — Touch ID will prompt to create one…" })
+        const cred  = await registerPasskey(rpId, publicKey.toBytes(), shortAddr(publicKey.toBase58()))
+        passkeyRef.current = cred
+        const regIx = await buildRegisterPasskeyIx(publicKey, connection, cred.pubkeyBytes, cred.credentialId)
+        const regTx = new Transaction().add(regIx)
+        const { blockhash: rb, lastValidBlockHeight: rlvh } = await connection.getLatestBlockhash("confirmed")
+        regTx.recentBlockhash = rb; regTx.feePayer = publicKey
+        const regSig = await sendTransaction(regTx, connection, { skipPreflight: true })
+        const regResult = await connection.confirmTransaction({ signature: regSig, blockhash: rb, lastValidBlockHeight: rlvh }, "confirmed")
+        if (regResult.value.err) throw new Error(`Passkey registration tx failed: ${JSON.stringify(regResult.value.err)}`)
+        setWLast({ s: "pending", msg: "Passkey registered — continuing…" })
+      } else {
+        // Registry exists — restore credential from chain (source of truth)
+        const onChain = await fetchFirstPasskey(connection, publicKey)
+        if (onChain) passkeyRef.current = onChain
+      }
+
+      // ── Step 2: simulate plain withdraw (works for under-limit) ──────────
+      const buildPlainTx = async () => {
+        const tx = new Transaction().add(withdrawIx)
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+        tx.recentBlockhash = blockhash; tx.feePayer = publicKey
+        return { tx, blockhash, lastValidBlockHeight }
+      }
+
+      let { tx, blockhash, lastValidBlockHeight } = await buildPlainTx()
+      const sim = await connection.simulateTransaction(tx)
+      const simLogs = sim.value.logs ?? []
+      const needsProof = simLogs.some(l => l.includes("MissingProof"))
+
+      if (needsProof) {
+        // ── Step 3: build proof transaction with WebAuthn ─────────────────
+        // Detect which policy the guard requires from simulation logs
+        const notBeforeLog = simLogs.find(l => l.includes("policy=trana.not_before"))
+        const proofPolicy  = notBeforeLog ? "trana.not_before" : "trana.limit"
+        const label = notBeforeLog ? "Burst window — Touch ID required to proceed…" : "Over limit — Touch ID will prompt to approve…"
+        setWLast({ s: "pending", msg: label })
+
+        // Ensure we have the credential — register if missing
+        if (!passkeyRef.current) {
+          setWLast({ s: "pending", msg: "Touch ID will prompt to create a passkey…" })
+          const cred  = await registerPasskey(rpId, publicKey.toBytes(), shortAddr(publicKey.toBase58()))
+          passkeyRef.current = cred
+            const regIx = await buildRegisterPasskeyIx(publicKey, connection, cred.pubkeyBytes, cred.credentialId)
+          const regTx = new Transaction().add(regIx)
+          const { blockhash: rb, lastValidBlockHeight: rlvh } = await connection.getLatestBlockhash("confirmed")
+          regTx.recentBlockhash = rb; regTx.feePayer = publicKey
+          const regSig = await sendTransaction(regTx, connection, { skipPreflight: true })
+          await connection.confirmTransaction({ signature: regSig, blockhash: rb, lastValidBlockHeight: rlvh }, "confirmed")
+        }
+        const { credentialId, pubkeyBytes } = passkeyRef.current
+
+        const nonce  = await fetchRegistryNonce(connection, publicKey)
+        const intent = buildIntent(
+          publicKey, GUARD,
+          intentFromInstruction(withdrawIx),
+          nonce,
+          { policy: proofPolicy, expiryTtlSec: 120 },
+        )
+        const challenge = hashIntent(intent)
+
+        const signing = await signIntent(challenge, credentialId, rpId)
+        // Give the wallet a moment to re-initialize after the WebAuthn dialog took focus
+        await new Promise(r => setTimeout(r, 300))
+        const { signature, authenticatorData, clientDataJSON } = signing
+        // If the credential that actually signed differs from our stored credentialId,
+        // look up the matching pubkey from the registry (shouldn't happen with specific allowCredentials).
+        let signingPubkey = pubkeyBytes
+        if (!uint8Equal(signing.credentialId, credentialId)) {
+          const all = await fetchAllPasskeys(connection, publicKey)
+          const match = all.find(e => uint8Equal(e.credentialId, signing.credentialId))
+          if (!match) throw new Error("Selected passkey is not registered for this wallet. Use a fresh wallet.")
+          signingPubkey = match.pubkeyBytes
+        }
+
+        const message      = buildWebAuthnMessage(authenticatorData, clientDataJSON)
+        const secp256r1Ix  = buildSecp256r1Ix(signingPubkey, signature, message)
+        const recordProofIx = buildRecordProofIx(GUARD, authenticatorData, clientDataJSON, intent.expiryUnix, proofPolicy)
+
+        const proofTx = new Transaction().add(secp256r1Ix, recordProofIx, withdrawIx)
+        const { blockhash: pb, lastValidBlockHeight: plvh } = await connection.getLatestBlockhash("confirmed")
+        proofTx.recentBlockhash = pb; proofTx.feePayer = publicKey
+        ;({ tx, blockhash, lastValidBlockHeight } = { tx: proofTx, blockhash: pb, lastValidBlockHeight: plvh })
+      } else if (sim.value.err) {
+        console.error("[trana] simulation failed:", sim.value.err)
+        if (simLogs.length) console.error("[trana] sim logs:\n" + simLogs.join("\n"))
+        const anchorErr = simLogs.findLast(l => l.includes("Error Message:"))
+        const progErr   = simLogs.findLast(l => l.includes("custom program error"))
+        setWLast({ s: "err", msg: anchorErr ?? progErr ?? JSON.stringify(sim.value.err) })
+        return
+      }
+
+      setWLast({ s: "pending", msg: "Sending transaction…" })
+      let txSig: string | null = null
+      try {
+        txSig = await sendTransaction(tx, connection, { skipPreflight: true })
+        setWLast({ s: "pending", msg: "Confirming…" })
+        const result = await connection.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed")
+        if (result.value.err) {
+          console.error("[trana] on-chain tx failed:", result.value.err, "sig:", txSig)
+          throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`)
+        }
+      } catch (sendErr) {
+        // Phantom sometimes signs+submits successfully then throws an internal error.
+        if (txSig) {
+          // We have the sig — check if it confirmed despite the error.
+          const status = await connection.getSignatureStatus(txSig, { searchTransactionHistory: false })
+          const conf = status.value?.confirmationStatus
+          if ((conf === "confirmed" || conf === "finalized") && !status.value?.err) {
+            await Promise.all([refreshPool(), refreshDeposit()])
+            setWLast({ s: "ok", msg: `Withdrawn ${wAmt} SOL`, sig: txSig })
+            return
+          }
+        } else {
+          // No sig returned — Phantom may have thrown before submitting.
+          // Wait briefly then check recent signatures for this wallet.
+          await new Promise(r => setTimeout(r, 1500))
+          const recent = await connection.getSignaturesForAddress(publicKey, { limit: 1 })
+          if (recent[0] && !recent[0].err && Date.now() / 1000 - (recent[0].blockTime ?? 0) < 20) {
+            await Promise.all([refreshPool(), refreshDeposit()])
+            setWLast({ s: "ok", msg: `Withdrawn ${wAmt} SOL`, sig: recent[0].signature })
+            return
+          }
+        }
+        throw sendErr
+      }
+      await Promise.all([refreshPool(), refreshDeposit()])
+      setWLast({ s: "ok", msg: `Withdrawn ${wAmt} SOL`, sig: txSig })
     } catch (e) {
-      setWLast({ s: "err", msg: parseErrMsg(e) })
+      const msg = parseErrMsg(e)
+      // Log the full error so devtools shows the real cause
+      const inner = (e as any)?.error ?? (e as any)?.cause
+      const logs: string[] | undefined = (inner as any)?.logs ?? (e as any)?.logs
+      if (logs?.length) {
+        console.error("[trana] tx logs:\n" + logs.join("\n"))
+      }
+      console.error("[trana] withdraw error:", e)
+      setWLast({ s: "err", msg })
     }
   }
 
@@ -278,50 +551,295 @@ export default function TryPage() {
     }
   }
 
-  // ── Auth secure (simulated — passkey UX coming) ───────────────────────────
+  // ── Upgrade with leaked wallet key (will fail — not the authority) ────────
+  async function handleUpgradeLeak() {
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    setULast({ s: "pending", msg: "Sending direct upgrade attempt…" })
+    try {
+      let targetPk: PublicKey
+      try { targetPk = new PublicKey(upgTarget) } catch { setULast({ s: "err", msg: "Invalid program ID" }); return }
+      if (!upgBuffer.trim()) { setULast({ s: "err", msg: "Paste a buffer address first" }); return }
+      let bufPk: PublicKey
+      try { bufPk = new PublicKey(upgBuffer) } catch { setULast({ s: "err", msg: "Invalid buffer address" }); return }
+
+      const progInfo = await connection.getAccountInfo(targetPk)
+      if (!progInfo) { setULast({ s: "err", msg: "Program not found" }); return }
+      const programDataAddr = new PublicKey(progInfo.data.slice(4, 36))
+
+      const BPF_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
+      const upgradeIx = new TransactionInstruction({
+        programId: BPF_UPGRADEABLE,
+        keys: [
+          { pubkey: programDataAddr, isSigner: false, isWritable: true  },
+          { pubkey: targetPk,        isSigner: false, isWritable: true  },
+          { pubkey: bufPk,           isSigner: false, isWritable: true  },
+          { pubkey: publicKey,       isSigner: true,  isWritable: true  }, // wrong authority
+          { pubkey: new PublicKey("SysvarRent111111111111111111111111111111111"), isSigner: false, isWritable: false },
+          { pubkey: new PublicKey("SysvarC1ock11111111111111111111111111111111"), isSigner: false, isWritable: false },
+        ],
+        data: Buffer.from([3, 0, 0, 0]), // Upgrade discriminant
+      })
+      const tx = new Transaction().add(upgradeIx)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash; tx.feePayer = publicKey
+      const sig = await sendTransaction(tx, connection, { skipPreflight: true })
+      const res = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+      if (res.value.err) throw new Error(`Rejected on-chain: ${JSON.stringify(res.value.err)}`)
+      setULast({ s: "ok", msg: "Upgraded (unexpected — is the PDA still the authority?)", sig })
+    } catch (e) {
+      setULast({ s: "err", msg: "Reverted · BPF Loader · " + parseErrMsg(e), })
+    }
+  }
+
+  // ── Upgrade with passkey (real Touch ID + execute_upgrade CPI) ─────────────
+  async function handleUpgradePasskey() {
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    if (!upgBuffer.trim()) { setULast({ s: "err", msg: "Paste the buffer address from `solana program write-buffer`" }); return }
+
+    let targetPk: PublicKey, bufPk: PublicKey
+    try { targetPk = new PublicKey(upgTarget) } catch { setULast({ s: "err", msg: "Invalid program ID" }); return }
+    try { bufPk = new PublicKey(upgBuffer.trim()) } catch { setULast({ s: "err", msg: "Invalid buffer address" }); return }
+
+    const GUARD = new PublicKey(TRANA_GUARD_ID)
+    const authorityClient = new TranaAuthorityClient({ connection, cluster: "devnet" })
+    const rpId = window.location.hostname
+
+    setULast({ s: "pending", msg: "Reading on-chain state…" })
+    try {
+      const progInfo = await connection.getAccountInfo(targetPk)
+      if (!progInfo) throw new Error("Program not found on devnet")
+      const programDataAddr = new PublicKey(progInfo.data.slice(4, 36))
+
+      // Ensure passkey registered
+      const registryPda = getRegistryPda(publicKey)
+      const registryInfo = await connection.getAccountInfo(registryPda)
+      if (!registryInfo) {
+        setULast({ s: "pending", msg: "No passkey — Touch ID will register one…" })
+        const cred = await registerPasskey(rpId, publicKey.toBytes(), shortAddr(publicKey.toBase58()))
+        passkeyRef.current = cred
+        const regIx = await buildRegisterPasskeyIx(publicKey, connection, cred.pubkeyBytes, cred.credentialId)
+        const regTx = new Transaction().add(regIx)
+        const { blockhash: rb, lastValidBlockHeight: rlvh } = await connection.getLatestBlockhash("confirmed")
+        regTx.recentBlockhash = rb; regTx.feePayer = publicKey
+        const regSig = await sendTransaction(regTx, connection, { skipPreflight: true })
+        const regResult = await connection.confirmTransaction({ signature: regSig, blockhash: rb, lastValidBlockHeight: rlvh }, "confirmed")
+        if (regResult.value.err) throw new Error(`Registration failed: ${JSON.stringify(regResult.value.err)}`)
+      } else {
+        const onChain = await fetchFirstPasskey(connection, publicKey)
+        if (onChain) passkeyRef.current = onChain
+      }
+      if (!passkeyRef.current) throw new Error("No passkey credential available")
+      const { credentialId, pubkeyBytes } = passkeyRef.current
+
+      // Build executeUpgrade instruction
+      const executeUpgradeIx = await authorityClient.executeUpgrade({
+        owner: publicKey, program: targetPk, programData: programDataAddr,
+        buffer: bufPk, spill: publicKey,
+      })
+
+      // Sign intent with Touch ID
+      const nonce = await fetchRegistryNonce(connection, publicKey)
+      const intent = buildIntent(publicKey, GUARD, intentFromInstruction(executeUpgradeIx), nonce, { policy: "trana.require", expiryTtlSec: 120 })
+      const challenge = hashIntent(intent)
+
+      setULast({ s: "pending", msg: "Touch ID — approve the upgrade…" })
+      const signing = await signIntent(challenge, credentialId, rpId)
+      await new Promise(r => setTimeout(r, 300))
+      const { signature, authenticatorData, clientDataJSON } = signing
+      let signingPubkey = pubkeyBytes
+      if (!uint8Equal(signing.credentialId, credentialId)) {
+        const all = await fetchAllPasskeys(connection, publicKey)
+        const match = all.find(e => uint8Equal(e.credentialId, signing.credentialId))
+        if (!match) throw new Error("Selected passkey not registered for this wallet")
+        signingPubkey = match.pubkeyBytes
+      }
+
+      const message = buildWebAuthnMessage(authenticatorData, clientDataJSON)
+      const secp256r1Ix  = buildSecp256r1Ix(signingPubkey, signature, message)
+      const recordProofIx = buildRecordProofIx(GUARD, authenticatorData, clientDataJSON, intent.expiryUnix, "trana.require")
+
+      const tx = new Transaction().add(secp256r1Ix, recordProofIx, executeUpgradeIx)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash; tx.feePayer = publicKey
+
+      setULast({ s: "pending", msg: "Sending upgrade transaction…" })
+      let txSig: string | null = null
+      try {
+        txSig = await sendTransaction(tx, connection, { skipPreflight: true })
+        const result = await connection.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed")
+        if (result.value.err) {
+          console.error("[trana] upgrade failed:", result.value.err)
+          throw new Error(`Upgrade failed: ${JSON.stringify(result.value.err)}`)
+        }
+      } catch (sendErr) {
+        if (txSig) {
+          const status = await connection.getSignatureStatus(txSig, { searchTransactionHistory: false })
+          const conf = status.value?.confirmationStatus
+          if ((conf === "confirmed" || conf === "finalized") && !status.value?.err) {
+            setULast({ s: "ok", msg: `Program upgraded ✓`, sig: txSig }); return
+          }
+        }
+        throw sendErr
+      }
+      setULast({ s: "ok", msg: `Program upgraded ✓`, sig: txSig! })
+    } catch (e) {
+      console.error("[trana] upgrade passkey error:", e)
+      setULast({ s: "err", msg: parseErrMsg(e) })
+    }
+  }
+
+  // ── Generate Touch ID credential bytes (for CLI add_passkey) ─────────────
+  async function handleGenerateCredential() {
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    setPkLast({ s: "pending", msg: "Touch ID — creating credential…" })
+    setPkGenerated(null)
+    try {
+      const cred = await registerPasskey(window.location.hostname, publicKey.toBytes(), shortAddr(publicKey.toBase58()))
+      const pubkeyHex = Array.from(cred.pubkeyBytes).map(b => b.toString(16).padStart(2, "0")).join("")
+      const credIdHex = Array.from(cred.credentialId).map(b => b.toString(16).padStart(2, "0")).join("")
+      setPkGenerated({ pubkeyHex, credIdHex })
+      setPkLast({ s: "ok", msg: "Credential created — copy the command below and run it" })
+    } catch (e) {
+      setPkLast({ s: "err", msg: parseErrMsg(e) })
+    }
+  }
+
+  // ── Add second passkey ────────────────────────────────────────────────────
+  async function handleAddPasskey() {
+    if (!connected || !publicKey) { openWalletModal(true); return }
+    const GUARD = new PublicKey(TRANA_GUARD_ID)
+    const rpId  = window.location.hostname
+    setPkLast({ s: "pending", msg: "Checking existing passkey…" })
+    try {
+      // Must have an existing credential to sign the proof
+      const existing = await fetchFirstPasskey(connection, publicKey)
+      if (!existing) throw new Error("No passkey registered yet — withdraw over-limit first to register one")
+      passkeyRef.current = existing
+
+      // Step 1: create a NEW Touch ID credential
+      setPkLast({ s: "pending", msg: "Touch ID — create new passkey…" })
+      const newCred = await registerPasskey(rpId, publicKey.toBytes(), shortAddr(publicKey.toBase58()))
+
+      // Step 2: sign add_passkey intent with EXISTING credential (discoverable — no QR)
+      setPkLast({ s: "pending", msg: "Touch ID — approve with existing passkey…" })
+      const nonce  = await fetchRegistryNonce(connection, publicKey)
+      const addIx  = await buildAddPasskeyIx(publicKey, connection, newCred.pubkeyBytes, newCred.credentialId)
+      const intent = buildIntent(publicKey, GUARD, intentFromInstruction(addIx), nonce, { policy: "trana.require", expiryTtlSec: 120 })
+      const challenge = hashIntent(intent)
+      // Pass null → discoverable flow: browser shows all local passkeys, no QR
+      const signing = await signIntent(challenge, null, rpId)
+      await new Promise(r => setTimeout(r, 300))
+
+      // Look up which pubkey matches the credential that actually signed
+      const all = await fetchAllPasskeys(connection, publicKey)
+      const match = all.find(e => uint8Equal(e.credentialId, signing.credentialId))
+      if (!match) throw new Error("The passkey you used is not registered for this wallet — use a registered credential")
+      let signingPubkey = match.pubkeyBytes
+
+      const message       = buildWebAuthnMessage(signing.authenticatorData, signing.clientDataJSON)
+      const secp256r1Ix   = buildSecp256r1Ix(signingPubkey, signing.signature, message)
+      const recordProofIx = buildRecordProofIx(GUARD, signing.authenticatorData, signing.clientDataJSON, intent.expiryUnix, "trana.require")
+
+      const tx = new Transaction().add(secp256r1Ix, recordProofIx, addIx)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash; tx.feePayer = publicKey
+
+      setPkLast({ s: "pending", msg: "Sending…" })
+      const sig    = await sendTransaction(tx, connection, { skipPreflight: true })
+      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+      if (result.value.err) throw new Error(`Failed: ${JSON.stringify(result.value.err)}`)
+
+      // Update ref to new credential
+      passkeyRef.current = newCred
+      await refreshDeposit()
+      setPkLast({ s: "ok", msg: "New passkey added to registry", sig })
+    } catch (e) {
+      console.error("[trana] add passkey error:", e)
+      setPkLast({ s: "err", msg: parseErrMsg(e) })
+    }
+  }
+
+  // ── Auth secure (real on-chain) ──────────────────────────────────────────
   async function handleAuthSecure() {
     if (authRunning.current || authBusy) return
     authRunning.current = true
-    if (!connected && publicKey === null) { openWalletModal(true); authRunning.current = false; return }
-    if (authTarget.length < 6) {
-      setLines(prev => [...prev, { ts: nowTs(), cls: "err", msg: "no target supplied" }])
-      authRunning.current = false
-      return
+    if (!connected || !publicKey) { openWalletModal(true); authRunning.current = false; return }
+    if (authTarget.length < 32) {
+      addLine("err", "paste a valid program ID first"); authRunning.current = false; return
     }
 
     let targetPubkey: PublicKey
     try { targetPubkey = new PublicKey(authTarget) }
     catch { addLine("err", "invalid program ID"); authRunning.current = false; return }
 
-    const owner = publicKey ?? new PublicKey(authTarget)
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("trana-authority"), owner.toBuffer(), targetPubkey.toBuffer()],
-      new PublicKey(TRANA_AUTHORITY_ID),
-    )
+    const authorityClient = new TranaAuthorityClient({ connection, cluster: "devnet" })
+    const pda      = authorityClient.recordPda(publicKey, targetPubkey)
     const pdaShort = shortAddr(pda.toBase58())
 
     setLines([])
     setAuthBusy(true); setAuthStatus("submitting…")
-
     const push = (cls: ConsoleLine["cls"], msg: string) =>
       setLines(prev => [...prev, { ts: nowTs(), cls, msg }])
 
     push("eval", `$ trana auth secure --kind program-upgrade --target ${shortAddr(authTarget)}`)
-    await wait(400); push("eval", `owner: ${owner ? shortAddr(owner.toBase58()) : "—"}`)
-    await wait(300); push("eval", `derived PDA: ${pdaShort}`)
-    await wait(400); push("eval", "ix[0] secp256r1::verify P-256")
-    await wait(350); push("eval", "ix[1] trana_guard::record_proof → sysvar")
-    await wait(350); push("eval", "ix[2] trana_authority::register")
-    await wait(350); push("eval", "ix[3] bpf_loader::set_upgrade_authority")
-    await wait(500)
-    push("ok", "PROOF · VERIFIED ✓")
-    push("ok", "AuthorityRecord PDA initialized")
-    push("ok", `upgrade_authority → ${pdaShort}`)
+    push("eval", `owner: ${shortAddr(publicKey.toBase58())}`)
+    push("eval", `derived PDA: ${pdaShort}`)
+    push("eval", "seeds: [ trana-authority, owner, target ]")
 
-    setStep2Done(true); setStep3Done(true)
-    setAuthStatus("confirmed")
-    const fakeSig = Array.from({ length: 12 }, () => Math.random().toString(36)[2]).join("")
-    setAmTxsig(fakeSig + "…" + fakeSig.slice(-4))
+    try {
+      // Step 1: check current upgrade authority
+      const progInfo = await connection.getAccountInfo(targetPubkey)
+      if (!progInfo) throw new Error("program account not found on devnet")
+      // Upgradeable program account: 4-byte discriminant + 32-byte programdata address
+      const programDataAddr = new PublicKey(progInfo.data.slice(4, 36))
+      const pdInfo = await connection.getAccountInfo(programDataAddr)
+      if (!pdInfo) throw new Error("programData account not found")
+      // programData layout: 4 discriminant + 8 slot + 1 option + 32 authority
+      const currentAuthority = new PublicKey(pdInfo.data.slice(13, 45))
+      if (!currentAuthority.equals(publicKey)) {
+        push("err", `upgrade authority is ${shortAddr(currentAuthority.toBase58())} — connect that wallet`)
+        setAuthBusy(false); authRunning.current = false; return
+      }
+      push("eval", `current upgrade authority: ${shortAddr(currentAuthority.toBase58())} ✓`)
+
+      // Step 2: build register ix
+      const registerIx = await authorityClient.register({ owner: publicKey, target: targetPubkey })
+      push("eval", "ix[0] trana_authority::register")
+
+      // Step 3: build bpf_loader set_authority ix
+      const BPF_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
+      const setAuthIx = new TransactionInstruction({
+        programId: BPF_UPGRADEABLE,
+        keys: [
+          { pubkey: programDataAddr, isSigner: false, isWritable: true  },
+          { pubkey: publicKey,       isSigner: true,  isWritable: false },
+          { pubkey: pda,             isSigner: false, isWritable: false },
+        ],
+        data: Buffer.from([4, 0, 0, 0]),  // SetAuthority discriminant
+      })
+      push("eval", "ix[1] bpf_loader::set_upgrade_authority")
+
+      // Step 4: send
+      push("eval", "sending transaction…")
+      const tx = new Transaction().add(registerIx, setAuthIx)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      tx.recentBlockhash = blockhash; tx.feePayer = publicKey
+      const sig = await sendTransaction(tx, connection)
+      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+      if (result.value.err) throw new Error(`tx failed: ${JSON.stringify(result.value.err)}`)
+
+      push("ok", "AuthorityRecord PDA initialized ✓")
+      push("ok", `upgrade_authority → ${pdaShort}`)
+      push("ok", `wallet key alone can no longer upgrade this program`)
+
+      setStep2Done(true); setStep3Done(true)
+      setAuthStatus("confirmed")
+      setAmTxsig(sig)
+    } catch (e) {
+      push("err", parseErrMsg(e))
+      console.error("[trana] auth secure error:", e)
+      setAuthStatus("failed")
+    }
     setAuthBusy(false)
     authRunning.current = false
   }
@@ -334,7 +852,7 @@ export default function TryPage() {
   const wOver      = wSliderVal >= 1
 
   const isVault = route.startsWith("vault/")
-  const vTab    = isVault ? (route.split("/")[1] as "withdraw" | "deposit" | "upgrade") : null
+  const vTab    = isVault ? (route.split("/")[1] as "withdraw" | "deposit") : null
   const crumbA  = isVault ? "vault" : "authority"
   const crumbB  = route.split("/")[1]
   const vMeta   = VAULT_META[route]
@@ -409,8 +927,9 @@ export default function TryPage() {
               Manage authorities
             </div>
             {NAV_ITEMS.filter(n => n.group === "auth").map(n => (
-              <NavItem key={n.route} item={n} active={route === n.route} auth
-                onClick={() => { setRoute(n.route); setSideOpen(false) }} />
+              <NavItem key={n.route} item={n} active={false} auth
+                disabled={"soon" in n && n.soon}
+                onClick={"soon" in n && n.soon ? undefined : () => { setRoute(n.route); setSideOpen(false) }} />
             ))}
           </div>
 
@@ -448,14 +967,6 @@ export default function TryPage() {
             </div>
             {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
-                style={{ border: "1px solid var(--rule-2)", color: "var(--bone-2)", background: "transparent" }}
-                onClick={() => alert("seed phrase: set NEXT_PUBLIC_DEMO_VAULT_AUTHORITY in .env.local after deploying the demo vault\n\n— this key controls the pool authority. passkey still guards withdrawals.")}
-              >
-                <KeyIcon />
-                <span className="hidden sm:inline">Seed phrase</span>
-              </button>
               <a
                 href="https://faucet.solana.com" target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em]"
@@ -464,18 +975,7 @@ export default function TryPage() {
                 <span className="hidden sm:inline">Get devnet SOL</span>
                 <span>↗</span>
               </a>
-              <button
-                className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em] cursor-pointer"
-                style={{
-                  border:      connected ? "1px solid rgba(198,255,58,0.35)" : "1px solid var(--rule-2)",
-                  background:  connected ? "rgba(198,255,58,0.06)"           : "transparent",
-                  color:       connected ? "var(--lime)"                     : "var(--bone-2)",
-                }}
-                onClick={() => connected ? undefined : openWalletModal(true)}
-              >
-                <WalletIcon />
-                <span>{connected && publicKey ? shortAddr(publicKey.toBase58()) : "Connect"}</span>
-              </button>
+              <WalletButton />
             </div>
           </div>
 
@@ -501,7 +1001,6 @@ export default function TryPage() {
                   {[
                     { tab: "deposit",  icon: <DepositIcon />, name: "Deposit",          sub: "Top up the shared pool",     tag: "no passkey required",       tagCls: "" },
                     { tab: "withdraw", icon: <WithdrawIcon />, name: "Withdraw",        sub: "Try to drain the pool",      tag: "3 policies — discover them", tagCls: "lime" },
-                    { tab: "upgrade",  icon: <UpgradeIcon />, name: "Program upgrade",  sub: "Try to patch the program",   tag: "Authority PDA primitive",    tagCls: "plasma" },
                   ].map(({ tab, icon, name, sub, tag, tagCls }) => (
                     <button
                       key={tab}
@@ -576,7 +1075,7 @@ export default function TryPage() {
                       <div className="mt-3 font-mono text-[11.5px]" style={{ color: "var(--bone-3)" }}>
                         Pool balance ·{" "}
                         <span style={{ color: "var(--bone)" }}>
-                          {poolExists === null ? "…" : poolExists ? `${(poolSol ?? 0).toFixed(2)} SOL` : "not deployed"}
+                          {poolExists === null ? "…" : !poolExists ? "not deployed" : poolSol === null ? "…" : poolSol === 0 ? <span style={{ color: "var(--plasma)" }}>drained — deposit to refill</span> : `${poolSol.toFixed(2)} SOL`}
                         </span>
                       </div>
                     </PanelBody>
@@ -593,30 +1092,8 @@ export default function TryPage() {
                       <LastResult r={wLast} />
 
                       <div className="mt-5">
-                        <Label>What to expect</Label>
-                        <div className="flex flex-col gap-[10px] mt-2">
-                          {[
-                            { ok: null,  title: "< 1 SOL",          sub: "wallet sign only — goes through" },
-                            { ok: false, title: "≥ 1 SOL",          sub: "guard rejects — passkey required" },
-                            { ok: false, title: "60 s burst",        sub: "drain window — passkey required" },
-                          ].map((st, i) => (
-                            <div key={i} className="grid gap-[10px] items-start p-[10px] border"
-                                 style={{
-                                   gridTemplateColumns: "22px 1fr",
-                                   borderColor: st.ok === false ? "rgba(255,91,31,0.25)" : st.ok ? "rgba(198,255,58,0.25)" : "var(--rule)",
-                                   background: st.ok === false ? "rgba(255,91,31,0.04)" : st.ok ? "rgba(198,255,58,0.04)" : "var(--ink)",
-                                 }}>
-                              <span className="font-mono font-medium text-[10.5px] tracking-[0.12em] mt-[1px]"
-                                    style={{ color: st.ok === false ? "var(--plasma)" : "var(--bone-3)" }}>
-                                {st.ok === false ? "×" : st.ok ? "✓" : "·"}
-                              </span>
-                              <div>
-                                <div className="font-mono text-[12.5px] mb-[2px]" style={{ color: "var(--bone)" }}>{st.title}</div>
-                                <div className="font-mono text-[11.5px]" style={{ color: "var(--bone-3)" }}>{st.sub}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                        <Label>Policy · live on-chain</Label>
+                        <PolicyStatus deposit={userDeposit} slot={slot} />
                       </div>
                     </PanelAside>
                   </Panel>
@@ -658,62 +1135,12 @@ export default function TryPage() {
                         only <span style={{ color: "var(--lime)" }}>withdrawals</span> are policy-gated.
                       </div>
                       <MetaRow k="Pool balance"    v={poolExists === null ? "…" : poolExists ? `${(poolSol ?? 0).toFixed(2)} SOL` : "—"} />
-                      <MetaRow k="Your deposit"    v={userBalance > 0n ? `${(Number(userBalance) / 1e9).toFixed(4)} SOL` : "—"} />
+                      <MetaRow k="Your deposit"    v={userDeposit?.balance && userDeposit.balance > 0n ? `${(Number(userDeposit.balance) / 1e9).toFixed(4)} SOL` : "—"} />
                       {poolPda && <MetaRow k="Pool PDA" v={shortAddr(poolPda.toBase58())} />}
                     </PanelAside>
                   </Panel>
                 )}
 
-                {/* ── Upgrade panel ── */}
-                {vTab === "upgrade" && (
-                  <Panel
-                    dot="plasma"
-                    title="Program upgrade"
-                    subtitle="authority PDA"
-                    policyLabel="Require"
-                    policyColor="var(--plasma)"
-                  >
-                    <PanelBody>
-                      <Label>Upgrade authority</Label>
-                      <div className="border p-[14px] flex flex-col gap-1 mb-4" style={{ borderColor: "var(--rule-2)", background: "var(--ink)" }}>
-                        <span className="font-mono text-[10.5px] tracking-[0.18em] uppercase" style={{ color: "var(--bone-3)" }}>trana_authority PDA</span>
-                        <span className="font-mono text-[14px] break-all" style={{ color: "var(--bone)" }}>{shortAddr(TRANA_AUTHORITY_ID)}</span>
-                      </div>
-                      <button
-                        className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase border cursor-pointer mb-3 transition-colors"
-                        style={{ background: "transparent", color: "var(--plasma)", border: "1px solid rgba(255,91,31,0.45)" }}
-                        onClick={() => setULast({ s: "err", msg: "Reverted · BPF Loader · upgrade authority mismatch" })}
-                      >
-                        Upgrade with leaked wallet key
-                      </button>
-                      <button
-                        className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors"
-                        style={{ background: "var(--lime)", color: "var(--ink)" }}
-                        onClick={() => {
-                          setULast({ s: "pending", msg: "Passkey flow coming in next release…" })
-                          setTimeout(() => setULast({ s: "ok", msg: "UpgradeExecuted · trana_authority::execute_upgrade (simulated)" }), 1400)
-                        }}
-                      >
-                        Upgrade with passkey
-                      </button>
-                      <div className="mt-[14px] font-mono text-[12px] leading-[1.7]" style={{ color: "var(--bone-3)" }}>
-                        The wallet key alone cannot upgrade this program. The upgrade authority has been transferred to the Trana Authority PDA.
-                      </div>
-                    </PanelBody>
-                    <PanelAside>
-                      <Label>Last result</Label>
-                      <LastResult r={upgLast} />
-                      <div className="mt-5 flex flex-col gap-[10px]">
-                        <Label>What this proves</Label>
-                        <CheckRow ok={false} title="Wallet key alone" sub="BPF Loader rejects — not the authority" />
-                        <CheckRow ok={true}  title="Passkey approved" sub="execute_upgrade CPI succeeds" />
-                      </div>
-                      <MetaRow k="Program ID"   v={shortAddr(TRANA_GUARD_ID)}    color="var(--bone)" />
-                      <MetaRow k="Upgrade auth" v={shortAddr(TRANA_AUTHORITY_ID)} color="var(--plasma)" />
-                      <MetaRow k="Program"      v="● live"                        color="var(--lime)" />
-                    </PanelAside>
-                  </Panel>
-                )}
               </>
             )}
 
@@ -731,8 +1158,136 @@ export default function TryPage() {
                   {aMeta.lede}
                 </p>
 
-                {/* Auth form view */}
-                {route !== "auth/list" && (
+                {/* ── Upgrade tool ── */}
+                {route === "auth/upgrade" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-[18px] items-start">
+                    <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
+                      <div className="flex items-center justify-between px-6 py-[14px] border-b" style={{ borderColor: "var(--rule)" }}>
+                        <span className="font-mono text-[12.5px]" style={{ color: "var(--bone)" }}>Upgrade secured program</span>
+                        <span className="font-mono text-[11px]" style={{ color: "var(--bone-3)" }}>network: <span style={{ color: "var(--plasma)" }}>devnet</span></span>
+                      </div>
+                      <div className="p-6 flex flex-col gap-4">
+                        <div>
+                          <Label>Program ID</Label>
+                          <div className="flex items-center gap-2 border px-4 py-3" style={{ borderColor: "var(--rule-2)", background: "var(--ink)" }}>
+                            <input type="text" value={upgTarget} onChange={e => setUpgTarget(e.target.value)}
+                              placeholder="program to upgrade"
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[14px]"
+                              style={{ color: "var(--bone)", caretColor: "var(--lime)" }} />
+                          </div>
+                        </div>
+                        <div>
+                          <Label>Buffer address <span style={{ color: "var(--bone-4)", textTransform: "none", letterSpacing: 0 }}>— from <code>solana program write-buffer</code></span></Label>
+                          <div className="flex items-center gap-2 border px-4 py-3" style={{ borderColor: "var(--rule-2)", background: "var(--ink)" }}>
+                            <input type="text" value={upgBuffer} onChange={e => setUpgBuffer(e.target.value)}
+                              placeholder="paste buffer address"
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[14px]"
+                              style={{ color: "var(--bone)", caretColor: "var(--lime)" }} />
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleUpgradePasskey}
+                          disabled={!connected || !upgBuffer.trim()}
+                          className="w-full py-4 px-6 font-mono font-semibold text-[13px] tracking-[0.18em] uppercase cursor-pointer transition-colors disabled:opacity-40"
+                          style={{ background: "var(--lime)", color: "var(--ink)", border: "none" }}>
+                          {!connected ? "Connect wallet →" : "Upgrade with passkey ⚿"}
+                        </button>
+                        <div className="font-mono text-[11.5px] leading-[1.7]" style={{ color: "var(--bone-3)" }}>
+                          The owner wallet must match the AuthorityRecord. Passkey proof is required — wallet key alone is rejected by the BPF Loader.
+                        </div>
+                        <div className="flex items-start gap-[8px] border p-[10px] font-mono text-[11px]"
+                             style={{ borderColor: "rgba(90,169,255,0.25)", background: "rgba(90,169,255,0.04)", color: "var(--bone-3)" }}>
+                          <span style={{ color: "var(--azure)", flexShrink: 0 }}>ℹ</span>
+                          <span>Seeing QR instead of Touch ID? Open in <span style={{ color: "var(--bone)" }}>Safari</span> — it uses iCloud Keychain and shows Touch ID directly.</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
+                      <div className="px-6 py-[14px] border-b font-mono text-[12.5px]" style={{ borderColor: "var(--rule)", color: "var(--bone)" }}>Result</div>
+                      <div className="p-6">
+                        <LastResult r={upgLast} />
+                        <div className="mt-5 flex flex-col gap-1">
+                          {[
+                            { k: "ix[0]", v: "secp256r1::verify P-256" },
+                            { k: "ix[1]", v: "trana_guard::record_proof" },
+                            { k: "ix[2]", v: "trana_authority::execute_upgrade" },
+                          ].map(r => <MetaRow key={r.k} k={r.k} v={r.v} />)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Manage passkeys ── */}
+                {route === "auth/passkeys" && (
+                  <div className="flex flex-col gap-[18px]">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-[18px]">
+
+                      {/* Path A — browser registered passkey */}
+                      <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
+                        <div className="px-6 py-[14px] border-b" style={{ borderColor: "var(--rule)" }}>
+                          <div className="font-mono text-[12.5px]" style={{ color: "var(--bone)" }}>Add via browser</div>
+                          <div className="font-mono text-[11px] mt-[2px]" style={{ color: "var(--bone-4)" }}>if your existing passkey was registered with Touch ID</div>
+                        </div>
+                        <div className="p-6 flex flex-col gap-3">
+                          <div className="font-mono text-[11.5px] leading-[1.7]" style={{ color: "var(--bone-3)" }}>
+                            Two Touch ID prompts: create new credential, then sign with existing to approve.
+                          </div>
+                          <button onClick={handleAddPasskey} disabled={!connected}
+                            className="w-full py-3 px-6 font-mono font-semibold text-[12px] tracking-[0.18em] uppercase cursor-pointer transition-colors disabled:opacity-40"
+                            style={{ background: "var(--lime)", color: "var(--ink)", border: "none" }}>
+                            {!connected ? "Connect wallet →" : "Add passkey ⚿"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Path B — CLI registered passkey (shows QR in browser) */}
+                      <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
+                        <div className="px-6 py-[14px] border-b" style={{ borderColor: "var(--rule)" }}>
+                          <div className="font-mono text-[12.5px]" style={{ color: "var(--bone)" }}>Add via CLI proof</div>
+                          <div className="font-mono text-[11px] mt-[2px]" style={{ color: "var(--bone-4)" }}>if your registry was created with register-passkey.mjs (shows QR)</div>
+                        </div>
+                        <div className="p-6 flex flex-col gap-3">
+                          <div className="font-mono text-[11.5px] leading-[1.7]" style={{ color: "var(--bone-3)" }}>
+                            Touch ID creates the credential here, then run the script to sign the proof with your CLI key.
+                          </div>
+                          <button onClick={handleGenerateCredential} disabled={!connected}
+                            className="w-full py-3 px-6 font-mono font-semibold text-[12px] tracking-[0.18em] uppercase cursor-pointer transition-colors disabled:opacity-40"
+                            style={{ background: "var(--plasma)", color: "var(--ink)", border: "none" }}>
+                            {!connected ? "Connect wallet →" : "Generate Touch ID credential"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Result + generated command */}
+                    <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
+                      <div className="px-6 py-[14px] border-b font-mono text-[12.5px]" style={{ borderColor: "var(--rule)", color: "var(--bone)" }}>Result</div>
+                      <div className="p-6 flex flex-col gap-4">
+                        <LastResult r={pkLast} />
+                        {pkGenerated && (
+                          <div className="flex flex-col gap-3">
+                            <div className="font-mono text-[11px] tracking-[0.14em] uppercase" style={{ color: "var(--bone-4)" }}>Step 1 — add new Touch ID credential (run in terminal):</div>
+                            <div className="border p-[12px] font-mono text-[10.5px] break-all select-all"
+                                 style={{ borderColor: "rgba(198,255,58,0.25)", background: "rgba(198,255,58,0.03)", color: "var(--lime)" }}>
+                              {`ANCHOR_WALLET=~/.config/solana/prefix1.json node scripts/add-passkey.mjs ${TRANA_GUARD_ID} ${pkGenerated.pubkeyHex} ${pkGenerated.credIdHex}`}
+                            </div>
+                            <button onClick={() => navigator.clipboard.writeText(`ANCHOR_WALLET=~/.config/solana/prefix1.json node scripts/add-passkey.mjs ${TRANA_GUARD_ID} ${pkGenerated.pubkeyHex} ${pkGenerated.credIdHex}`)}
+                              className="self-start font-mono text-[11px] tracking-[0.12em] px-3 py-[6px] cursor-pointer"
+                              style={{ border: "1px solid var(--rule-2)", color: "var(--bone-3)", background: "transparent" }}>
+                              Copy step 1
+                            </button>
+                            <OldCredentialId connection={connection} publicKey={publicKey} guardId={TRANA_GUARD_ID} />
+                          </div>
+                        )}
+                        <MetaRow k="Registry" v={publicKey ? shortAddr(getRegistryPda(publicKey).toBase58()) : "—"} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Secure a program form */}
+                {route === "auth/programs" && (
                   <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-[18px] items-start">
 
                     <div className="border" style={{ borderColor: "var(--rule-2)", background: "var(--ink-2)" }}>
@@ -820,13 +1375,20 @@ export default function TryPage() {
                         </div>
                         <div className="px-6 py-4">
                           {[
-                            { k: "ix[0]", v: "Secp256r1SigVerify",              c: "var(--bone-2)" },
-                            { k: "ix[1]", v: "trana_guard::record_proof",       c: "var(--bone-2)" },
-                            { k: "ix[2]", v: "trana_authority::register",       c: "var(--lime)" },
-                            { k: "ix[3]", v: "bpf_loader::set_upgrade_authority", c: "var(--plasma)" },
-                            { k: "Status", v: authStatus ?? "awaiting submit",  c: authStatus === "confirmed" ? "var(--lime)" : authStatus === "submitting…" ? "var(--bone-2)" : "var(--bone-3)" },
-                            { k: "Tx sig", v: amTxsig ?? "—",                   c: amTxsig ? "var(--bone)" : "var(--bone-3)" },
+                            { k: "ix[0]", v: "trana_authority::register",          c: "var(--lime)" },
+                            { k: "ix[1]", v: "bpf_loader::set_upgrade_authority", c: "var(--plasma)" },
+                            { k: "Status", v: authStatus ?? "awaiting submit",     c: authStatus === "confirmed" ? "var(--lime)" : authStatus === "submitting…" ? "var(--bone-2)" : "var(--bone-3)" },
                           ].map(row => <MetaRow key={row.k} k={row.k} v={row.v} color={row.c} />)}
+                          {amTxsig && (
+                            <div className="flex items-center justify-between py-[11px] border-b font-mono text-[12.5px]" style={{ borderColor: "var(--rule)" }}>
+                              <span className="font-medium text-[10.5px] tracking-[0.18em] uppercase" style={{ color: "var(--bone-3)" }}>Tx sig</span>
+                              <a href={`https://solscan.io/tx/${amTxsig}?cluster=devnet`} target="_blank" rel="noreferrer"
+                                 className="inline-flex items-center gap-1 transition-opacity hover:opacity-80"
+                                 style={{ color: "var(--azure)" }}>
+                                {shortSig(amTxsig)} <span style={{ fontSize: 9, letterSpacing: "0.16em" }}>↗</span>
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -885,19 +1447,23 @@ export default function TryPage() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function NavItem({ item, active, auth, onClick }: {
-  item: typeof NAV_ITEMS[number]; active: boolean; auth?: boolean; onClick: () => void
+function NavItem({ item, active, auth, disabled, onClick }: {
+  item: typeof NAV_ITEMS[number]; active: boolean; auth?: boolean
+  disabled?: boolean; onClick?: () => void
 }) {
   const accent   = auth ? "var(--plasma)" : "var(--lime)"
   const accentBg = auth ? "rgba(255,91,31,0.05)" : "rgba(198,255,58,0.05)"
   return (
     <button
-      onClick={onClick}
-      className="flex items-center gap-[10px] py-[9px] px-[14px] font-mono text-[12.5px] text-left w-full cursor-pointer transition-colors"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className="flex items-center gap-[10px] py-[9px] px-[14px] font-mono text-[12.5px] text-left w-full transition-colors"
       style={{
         background: active ? accentBg : "transparent",
-        color: active ? accent : "var(--bone-3)",
+        color: disabled ? "var(--bone-5)" : active ? accent : "var(--bone-3)",
         boxShadow: active ? `inset 0 -1.5px 0 0 ${accent}` : "none",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.45 : 1,
       }}
     >
       <span className="font-mono text-[10px] w-[18px] tracking-[0.04em] shrink-0"
@@ -905,6 +1471,7 @@ function NavItem({ item, active, auth, onClick }: {
         {item.ix}
       </span>
       <span>{item.label}</span>
+      {disabled && <span className="ml-auto font-mono text-[9px] tracking-[0.1em] uppercase" style={{ color: "var(--bone-5)" }}>soon</span>}
     </button>
   )
 }
@@ -1028,13 +1595,105 @@ function StepRow({ n, done, cur, title, sub }: { n: number; done?: boolean; cur?
   )
 }
 
+// ── OldCredentialId — shows remove command for CLI-registered cred ────────────
+
+function OldCredentialId({ connection, publicKey, guardId }: {
+  connection: import("@solana/web3.js").Connection
+  publicKey: PublicKey | null
+  guardId: string
+}) {
+  const [credHex, setCredHex] = useState<string | null>(null)
+  useEffect(() => {
+    if (!publicKey) return
+    import("@/lib/vault").then(({ fetchFirstPasskey }) =>
+      fetchFirstPasskey(connection, publicKey).then(p => {
+        if (p) setCredHex(Array.from(p.credentialId).map(b => b.toString(16).padStart(2, "0")).join(""))
+      })
+    )
+  }, [connection, publicKey])
+  if (!credHex) return null
+  const cmd = `ANCHOR_WALLET=~/.config/solana/prefix1.json node scripts/remove-passkey.mjs ${guardId} ${credHex}`
+  return (
+    <div className="flex flex-col gap-2 mt-1">
+      <div className="font-mono text-[11px] tracking-[0.14em] uppercase" style={{ color: "var(--bone-4)" }}>Step 2 — remove old CLI credential:</div>
+      <div className="border p-[12px] font-mono text-[10.5px] break-all select-all"
+           style={{ borderColor: "rgba(255,91,31,0.25)", background: "rgba(255,91,31,0.03)", color: "var(--plasma)" }}>
+        {cmd}
+      </div>
+      <button onClick={() => navigator.clipboard.writeText(cmd)}
+        className="self-start font-mono text-[11px] tracking-[0.12em] px-3 py-[6px] cursor-pointer"
+        style={{ border: "1px solid var(--rule-2)", color: "var(--bone-3)", background: "transparent" }}>
+        Copy step 2
+      </button>
+      <div className="font-mono text-[11px]" style={{ color: "var(--bone-4)" }}>
+        After both commands: browser will show Touch ID instead of QR for this wallet.
+      </div>
+    </div>
+  )
+}
+
+// ── PolicyStatus ─────────────────────────────────────────────────────────────
+
+function PolicyStatus({ deposit, slot }: { deposit: UserDepositState | null; slot: number | null }) {
+  if (!deposit?.exists) {
+    return (
+      <div className="flex flex-col gap-[6px] mt-2 font-mono text-[12px]" style={{ color: "var(--bone-3)" }}>
+        <span>Connect wallet and deposit to see live policy state.</span>
+      </div>
+    )
+  }
+
+  const nowSec     = Math.floor(Date.now() / 1000)
+  const inWindow   = deposit.lastWithdrawAt > 0n && (BigInt(nowSec) - deposit.lastWithdrawAt) < BigInt(DRAIN_WINDOW_SEC)
+  const winSol     = Number(deposit.windowWithdrawn) / 1e9
+  const limitSol   = Number(WITHDRAW_LIMIT) / 1e9
+  const isBurst    = inWindow && deposit.windowWithdrawn >= WITHDRAW_LIMIT
+  const unlockSlot = deposit.lastWithdrawSlot + COOLDOWN_SLOTS
+  const slotsLeft  = slot !== null && isBurst ? Math.max(0, Number(unlockSlot) - slot) : 0
+  const secsLeft   = Math.ceil(slotsLeft * 0.4)
+  const winSecsLeft = inWindow ? Math.max(0, DRAIN_WINDOW_SEC - (nowSec - Number(deposit.lastWithdrawAt))) : 0
+
+  type Row = { label: string; value: string; accent?: string }
+  const rows: Row[] = []
+
+  if (isBurst) {
+    rows.push({ label: "policy",   value: "trana.not_before",  accent: "var(--plasma)" })
+    rows.push({ label: "condition", value: `slot ≥ ${unlockSlot.toString()}` })
+    rows.push({ label: "current",  value: slot !== null ? `slot ${slot.toLocaleString()}` : "…" })
+    rows.push({ label: "passkey required until", value: slotsLeft > 0 ? `~${secsLeft}s (${slotsLeft} slots)` : "ready — sign now", accent: slotsLeft > 0 ? "var(--plasma)" : "var(--lime)" })
+  } else {
+    rows.push({ label: "policy",    value: "trana.limit",       accent: "var(--lime)" })
+    rows.push({ label: "threshold", value: `${limitSol} SOL per tx` })
+    rows.push({ label: "window",    value: inWindow ? `${winSol.toFixed(3)} / ${limitSol} SOL` : "fresh (no active window)" })
+    if (inWindow) rows.push({ label: "window resets", value: `~${winSecsLeft}s` })
+  }
+
+  // Fill bar
+  const fillPct = isBurst ? 100 : Math.min(100, (winSol / limitSol) * 100)
+  const fillColor = isBurst ? "var(--plasma)" : winSol / limitSol > 0.7 ? "rgba(255,91,31,0.7)" : "var(--lime)"
+
+  return (
+    <div className="flex flex-col gap-0 mt-2">
+      <div className="h-[3px] w-full mb-3" style={{ background: "var(--rule-2)" }}>
+        <div className="h-full transition-all" style={{ width: `${fillPct}%`, background: fillColor }} />
+      </div>
+      {rows.map(r => (
+        <div key={r.label} className="flex items-start justify-between py-[8px] border-b font-mono text-[11.5px]"
+             style={{ borderColor: "var(--rule)" }}>
+          <span className="text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--bone-4)" }}>{r.label}</span>
+          <span className="text-right ml-2" style={{ color: r.accent ?? "var(--bone-2)" }}>{r.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
 const svgBase = "fill-none stroke-current"
 function ClockIcon()    { return <svg className={`${svgBase} w-[13px] h-[13px] shrink-0 mt-[1px]`} viewBox="0 0 24 24" strokeWidth="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> }
 function CheckIcon()    { return <svg className={`${svgBase} w-[13px] h-[13px] shrink-0 mt-[1px]`} viewBox="0 0 24 24" strokeWidth="1.6"><path d="m5 12 5 5 9-9"/></svg> }
 function WarnIcon()     { return <svg className={`${svgBase} w-[13px] h-[13px] shrink-0 mt-[1px]`} viewBox="0 0 24 24" strokeWidth="1.6"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 10v5M12 18v.5"/></svg> }
-function WalletIcon()   { return <svg className={`${svgBase} w-[12px] h-[12px]`} viewBox="0 0 24 24" strokeWidth="1.6"><rect x="3" y="6" width="18" height="13" rx="1"/><path d="M16 12h2"/></svg> }
 function KeyIcon()      { return <svg className={`${svgBase} w-[12px] h-[12px]`} viewBox="0 0 24 24" strokeWidth="1.6"><rect x="3" y="11" width="18" height="10" rx="1"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> }
 function DepositIcon()  { return <svg className={`${svgBase} w-[22px] h-[22px]`} viewBox="0 0 24 24" strokeWidth="1.5"><path d="M12 4v12M6 12l6 6 6-6M4 20h16"/></svg> }
 function WithdrawIcon() { return <svg className={`${svgBase} w-[22px] h-[22px]`} viewBox="0 0 24 24" strokeWidth="1.5"><path d="M12 20V8M6 12l6-6 6 6M4 4h16"/></svg> }

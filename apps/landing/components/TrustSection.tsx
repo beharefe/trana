@@ -6,14 +6,18 @@ import { useState } from "react"
 
 type CertKey = "guard" | "authority"
 
-const CERT_DATA: Record<CertKey, { pid: string; hash: string }> = {
+const CERT_DATA: Record<CertKey, { pid: string; hash: string; fp: string; solscan: string }> = {
   guard: {
-    pid:  "TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG",
-    hash: "SHA-256 · 9F:18:3A:CC:…",
+    pid:     "TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG",
+    hash:    "SHA-256 · 55:E9:34:6F:A6:81:9E:AF",
+    fp:      "55e9346fa6819eafd41d4e7043b3054b10ee546da8231eb8934a2ba0d83e034d",
+    solscan: "https://solscan.io/account/TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG?cluster=devnet",
   },
   authority: {
-    pid:  "TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN",
-    hash: "SHA-256 · 12:7A:E8:4F:…",
+    pid:     "TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN",
+    hash:    "SHA-256 · A1:08:0F:98:0B:84:18:4C",
+    fp:      "a1080f980b84184c60528e74821b45a75a2751ede1bbcb087554fccd4467b0b2",
+    solscan: "https://solscan.io/account/TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN?cluster=devnet",
   },
 }
 
@@ -35,7 +39,7 @@ export function TrustSection() {
             </h2>
             <p className="mt-5 text-[17px] leading-[1.55] font-light max-w-[640px]" style={{ color: "var(--bone-2)" }}>
               Program ID. Audit reports. License. The same fields you&apos;d expect
-              on a TLS chain, pinned to slots, not screenshots.
+              on a TLS chain — pinned to slots, not screenshots.
             </p>
           </div>
         </div>
@@ -89,19 +93,14 @@ export function TrustSection() {
               {
                 k: "Program ID",
                 v: (
-                  <a
-                    href={`https://solscan.io/account/${d.pid}?cluster=devnet`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--lime)", wordBreak: "break-all", textDecoration: "none" }}
-                    onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
-                    onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}
-                  >
+                  <a href={d.solscan} target="_blank" rel="noreferrer"
+                     className="inline-flex items-center gap-[6px] transition-opacity hover:opacity-80"
+                     style={{ color: "var(--lime)", wordBreak: "break-all" }}>
                     {d.pid}
-                    <span style={{ marginLeft: "5px", fontSize: "11px", opacity: 0.65 }}>↗</span>
+                    <span style={{ fontSize: 9, color: "var(--bone-4)", letterSpacing: "0.16em" }}>↗</span>
                   </a>
                 ),
-                desc: "Verifiable on-chain · view on Solscan devnet",
+                desc: "Verifiable on-chain · deployed on Solana devnet",
               },
               {
                 k: "License",
@@ -141,6 +140,20 @@ export function TrustSection() {
             })}
           </div>
 
+          {/* Footer */}
+          <div className="flex items-start gap-4 flex-wrap px-[14px] sm:px-[22px] py-[14px] font-mono text-[10.5px]" style={{ color: "var(--bone-3)" }}>
+            <span className="inline-flex items-center gap-2 tracking-[0.18em] uppercase shrink-0" style={{ color: "var(--bone-2)" }}>
+              <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: "var(--lime)" }} />
+              SHA-256
+            </span>
+            <span style={{ color: "var(--bone-5)" }}>·</span>
+            <span className="break-all tracking-[0.04em]" style={{ color: "var(--bone-3)" }}>{d.fp}</span>
+            <a href={d.solscan} target="_blank" rel="noreferrer"
+               className="ml-auto shrink-0 tracking-[0.18em] uppercase transition-opacity hover:opacity-80"
+               style={{ color: "var(--azure)" }}>
+              solscan ↗
+            </a>
+          </div>
         </div>
 
       </div>

@@ -35,10 +35,6 @@ const config: NextConfig = {
   },
   webpack(config, { isServer }) {
     if (!isServer) {
-      // react-modal (from wallet-adapter) hoisted react-dom@16 to the root which
-      // breaks Next.js's react-dom/client import. Point the client bundle at the
-      // local react-dom@19 copy instead. Do NOT alias on the server — RSC needs
-      // the react-server conditions that come from Next's own resolution.
       config.resolve.alias["react-dom"] = path.resolve(__dirname, "node_modules/react-dom")
     }
     return config

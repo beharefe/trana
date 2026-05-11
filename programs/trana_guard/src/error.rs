@@ -32,4 +32,15 @@ pub enum GuardError {
     #[msg("Treasury account does not match config.treasury")]
     InvalidTreasury,
 
+    #[msg("Registry already has the maximum number of passkeys (10)")]
+    MaxKeysReached,
+
+    #[msg("Cannot remove the last registered passkey")]
+    LastKeyCannotBeRemoved,
+
+    #[msg("No passkey with that credential ID found in the registry")]
+    CredentialNotFound,
+
+    #[msg("Registry account is required for this policy but was not provided")]
+    RegistryRequired,
 }

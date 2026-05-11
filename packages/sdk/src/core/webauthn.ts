@@ -63,8 +63,9 @@ export async function registerPasskey(
         { type: "public-key", alg: -7 },   // ES256 (P-256) — the only algorithm we support
       ],
       authenticatorSelection: {
-        userVerification: "required",   // UV flag must be set for on-chain enforcement
-        residentKey:      "preferred",  // prefer resident/discoverable credentials
+        authenticatorAttachment: "platform",  // Touch ID / Face ID / Windows Hello only
+        userVerification:        "required",  // UV flag must be set for on-chain enforcement
+        residentKey:             "preferred",
       },
       attestation: "none",
       timeout:     60_000,
@@ -97,6 +98,8 @@ export type SigningResult = {
   clientDataJSON:    Uint8Array
   /** 64-byte compact (r‖s) low-S signature — ready for `buildSecp256r1Ix()`. */
   signature:         Uint8Array
+  /** The `rawId` of the credential that actually signed — use this to look up the matching pubkey. */
+  credentialId:      Uint8Array
 }
 
 /**
@@ -112,17 +115,23 @@ export type SigningResult = {
  * @param rpId         Must match the `rpId` used during registration
  */
 export async function signIntent(
-  challenge:    Uint8Array,
-  credentialId: Uint8Array,
-  rpId:         string,
+  challenge:     Uint8Array,
+  credentialId:  Uint8Array | null | undefined,
+  rpId:          string,
 ): Promise<SigningResult> {
   assertWebAuthnAvailable()
 
   const assertion = await navigator.credentials.get({
     publicKey: {
-      challenge:        challenge    as unknown as BufferSource,
+      challenge:        challenge as unknown as BufferSource,
       rpId,
-      allowCredentials: [{ type: "public-key", id: credentialId as unknown as BufferSource }],
+      // Empty allowCredentials = discoverable credential flow.
+      // macOS shows the Touch ID picker for all passkeys on this device.
+      // Passing a specific credentialId can trigger cross-device QR if the
+      // credential is not recognized as a local platform credential.
+      allowCredentials: credentialId?.length
+        ? [{ type: "public-key", id: credentialId as unknown as BufferSource }]
+        : [],
       userVerification: "required",
       timeout: 60_000,
     },
@@ -138,7 +147,12 @@ export async function signIntent(
   const compact = derToCompact(derSignature)
   const lowS    = normalizeLowS(compact)
 
-  return { authenticatorData, clientDataJSON, signature: lowS }
+  return {
+    authenticatorData,
+    clientDataJSON,
+    signature:    lowS,
+    credentialId: new Uint8Array(assertion.rawId),
+  }
 }
 
 // ── SPKI → compressed P-256 key ───────────────────────────────────────────────

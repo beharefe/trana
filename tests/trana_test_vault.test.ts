@@ -71,15 +71,16 @@ function depositAccounts(pool: PublicKey, depositor: PublicKey): any {
   return { pool, depositor }
 }
 
-// withdraw() — same issue for pool + userDeposit. All other accounts (registry,
-// guardProgram, instructions sysvar) are auto-resolved by Anchor from the IDL.
+// withdraw() — pool, userDeposit, and tranaRegistry must be passed explicitly;
+// Anchor can't auto-resolve UncheckedAccount or seeds that depend on runtime data.
 function withdrawAccounts(
-  pool:        PublicKey,
-  userDeposit: PublicKey,
-  owner:       PublicKey,
-  destination: PublicKey,
+  pool:          PublicKey,
+  userDeposit:   PublicKey,
+  owner:         PublicKey,
+  destination:   PublicKey,
+  tranaRegistry: PublicKey,
 ): any {
-  return { pool, userDeposit, owner, destination }
+  return { pool, userDeposit, owner, destination, tranaRegistry }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ describe("trana_test_vault", () => {
       // 0.1 SOL < 1 SOL limit — no proof triple in the tx
       const ix = await vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       // Plain tx, no secp256r1 preamble
@@ -164,7 +165,7 @@ describe("trana_test_vault", () => {
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(1.5 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       // 1.5 SOL ≥ limit → enforce(Limit) requires proof → MissingProof
@@ -187,7 +188,7 @@ describe("trana_test_vault", () => {
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       const proof = await buildWithdrawProof(tranaGuard, ix, owner, passkey, 0n, "trana.limit")
@@ -197,7 +198,7 @@ describe("trana_test_vault", () => {
       expect(udData.balance.toNumber()).toBe(LAMPORTS_PER_SOL)
     })
 
-    it("drain_burst_triggers_passkey_after_window_total_hits_limit", async () => {
+    it("consecutive_withdrawal_requires_not_before_passkey", async () => {
       const { conn, pool } = await limitPoolFixture()
       const { owner, passkey } = await setupGuardedUser(tranaGuard)
 
@@ -211,25 +212,22 @@ describe("trana_test_vault", () => {
 
       const buildIx = (amount: number) => vault.methods
         .withdraw(new anchor.BN(amount))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
-      // Two small pulls: 0.4 + 0.4 = 0.8 SOL — still under 1 SOL window total
-      const ix1 = await buildIx(0.4 * LAMPORTS_PER_SOL)
+      // First pull (0.1 SOL, under limit) — free
+      const ix1 = await buildIx(0.1 * LAMPORTS_PER_SOL)
       await sendV0(conn, [ix1], owner.publicKey, [owner])
 
-      const ix2 = await buildIx(0.4 * LAMPORTS_PER_SOL)
-      await sendV0(conn, [ix2], owner.publicKey, [owner])
-
-      // Third pull: 0.4 SOL would push window to 1.2 SOL → drain detected → passkey
-      const ix3 = await buildIx(0.4 * LAMPORTS_PER_SOL)
+      // Second pull within DRAIN_WINDOW — consecutive → NotBefore required, regardless of amount
+      const ix2 = await buildIx(0.1 * LAMPORTS_PER_SOL)
       await expect(
-        sendV0(conn, [ix3], owner.publicKey, [owner])
+        sendV0(conn, [ix2], owner.publicKey, [owner])
       ).rejects.toThrow(/"Custom":6000/)
 
-      // Same pull with a valid passkey succeeds
-      const proof = await buildWithdrawProof(tranaGuard, ix3, owner, passkey, 0n, "trana.require")
-      await sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, ix3], owner.publicKey, [owner])
+      // Same pull with a valid passkey (NotBefore policy) succeeds
+      const proof = await buildWithdrawProof(tranaGuard, ix2, owner, passkey, 0n, "trana.not_before")
+      await sendV0(conn, [proof.secp256r1Ix, proof.recordProofIx, ix2], owner.publicKey, [owner])
     })
 
     it("drain_window_is_per_user_not_global", async () => {
@@ -245,17 +243,21 @@ describe("trana_test_vault", () => {
       const aliceUd = userDepositPda(pool, alice.publicKey, vault.programId)
       const bobUd   = userDepositPda(pool, bob.publicKey, vault.programId)
 
-      // Alice drains her window
-      for (let i = 0; i < 2; i++) {
-        const ix = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
-          .accounts(withdrawAccounts(pool, aliceUd, alice.publicKey, alice.publicKey))
-          .instruction()
-        await sendV0(conn, [ix], alice.publicKey, [alice])
-      }
+      // Alice makes her first free pull — this opens her drain window
+      const aliceIx1 = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
+        .accounts(withdrawAccounts(pool, aliceUd, alice.publicKey, alice.publicKey, registryPda(alice.publicKey, tranaGuard.programId)))
+        .instruction()
+      await sendV0(conn, [aliceIx1], alice.publicKey, [alice])
 
-      // Bob's window is untouched — his 0.4 SOL pull is still free
+      // Alice's second pull within the window now requires NotBefore (consecutive)
+      const aliceIx2 = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
+        .accounts(withdrawAccounts(pool, aliceUd, alice.publicKey, alice.publicKey, registryPda(alice.publicKey, tranaGuard.programId)))
+        .instruction()
+      await expect(sendV0(conn, [aliceIx2], alice.publicKey, [alice])).rejects.toThrow(/"Custom":6000/)
+
+      // Bob's window is completely independent — his first pull is still free
       const bobIx = await vault.methods.withdraw(new anchor.BN(0.4 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, bobUd, bob.publicKey, bob.publicKey))
+        .accounts(withdrawAccounts(pool, bobUd, bob.publicKey, bob.publicKey, registryPda(bob.publicKey, tranaGuard.programId)))
         .instruction()
       await expect(
         sendV0(conn, [bobIx], bob.publicKey, [bob])
@@ -293,7 +295,7 @@ describe("trana_test_vault", () => {
 
       const ix = await vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       // No proof — first-ever pull, cooldown not yet started
@@ -317,7 +319,7 @@ describe("trana_test_vault", () => {
 
       const buildIx = () => vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       // First pull (free)
@@ -340,7 +342,7 @@ describe("trana_test_vault", () => {
 
       const buildIx = () => vault.methods
         .withdraw(new anchor.BN(0.1 * LAMPORTS_PER_SOL))
-        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey))
+        .accounts(withdrawAccounts(pool, ud, owner.publicKey, owner.publicKey, registryPda(owner.publicKey, tranaGuard.programId)))
         .instruction()
 
       // First pull (free, no proof)

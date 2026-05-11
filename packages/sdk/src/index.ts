@@ -17,7 +17,7 @@
 export { TranaGuardClient }               from "./guard/client"
 export type {
   TranaGuardClientOptions,
-  TwoFactorRegistryAccount,
+  PasskeyRegistryAccount,
   TranaConfigAccount,
   RegisterPasskeyResult,
   BuildProofResult,

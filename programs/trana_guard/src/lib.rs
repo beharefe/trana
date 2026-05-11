@@ -3,33 +3,11 @@
 
 use anchor_lang::prelude::*;
 
-// Exactly one network feature must be selected.
-//   CPI dep:      trana_guard = { version = "...", features = ["cpi", "devnet"] }
-//   anchor build: anchor build --features devnet   (or localnet / mainnet-beta)
-#[cfg(not(any(feature = "devnet", feature = "localnet", feature = "mainnet-beta")))]
-compile_error!("trana_guard: select a network feature — devnet, localnet, or mainnet-beta");
-
-#[cfg(all(feature = "devnet", feature = "localnet"))]
-compile_error!("trana_guard: devnet and localnet are mutually exclusive");
-#[cfg(all(feature = "devnet", feature = "mainnet-beta"))]
-compile_error!("trana_guard: devnet and mainnet-beta are mutually exclusive");
-#[cfg(all(feature = "localnet", feature = "mainnet-beta"))]
-compile_error!("trana_guard: localnet and mainnet-beta are mutually exclusive");
-
 #[cfg(feature = "devnet")]
 declare_id!("TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG");
 
-#[cfg(feature = "localnet")]
+#[cfg(not(feature = "devnet"))]
 declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
-
-// TODO: update to mainnet program ID before launch
-#[cfg(feature = "mainnet-beta")]
-declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
-
-// Fallback so the compiler resolves `crate::ID` and shows only the compile_error!
-// above rather than a cascade of "ID not found" errors.
-#[cfg(not(any(feature = "devnet", feature = "localnet", feature = "mainnet-beta")))]
-declare_id!("11111111111111111111111111111111");
 
 pub mod error;
 pub mod events;
@@ -45,7 +23,7 @@ pub use state::*;
 // Defined at the crate root so Anchor's #[program] macro can resolve it as
 // `crate::Policy` without going through a re-export chain.
 
-/// Standard authorization policies. Pass one of these to `trana::cpi::enforce()`.
+/// Standard authorization policies. Pass one of these to `trana_guard::cpi::enforce()`.
 ///
 /// Condition evaluation and passkey checks both happen inside this program —
 /// audited once, trusted everywhere.
@@ -57,28 +35,21 @@ pub enum Policy {
 
     /// Passkey required UNTIL `slot` is reached (current_slot < slot → proof required).
     /// Once the slot passes, calls proceed freely.
-    /// Use case: new feature requiring manual approval during its rollout window.
-    /// Guard reads Clock sysvar directly; the program cannot influence the result.
     /// Policy string: "trana.not_before"
     NotBefore { slot: u64 },
 
     /// Passkey required AFTER `slot` passes (current_slot > slot → proof required).
     /// Before the slot, calls proceed freely.
-    /// Use case: emergency freeze that auto-activates at a specific slot without
-    /// requiring an explicit pause instruction.
-    /// Guard reads Clock sysvar directly; the program cannot influence the result.
     /// Policy string: "trana.not_after"
     NotAfter { slot: u64 },
 
     /// Require passkey when the u64 at `param_offset` bytes (after discriminator)
     /// in the protected instruction is >= `limit`.
-    /// Guard reads the value directly — the caller cannot fake it.
     /// Policy string: "trana.limit"
     Limit { param_offset: u8, limit: u64 },
 }
 
-/// Canonical policy domain strings. Use these in your integration — not raw literals —
-/// so a typo is a compile error rather than a runtime `PolicyMismatch`.
+/// Canonical policy domain strings.
 pub const POLICY_REQUIRE:    &str = "trana.require";
 pub const POLICY_LIMIT:      &str = "trana.limit";
 pub const POLICY_NOT_BEFORE: &str = "trana.not_before";
@@ -88,37 +59,29 @@ pub const POLICY_NOT_AFTER:  &str = "trana.not_after";
 //  Trana Guard — Onchain Authorization Primitive
 //
 //  The single guarantee:
-//    "This instruction cannot execute unless the registered passkey
-//     signed an intent hash that exactly describes this transaction."
+//    "This instruction cannot execute unless one of the wallet's registered
+//     passkeys signed an intent hash that exactly describes this transaction."
+//
+//  ── Multi-passkey model ───────────────────────────────────────────────────
+//
+//  Each wallet has one PasskeyRegistry PDA (seeds: ["passkey", wallet]).
+//  Up to MAX_KEYS (10) passkeys can be registered. Any of them can sign
+//  an enforce() proof. Add or remove passkeys at any time:
+//
+//    register_passkey  — first key, wallet signature only
+//    add_passkey       — additional keys, requires proof from an existing key
+//    remove_passkey    — remove a key by credential ID, requires existing key proof
 //
 //  ── Integration ───────────────────────────────────────────────────────────
 //
-//  Pass a Policy variant to the single enforce() CPI call:
+//    trana_guard::cpi::enforce(ctx, Policy::Require)?
+//    trana_guard::cpi::enforce(ctx, Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?
 //
-//    trana::cpi::enforce(ctx, Policy::Require)?
-//    trana::cpi::enforce(ctx, Policy::Limit    { param_offset: 0, limit: 1_000_000_000 })?
-//    trana::cpi::enforce(ctx, Policy::NotBefore { slot })?
-//    trana::cpi::enforce(ctx, Policy::NotAfter  { slot })?
-//
-//  ── Standard policy strings (hardcoded inside this program, cannot be spoofed) ──
-//
-//    trana.require    — always require passkey
-//    trana.limit      — value at byte offset N >= limit
-//    trana.not_before — passkey required until slot N is reached
-//    trana.not_after  — passkey required after slot N has passed
-//
-//  ── Transaction shape (required by the SDK) ───────────────────────────────
+//  ── Transaction shape ─────────────────────────────────────────────────────
 //
 //    ix[N-2]: secp256r1 precompile      — native P-256 sig verify (SIMD-0075)
-//    ix[N-1]: trana::record_proof       — carries WebAuthn binding data
-//    ix[N]:   your protected instruction — calls trana::cpi::enforce()
-//
-//  ── Module layout ─────────────────────────────────────────────────────────
-//
-//    state.rs  — Policy enum, ProofData, KeyKind, TwoFactorRegistry, account contexts
-//    verify.rs — WebAuthn proof verification pipeline
-//    error.rs  — GuardError codes
-//    events.rs — ProofVerified event
+//    ix[N-1]: trana_guard::record_proof — carries WebAuthn binding data
+//    ix[N]:   your protected instruction — calls trana_guard::cpi::enforce()
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -133,58 +96,59 @@ pub mod trana_guard {
     pub fn init_config(
         ctx:          Context<InitConfig>,
         register_fee: u64,
-        recovery_fee: u64,
+        add_key_fee:  u64,
         treasury:     Pubkey,
     ) -> Result<()> {
-        let cfg           = &mut ctx.accounts.config;
-        cfg.authority     = ctx.accounts.authority.key();
-        cfg.treasury      = treasury;
-        cfg.register_fee  = register_fee;
-        cfg.recovery_fee  = recovery_fee;
+        let cfg          = &mut ctx.accounts.config;
+        cfg.authority    = ctx.accounts.authority.key();
+        cfg.treasury     = treasury;
+        cfg.register_fee = register_fee;
+        cfg.add_key_fee  = add_key_fee;
         msg!(
-            "TRANA config | register_fee={} | recovery_fee={} | treasury={}",
-            register_fee, recovery_fee, treasury,
+            "TRANA config | register_fee={} | add_key_fee={} | treasury={}",
+            register_fee, add_key_fee, treasury,
         );
         Ok(())
     }
 
-    /// Update registration/recovery fees or treasury address.
+    /// Update registration/add-key fees or treasury address.
     /// Requires the config authority to sign — full audit trail on-chain.
     pub fn update_config(
         ctx:          Context<UpdateConfig>,
         register_fee: u64,
-        recovery_fee: u64,
+        add_key_fee:  u64,
         treasury:     Pubkey,
     ) -> Result<()> {
-        let cfg           = &mut ctx.accounts.config;
-        cfg.register_fee  = register_fee;
-        cfg.recovery_fee  = recovery_fee;
-        cfg.treasury      = treasury;
+        let cfg          = &mut ctx.accounts.config;
+        cfg.register_fee = register_fee;
+        cfg.add_key_fee  = add_key_fee;
+        cfg.treasury     = treasury;
         msg!(
-            "TRANA config updated | register_fee={} | recovery_fee={} | treasury={}",
-            register_fee, recovery_fee, treasury,
+            "TRANA config updated | register_fee={} | add_key_fee={} | treasury={}",
+            register_fee, add_key_fee, treasury,
         );
         Ok(())
     }
 
     // ── Passkey registration ──────────────────────────────────────────────────
 
-    /// Register a P-256 passkey for the first time.
-    /// Only works when no key is registered yet (registry.pubkey_bytes is empty).
-    /// For replacing an existing key use recover_two_fa, which requires the
-    /// current passkey to prove you still hold it.
-    pub fn register_two_fa(
-        ctx: Context<RegisterTwoFa>,
-        key_kind: KeyKind,
-        pubkey_bytes: Vec<u8>,
+    /// Register the first passkey for a wallet.
+    /// Only succeeds when the registry is empty — subsequent passkeys require
+    /// proof from an existing key via `add_passkey`.
+    pub fn register_passkey(
+        ctx:           Context<RegisterPasskey>,
+        key_kind:      KeyKind,
+        pubkey_bytes:  Vec<u8>,
         credential_id: Vec<u8>,
     ) -> Result<()> {
         validate_key_inputs(&pubkey_bytes, &credential_id)?;
-        let is_new = ctx.accounts.registry.pubkey_bytes.is_empty();
-        // Block wallet-only re-registration — use recover_two_fa instead.
+
+        let r = &mut ctx.accounts.registry;
+
+        // Block re-registration via this instruction — use add_passkey instead.
         // This closes the hijack vector: an attacker with just the wallet key
-        // cannot overwrite the registered passkey.
-        require!(is_new, GuardError::Unauthorized);
+        // cannot overwrite or add a passkey after the first registration.
+        require!(r.keys.is_empty(), GuardError::Unauthorized);
 
         collect_fee(
             ctx.accounts.system_program.to_account_info(),
@@ -192,37 +156,60 @@ pub mod trana_guard {
             ctx.accounts.treasury.to_account_info(),
             ctx.accounts.config.register_fee,
         )?;
-        let r           = &mut ctx.accounts.registry;
-        r.owner         = ctx.accounts.owner.key();
-        r.key_kind      = key_kind;
-        r.pubkey_bytes  = pubkey_bytes;
-        r.credential_id = credential_id;
-        msg!("TRANA register | owner={}", r.owner);
+
+        r.owner = ctx.accounts.owner.key();
+        r.keys.push(PasskeyEntry { key_kind, pubkey_bytes, credential_id });
+        msg!("TRANA register_passkey | owner={}", r.owner);
         Ok(())
     }
 
-    /// Replace the registered passkey. Requires a proof from the CURRENT key.
+    /// Emergency recovery: clear all passkeys and register a fresh one.
     ///
-    /// The old passkey signs an intent whose params_hash covers the new
-    /// pubkey_bytes and credential_id, so the replacement is approved by the
-    /// existing device before it takes effect.
+    /// Requires only the owner wallet signature — no passkey proof needed.
+    /// Use when all registered passkeys are lost/inaccessible.
+    /// Resets the nonce to 0.
+    pub fn recover_registry(
+        ctx:           Context<RecoverRegistry>,
+        key_kind:      KeyKind,
+        pubkey_bytes:  Vec<u8>,
+        credential_id: Vec<u8>,
+    ) -> Result<()> {
+        validate_key_inputs(&pubkey_bytes, &credential_id)?;
+        let r = &mut ctx.accounts.registry;
+        r.keys.clear();
+        r.nonce = 0;
+        r.owner = ctx.accounts.owner.key();
+        r.keys.push(PasskeyEntry { key_kind, pubkey_bytes, credential_id });
+        msg!("TRANA recover_registry | owner={}", r.owner);
+        Ok(())
+    }
+
+    /// Add an additional passkey to an existing registry.
+    ///
+    /// Requires a proof signed by any currently registered passkey.
+    /// Charges `add_key_fee` to prevent spam.
+    /// Up to MAX_KEYS (10) passkeys per wallet.
     ///
     /// Transaction shape (same as enforce):
-    ///   ix[N-2]: secp256r1 precompile  (signed by OLD key)
+    ///   ix[N-2]: secp256r1 precompile  (signed by any existing key)
     ///   ix[N-1]: trana_guard::record_proof
-    ///   ix[N]:   trana_guard::recover_two_fa  ← this instruction
-    pub fn recover_two_fa(
-        ctx: Context<RecoverTwoFa>,
-        key_kind: KeyKind,
-        pubkey_bytes: Vec<u8>,
+    ///   ix[N]:   trana_guard::add_passkey  ← this instruction
+    pub fn add_passkey(
+        ctx:           Context<AddPasskey>,
+        key_kind:      KeyKind,
+        pubkey_bytes:  Vec<u8>,
         credential_id: Vec<u8>,
     ) -> Result<()> {
         validate_key_inputs(&pubkey_bytes, &credential_id)?;
 
         let owner_key = ctx.accounts.owner.key();
 
-        // Verify the OLD passkey signed this exact instruction (which carries the
-        // new pubkey_bytes in its params). No separate enforce CPI needed.
+        require!(
+            ctx.accounts.registry.keys.len() < MAX_KEYS,
+            GuardError::MaxKeysReached
+        );
+
+        // Verify any registered passkey signs this exact instruction.
         verify::verify_with_policy(
             &ctx.accounts.instructions,
             &mut ctx.accounts.registry,
@@ -235,15 +222,50 @@ pub mod trana_guard {
             ctx.accounts.system_program.to_account_info(),
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.treasury.to_account_info(),
-            ctx.accounts.config.recovery_fee,
+            ctx.accounts.config.add_key_fee,
         )?;
 
-        let r           = &mut ctx.accounts.registry;
-        r.key_kind      = key_kind;
-        r.pubkey_bytes  = pubkey_bytes;
-        r.credential_id = credential_id;
-        // nonce was already incremented by verify_with_policy — do not reset it
-        msg!("TRANA recover | owner={}", owner_key);
+        ctx.accounts.registry.keys.push(PasskeyEntry { key_kind, pubkey_bytes, credential_id });
+        msg!("TRANA add_passkey | owner={} | total_keys={}", owner_key, ctx.accounts.registry.keys.len());
+        Ok(())
+    }
+
+    /// Remove a passkey by its credential ID.
+    ///
+    /// Requires a proof from any currently registered passkey.
+    /// Cannot remove the last key — at least one must remain.
+    /// Free (no fee).
+    ///
+    /// Transaction shape:
+    ///   ix[N-2]: secp256r1 precompile  (signed by any existing key)
+    ///   ix[N-1]: trana_guard::record_proof
+    ///   ix[N]:   trana_guard::remove_passkey  ← this instruction
+    pub fn remove_passkey(
+        ctx:           Context<RemovePasskey>,
+        credential_id: Vec<u8>,
+    ) -> Result<()> {
+        let owner_key = ctx.accounts.owner.key();
+
+        require!(
+            ctx.accounts.registry.keys.len() > 1,
+            GuardError::LastKeyCannotBeRemoved
+        );
+
+        // Verify any registered passkey signs this exact instruction before removal.
+        verify::verify_with_policy(
+            &ctx.accounts.instructions,
+            &mut ctx.accounts.registry,
+            &owner_key,
+            ctx.program_id,
+            POLICY_REQUIRE,
+        )?;
+
+        let before = ctx.accounts.registry.keys.len();
+        ctx.accounts.registry.keys.retain(|k| k.credential_id != credential_id);
+        let after = ctx.accounts.registry.keys.len();
+
+        require!(after < before, GuardError::CredentialNotFound);
+        msg!("TRANA remove_passkey | owner={} | remaining_keys={}", owner_key, after);
         Ok(())
     }
 
@@ -265,26 +287,24 @@ pub mod trana_guard {
     }
 
     // ── Single enforcement entry point ────────────────────────────────────────
-    //
-    // All policy evaluation happens inside this program — audited once,
-    // trusted everywhere. No-op for conditional policies when the condition
-    // is not met (passkey not required).
 
     /// Enforce authorization according to the given policy.
     ///
-    /// For conditional policies (NotBefore, NotAfter, Limit) the condition is
-    /// evaluated here and passkey is required only when the condition fires.
-    /// For Policy::Require the passkey is always required unconditionally.
+    /// Any registered passkey in the wallet's PasskeyRegistry can provide
+    /// the proof. For conditional policies, the condition is evaluated here —
+    /// passkey is required only when the condition fires.
     pub fn enforce(ctx: Context<Enforce>, policy: Policy) -> Result<()> {
         let owner_key = ctx.accounts.owner.key();
         let ix        = &ctx.accounts.instructions;
-        let registry  = &mut ctx.accounts.registry;
         let pid       = ctx.program_id;
+        let reg_info  = &ctx.accounts.registry;
 
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy={} | owner={}", POLICY_REQUIRE, owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_REQUIRE)
+                with_registry(reg_info, &owner_key, |reg| {
+                    verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_REQUIRE)
+                })
             }
 
             Policy::NotBefore { slot } => {
@@ -294,7 +314,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | current={} | required={} | owner={}",
                         POLICY_NOT_BEFORE, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_BEFORE)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_NOT_BEFORE)
+                    })?;
                 }
                 Ok(())
             }
@@ -306,7 +328,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | current={} | expiry={} | owner={}",
                         POLICY_NOT_AFTER, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_AFTER)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_NOT_AFTER)
+                    })?;
                 }
                 Ok(())
             }
@@ -318,7 +342,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | amount={} | limit={} | owner={}",
                         POLICY_LIMIT, amount, limit, owner_key,
                     );
-                    verify::verify_at_idx(ix, registry, &owner_key, pid, POLICY_LIMIT, current_idx)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_at_idx(ix, reg, &owner_key, pid, POLICY_LIMIT, current_idx)
+                    })?;
                 }
                 Ok(())
             }
@@ -328,13 +354,31 @@ pub mod trana_guard {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
+/// Deserialize the registry, validate ownership, run `f`, then write back.
+/// Returns RegistryRequired if the account is missing or has wrong data.
+fn with_registry<F>(info: &UncheckedAccount, owner_key: &Pubkey, f: F) -> Result<()>
+where
+    F: FnOnce(&mut PasskeyRegistry) -> Result<()>,
+{
+    require!(info.owner == &crate::ID, GuardError::RegistryRequired);
+    let mut registry = {
+        let data = info.try_borrow_data()?;
+        PasskeyRegistry::try_deserialize(&mut data.as_ref())
+            .map_err(|_| error!(GuardError::RegistryRequired))?
+    };
+    require!(registry.owner == *owner_key, GuardError::InvalidProof);
+    f(&mut registry)?;
+    let mut data = info.try_borrow_mut_data()?;
+    registry.try_serialize(&mut data.as_mut()).map_err(|_| error!(GuardError::InvalidProof))
+}
+
 fn validate_key_inputs(pubkey_bytes: &[u8], credential_id: &[u8]) -> Result<()> {
     require!(
-        pubkey_bytes.len()  <= TwoFactorRegistry::MAX_PUBKEY_LEN,
+        pubkey_bytes.len()  <= PasskeyRegistry::MAX_PUBKEY_LEN,
         GuardError::InvalidProof
     );
     require!(
-        credential_id.len() <= TwoFactorRegistry::MAX_CRED_ID_LEN,
+        credential_id.len() <= PasskeyRegistry::MAX_CRED_ID_LEN,
         GuardError::InvalidProof
     );
     Ok(())

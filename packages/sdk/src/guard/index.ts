@@ -6,7 +6,7 @@
 export { TranaGuardClient }               from "./client"
 export type {
   TranaGuardClientOptions,
-  TwoFactorRegistryAccount,
+  PasskeyRegistryAccount,
   TranaConfigAccount,
   RegisterPasskeyResult,
   BuildProofResult,

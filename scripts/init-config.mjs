@@ -10,7 +10,7 @@
 //
 // Options:
 //   --register-fee <sol>   Fee charged for passkey registration (default: 0.005)
-//   --recovery-fee <sol>   Fee charged for account recovery    (default: 0.01)
+//   --add-key-fee  <sol>   Fee charged for adding a passkey key (default: 0.01)
 //
 // Env:
 //   ANCHOR_PROVIDER_URL    RPC endpoint (default: http://localhost:8899)
@@ -46,7 +46,7 @@ const parseSol = (val, defaultSol) => {
 }
 
 const registerFeeLamports = parseSol(flags["register-fee"], 0.005)
-const recoveryFeeLamports  = parseSol(flags["recovery-fee"],  0.01)
+const addKeyFeeLamports   = parseSol(flags["add-key-fee"],   0.01)
 
 // ── Connect ───────────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ console.log(`  config PDA:    ${configPda.toBase58()}`)
 console.log(`  authority:     ${payer.publicKey.toBase58()}`)
 console.log(`  treasury:      ${treasuryPubkey.toBase58()}`)
 console.log(`  register_fee:  ${registerFeeLamports} lamports (${Number(registerFeeLamports) / 1e9} SOL)`)
-console.log(`  recovery_fee:  ${recoveryFeeLamports} lamports (${Number(recoveryFeeLamports) / 1e9} SOL)`)
+console.log(`  add_key_fee:   ${addKeyFeeLamports} lamports (${Number(addKeyFeeLamports) / 1e9} SOL)`)
 console.log(`  cluster:       ${rpc}`)
 console.log()
 
@@ -93,11 +93,11 @@ console.log()
 const disc = Buffer.from([23, 235, 115, 232, 168, 96, 1, 231])
 
 const registerFeeBuf = Buffer.alloc(8)
-const recoveryFeeBuf = Buffer.alloc(8)
+const addKeyFeeBuf   = Buffer.alloc(8)
 registerFeeBuf.writeBigUInt64LE(registerFeeLamports)
-recoveryFeeBuf.writeBigUInt64LE(recoveryFeeLamports)
+addKeyFeeBuf.writeBigUInt64LE(addKeyFeeLamports)
 
-const data = Buffer.concat([disc, registerFeeBuf, recoveryFeeBuf, treasuryPubkey.toBuffer()])
+const data = Buffer.concat([disc, registerFeeBuf, addKeyFeeBuf, treasuryPubkey.toBuffer()])
 
 const ix = new TransactionInstruction({
   programId: tranaGuardProgramId,

@@ -24,7 +24,6 @@ use anchor_lang::solana_program::system_instruction;
 use trana_guard::{
     cpi::accounts::Enforce,
     program::TranaGuard,
-    state::TwoFactorRegistry,
     Policy,
 };
 
@@ -115,11 +114,11 @@ pub mod trana_test_vault {
 
     /// Withdraw SOL from the pool.
     ///
-    /// PoolKind::Limit
-    ///   - amount < 1 SOL and not in a drain burst → free, no proof needed
-    ///   - amount >= 1 SOL                         → passkey (Policy::Limit)
-    ///   - consecutive pulls totalling >= 1 SOL
-    ///     within 60 s (per user)                  → passkey (Policy::Require)
+    /// PoolKind::Limit  (two independent policies — OR logic)
+    ///   - first tx in window, amount < 1 SOL  → free
+    ///   - first tx in window, amount >= 1 SOL → passkey (Policy::Limit)
+    ///   - any tx while a prior withdrawal is within DRAIN_WINDOW
+    ///                                          → passkey (Policy::NotBefore)
     ///
     /// PoolKind::TimeLocked { slot }
     ///
@@ -147,23 +146,19 @@ pub mod trana_test_vault {
             PoolKind::Limit => {
                 let now       = clock.unix_timestamp;
                 let ud        = &ctx.accounts.user_deposit;
+                // Consecutive = any withdrawal while a prior one is within DRAIN_WINDOW.
+                // Independent from the per-tx amount limit.
                 let in_window = ud.last_withdraw_at > 0
                     && (now - ud.last_withdraw_at) < DRAIN_WINDOW;
-                let window_now = if in_window {
-                    ud.window_withdrawn.saturating_add(amount)
+                let p = if in_window {
+                    // Consecutive tx: require passkey, slot-locked so the constraint
+                    // is visible on-chain in the signed intent and guard logs.
+                    Policy::NotBefore { slot: ud.last_withdraw_slot.saturating_add(COOLDOWN_SLOTS) }
                 } else {
-                    amount
-                };
-                // Drain only triggers when there IS a prior window — a fresh first
-                // withdrawal at exactly the limit should fall through to Policy::Limit,
-                // not escalate to Policy::Require.
-                let is_drain = in_window && window_now >= WITHDRAW_LIMIT;
-                let p = if is_drain {
-                    Policy::Require
-                } else {
+                    // First tx in window: free unless it exceeds the per-tx limit.
                     Policy::Limit { param_offset: 0, limit: WITHDRAW_LIMIT }
                 };
-                (p, is_drain || amount >= WITHDRAW_LIMIT)
+                (p, in_window || amount >= WITHDRAW_LIMIT)
             }
         };
 
@@ -197,15 +192,21 @@ pub mod trana_test_vault {
                 let ud    = &mut ctx.accounts.user_deposit;
                 let in_w  = ud.last_withdraw_at > 0
                     && (now - ud.last_withdraw_at) < DRAIN_WINDOW;
-                let w_now = if in_w { ud.window_withdrawn.saturating_add(amount) } else { amount };
+
+                // Always record the slot — used for NotBefore unlock on consecutive tx.
+                ud.last_withdraw_slot = clock.slot;
 
                 if proof_used {
+                    // Passkey approved — reset the window so next tx is fresh.
                     ud.window_withdrawn = 0;
                     ud.last_withdraw_at = 0;
-                } else if in_w {
-                    ud.window_withdrawn = w_now;
                 } else {
-                    ud.window_withdrawn = amount;
+                    // Free tx — record timestamp to start/extend the consecutive window.
+                    ud.window_withdrawn = if in_w {
+                        ud.window_withdrawn.saturating_add(amount)
+                    } else {
+                        amount
+                    };
                     ud.last_withdraw_at = now;
                 }
             }
@@ -291,13 +292,9 @@ pub struct Withdraw<'info> {
 
     pub trana_guard_program: Program<'info, TranaGuard>,
 
-    #[account(
-        mut,
-        seeds = [b"2fa", owner.key().as_ref()],
-        seeds::program = trana_guard_program.key(),
-        bump,
-    )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
+    /// CHECK: Passed through to trana_guard::enforce. Guard validates it when proof is needed.
+    #[account(mut)]
+    pub trana_registry: UncheckedAccount<'info>,
 
     /// CHECK: instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
