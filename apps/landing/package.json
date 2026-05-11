@@ -35,5 +35,12 @@
     "postcss": "^8.5.0",
     "tailwindcss": "^4.2",
     "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "@img/sharp-libvips-linux-x64": "1.2.4",
+    "@img/sharp-linux-x64": "0.34.5",
+    "@napi-rs/simple-git-linux-x64-gnu": "0.1.22",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.2.4",
+    "lightningcss-linux-x64-gnu": "1.32.0"
   }
 }

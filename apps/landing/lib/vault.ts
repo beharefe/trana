@@ -109,11 +109,8 @@ function u64LE(n: bigint): Uint8Array {
   return buf
 }
 
-function concat(...parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0))
-  let offset = 0
-  for (const p of parts) { out.set(p, offset); offset += p.length }
-  return out
+function concat(...parts: Uint8Array[]): Buffer {
+  return Buffer.concat(parts.map(p => Buffer.from(p)))
 }
 
 export function buildDepositIx(
