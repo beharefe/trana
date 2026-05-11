@@ -2,8 +2,10 @@
 
 Onchain second-factor authorization for Solana.
 
-Any Anchor program can add passkey enforcement to any instruction via a single
-CPI call. No custody change. No trusted bridge. No server key.
+Any Anchor program can add passkey enforcement to any instruction via a single CPI call. No custody change. No trusted bridge. No server key.
+
+[![crates.io](https://img.shields.io/crates/v/trana-guard.svg)](https://crates.io/crates/trana-guard)
+[![npm](https://img.shields.io/npm/v/@tranaprotocol/sdk.svg)](https://www.npmjs.com/package/@tranaprotocol/sdk)
 
 ---
 
@@ -13,7 +15,7 @@ CPI call. No custody change. No trusted bridge. No server key.
 ┌─────────────────────────────────────────────────────┐
 │  dApp / Frontend  (React)                           │
 └──────────────────┬──────────────────────────────────┘
-                   │  @tranaprotocol/guard-sdk
+                   │  @tranaprotocol/sdk
 ┌──────────────────▼──────────────────────────────────┐
 │  packages/sdk                                       │
 │  Intent hash  │  WebAuthn  │  Tx builder            │
@@ -31,30 +33,21 @@ CPI call. No custody change. No trusted bridge. No server key.
 
 ## Programs
 
-| Program | ID | Purpose |
+| Program | ID (devnet) | Purpose |
 |---|---|---|
-| `trana_guard` | `GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn` | Passkey registry + enforcement |
-| `trana_authority` | `KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE` | PDA upgrade authority |
+| `trana_guard` | `TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG` | Passkey registry + enforcement |
+| `trana_authority` | `TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN` | PDA upgrade authority |
 | `trana_test_vault` | `8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa` | Demo shared pool (devnet) |
 
 ---
 
 ## How it works
 
-1. **Registration** — the user registers a P-256 passkey (Touch ID, Face ID,
-   YubiKey) once. The public key is stored in a registry PDA seeded by their
-   wallet: `[b"2fa", owner]`.
+1. **Registration** — the user registers a P-256 passkey (Touch ID, Face ID, YubiKey) once. The public key is stored in a registry PDA seeded by their wallet: `[b"passkey", owner]`.
 
-2. **Authorization** — when a protected instruction is triggered, the SDK
-   builds an intent hash (SHA-256 over the exact accounts, params, nonce, and
-   expiry). The user's passkey signs this hash via a WebAuthn ceremony — entirely
-   in the browser.
+2. **Authorization** — when a protected instruction is triggered, the SDK builds an intent hash (SHA-256 over the exact accounts, params, nonce, and expiry). The user's passkey signs this hash via a WebAuthn ceremony, entirely in the browser.
 
-3. **Enforcement** — the transaction carries three contiguous instructions:
-   the secp256r1 native precompile (P-256 sig verify), `record_proof` (data
-   carrier), and your protected instruction. `enforce()` via CPI reads the
-   preceding two instructions from the Instructions sysvar and verifies
-   everything. Any mismatch reverts the entire transaction atomically.
+3. **Enforcement** — the transaction carries three contiguous instructions: the secp256r1 native precompile (P-256 sig verify), `record_proof` (data carrier), and your protected instruction. `enforce()` via CPI reads the preceding two instructions from the Instructions sysvar and verifies everything. Any mismatch reverts the entire transaction atomically.
 
 No backend required. No custody transfer. The private key never leaves the device.
 
@@ -67,7 +60,7 @@ No backend required. No custody transfer. The private key never leaves the devic
 ```toml
 # programs/your_program/Cargo.toml
 [dependencies]
-trana_guard = { path = "../../programs/trana_guard", features = ["cpi"] }
+trana-guard = { version = "0.1", features = ["cpi"] }
 ```
 
 ### 2. Add three accounts to your instruction struct
@@ -75,7 +68,7 @@ trana_guard = { path = "../../programs/trana_guard", features = ["cpi"] }
 ```rust
 use trana_guard::cpi::accounts::Enforce;
 use trana_guard::program::TranaGuard;
-use trana_guard::TwoFactorRegistry;
+use trana_guard::PasskeyRegistry;
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
@@ -89,11 +82,11 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds  = [b"2fa", owner.key().as_ref()],
+        seeds  = [b"passkey", owner.key().as_ref()],
         bump,
         seeds::program = trana_guard_program.key(),
     )]
-    pub trana_registry: Account<'info, TwoFactorRegistry>,
+    pub trana_registry: Account<'info, PasskeyRegistry>,
 
     /// CHECK: Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
@@ -131,12 +124,11 @@ impl<'info> Withdraw<'info> {
 | Policy | Trigger | Example use |
 |---|---|---|
 | `Require` | Always | Admin actions, upgrade authority |
-| `Limit { param_offset, limit }` | When `u64` at offset in params ≥ `limit` | Withdraw ≥ 1 SOL |
-| `NotBefore { slot }` | When `clock.slot < slot` | Rollout window — new feature requires passkey until slot X |
-| `NotAfter { slot }` | When `clock.slot > slot` | Emergency freeze — no action after slot X without passkey |
+| `Limit { param_offset, limit }` | When `u64` at offset in params >= `limit` | Withdraw >= 1 SOL |
+| `NotBefore { slot }` | When `clock.slot < slot` | Rollout window |
+| `NotAfter { slot }` | When `clock.slot > slot` | Emergency freeze |
 
-`Limit` reads the raw instruction data at `param_offset` as a little-endian
-`u64`, so the amount doesn't need to be re-passed as an argument.
+`Limit` reads the raw instruction data at `param_offset` as a little-endian `u64`, so the amount doesn't need to be re-passed as an argument.
 
 ---
 
@@ -146,31 +138,27 @@ impl<'info> Withdraw<'info> {
 |---|---|
 | `init_config` | One-time global fee config setup |
 | `update_config` | Change fees or treasury address |
-| `register_two_fa` | Register a passkey (once per wallet — locked after first call) |
-| `recover_two_fa` | Replace passkey using proof from the existing key |
-| `record_proof` | Data carrier — holds WebAuthn binding bytes for `enforce()` |
+| `register_passkey` | Register a passkey for a wallet |
+| `add_passkey` | Add an additional passkey to an existing registry |
+| `remove_passkey` | Remove a passkey from the registry |
+| `recover_registry` | Replace registry using proof from an existing key |
+| `record_proof` | Data carrier -- holds WebAuthn binding bytes for `enforce()` |
 | `enforce` | CPI endpoint: verify proof and increment nonce |
 
 ### Passkey rotation
 
-`register_two_fa` is locked after the first registration — calling it again
-returns `Unauthorized (6008)`. To replace a passkey, use `recover_two_fa`,
-which requires a proof signed by the **existing** key:
+To replace a passkey, use `recover_registry`, which requires a proof signed by an existing registered key:
 
 ```typescript
 // The old passkey signs an intent that commits to the new pubkey_bytes.
-// If the device is lost, key recovery requires out-of-band social recovery
-// (not yet implemented — tracked separately).
-await recoverTwoFa(program, owner, oldPasskey, newPasskey, treasury)
+await recoverRegistry(program, owner, oldPasskey, newPasskey, treasury)
 ```
 
 ---
 
-## trana_authority — PDA upgrade authority
+## trana_authority -- PDA upgrade authority
 
-`trana_authority` lets you transfer a program's upgrade authority to a PDA,
-so that upgrading the program requires a passkey proof even if someone has the
-wallet key.
+`trana_authority` lets you transfer a program's upgrade authority to a PDA, so that upgrading the program requires a passkey proof even if someone has the wallet key.
 
 ```typescript
 // Register the PDA as upgrade authority for a program
@@ -192,23 +180,18 @@ const [pda] = PublicKey.findProgramAddressSync(
 await buildAndSendProof(tranaGuard, executeUpgradeIx, owner, passkey)
 ```
 
-After this, upgrading the program requires:
-1. Passkey proof signed by the owner
-2. `trana_authority::execute_upgrade` CPI
-
-Neither is possible with just the wallet key.
+After this, upgrading the program requires a passkey proof signed by the owner. The wallet key alone is not sufficient.
 
 ---
 
 ## Fee system
 
-Fees are charged at registration time only — not at enforcement.
+Fees are charged at registration time only -- not at enforcement.
 
-- `register_fee` (default 0.005 SOL) — first registration
-- `recovery_fee` (default 0.01 SOL) — passkey replacement via `recover_two_fa`
+- `register_fee` (default 0.005 SOL) -- first registration
+- `recovery_fee` (default 0.01 SOL) -- registry replacement via `recover_registry`
 
-`enforce()` charges nothing. Fee amounts and treasury address live in the
-global `TranaConfig` PDA (`seeds = [b"config"]`), publicly readable on-chain.
+`enforce()` charges nothing. Fee amounts and treasury address live in the global `TranaConfig` PDA (`seeds = [b"config"]`), publicly readable on-chain.
 
 ---
 
@@ -223,23 +206,19 @@ global `TranaConfig` PDA (`seeds = [b"config"]`), publicly readable on-chain.
 | Frontend SDK | No | Client-side, UX only |
 | Any bridge or server | No | Never holds keys |
 
-A compromised frontend cannot produce valid P-256 proofs — only the user's
-hardware authenticator holds the private key.
+A compromised frontend cannot produce valid P-256 proofs -- only the user's hardware authenticator holds the private key.
 
 ---
 
-## Devnet demo — trana_test_vault
+## Devnet demo -- trana_test_vault
 
-A live shared SOL pool on devnet gated by passkey. The seed phrase is
-published after deployment — anyone can try to drain it.
+A live shared SOL pool on devnet gated by passkey. Anyone can try it at [trana.so](https://trana.so).
 
 - Deposits open to anyone (`deposit` needs no passkey)
-- Withdrawals ≥ 1 SOL require passkey (`Policy::Limit`)
-- Rapid successive withdrawals escalate to `Policy::Require`
-- Upgrade authority is the `trana_authority` PDA — wallet key alone cannot patch the program
+- Withdrawals >= 1 SOL require passkey (`Policy::Limit`)
+- Upgrade authority is the `trana_authority` PDA -- wallet key alone cannot patch the program
 
-See [`docs/deploy-devnet-vault.md`](docs/deploy-devnet-vault.md) for the full
-setup guide.
+See [`docs/deploy-devnet-vault.md`](docs/deploy-devnet-vault.md) for the full setup guide.
 
 ---
 
@@ -251,17 +230,28 @@ programs/
   trana_authority/    PDA upgrade authority
   trana_test_vault/   Demo shared pool
 packages/
-  sdk/                @tranaprotocol/guard-sdk — TypeScript/React client
+  sdk/                @tranaprotocol/sdk -- TypeScript/React client
 tests/
-  guard.test.ts       trana_guard integration tests
-  trana_authority.test.ts  Upgrade authority tests (real BPF loader)
-  trana_test_vault.test.ts Vault policy tests
+  guard.test.ts               trana_guard integration tests
+  trana_authority.test.ts     Upgrade authority tests (real BPF loader)
+  trana_test_vault.test.ts    Vault policy tests
+apps/
+  landing/            trana.so -- landing page, docs, and demo UI
 docs/
-  integration.md      Full copy-paste integration reference
+  integration.md          Full copy-paste integration reference
   deploy-devnet-core.md   Deploy trana_guard + trana_authority
   deploy-devnet-vault.md  Deploy + lock demo vault
+  architecture.md         System design and data flow
+  decisions.md            Non-obvious design decisions
+  zero-trust.md           Security model and attack surface
 ```
 
 ---
 
-Built for Colosseum Frontier Hackathon · April 2026
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+Built for Colosseum Frontier Hackathon · May 2026
