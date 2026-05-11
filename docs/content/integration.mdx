@@ -1,6 +1,6 @@
 # Integration
 
-Reference for adding Trana to a Solana Anchor program.
+Complete Rust/Anchor and TypeScript SDK reference.
 
 ---
 
@@ -158,10 +158,12 @@ export function TranaRoot({ children }: { children: React.ReactNode }) {
 
 ### authorizeAndSend
 
+Pass `instruction` to tell the SDK what you're authorizing. It computes the intent hash from the instruction, inserts the `(secp256r1, record_proof)` pair immediately before it, and submits the complete transaction.
+
 ```ts
 const { authorizeAndSend } = useTrana()
 
-// Simple: SDK derives intent and builds the transaction:
+// Simple: SDK builds the transaction automatically:
 await authorizeAndSend({
   instruction: withdrawIx,
   label: "Withdraw 1.5 SOL",
@@ -178,8 +180,6 @@ await authorizeAndSend({
   },
 })
 ```
-
-`instruction` tells the SDK what you're authorizing. It derives the intent hash from it and inserts the `(secp256r1, record_proof)` pair immediately before it in the final transaction. The instruction can appear anywhere in the transaction.
 
 ### Low-level helpers
 

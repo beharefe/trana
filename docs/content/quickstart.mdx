@@ -80,9 +80,17 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
 }
 ```
 
-The guard reads `amount` directly from the instruction data. The caller can't fake it. Below the 1 SOL threshold the enforce call returns `Ok(())` immediately with no proof required.
+Below 1 SOL, `enforce()` returns `Ok(())`. No passkey needed.
 
-**`param_offset`** is the byte offset of the target `u64` after the 8-byte Anchor discriminator. For `fn withdraw(ctx, amount: u64)` the offset is `0`. For `fn transfer(ctx, recipient: Pubkey, amount: u64)` the offset is `32` (one Pubkey). Sum the byte sizes of all params before your u64: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
+`param_offset` is the byte position of your target `u64`, counted after the 8-byte Anchor discriminator. The guard reads this value directly from the instruction data — the caller cannot fake it.
+
+| Instruction | `param_offset` |
+|---|---|
+| `fn withdraw(ctx, amount: u64)` | `0` |
+| `fn transfer(ctx, recipient: Pubkey, amount: u64)` | `32` |
+| `fn action(ctx, flag: bool, amount: u64)` | `1` |
+
+Each type occupies its byte size: `Pubkey` = 32, `u64` = 8, `u32` = 4, `bool`/`u8` = 1.
 
 ## 4. Client
 

@@ -28,7 +28,7 @@ Trana has three layers. The Solana runtime ties them together: all three execute
 
 One deployed program. Three instructions.
 
-`register_two_fa` writes a P-256 public key and credential ID into a PDA (`["2fa", wallet_pubkey]`). Re-registering updates the key and preserves the nonce.
+`register_two_fa` writes a P-256 public key and credential ID into a PDA (`["2fa", wallet_pubkey]`). Re-registering with a new device updates the key in place without resetting the nonce.
 
 `record_proof` is a data carrier. It holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, policy, cluster) in instruction data and modifies no accounts.
 
@@ -113,7 +113,7 @@ SHA-256(
 )
 ```
 
-Three things prevent replay: the nonce (incremented on-chain after every approval), the expiry timestamp (proof rejected if `clock.unix_timestamp >= expiry`), and exact field binding (changing any account, parameter, or cluster produces a different hash and fails verification).
+Three things prevent replay. The nonce increments on-chain after every approval, so a captured proof is worthless after the next transaction. The expiry timestamp rejects any proof where `clock.unix_timestamp >= expiry`. Exact binding means any change to accounts, parameters, or cluster produces a different hash and fails verification.
 
 The expected cluster (`"mainnet-beta"`, `"devnet"`, `"localnet"`) is a compile-time constant baked into the program binary via Cargo feature flags, not in a mutable config account. A proof signed for devnet will fail with `ClusterMismatch` when submitted to a mainnet binary, even if both binaries share the same program ID.
 

@@ -58,7 +58,7 @@ A 32-byte SHA-256 that cryptographically binds a passkey signature to a specific
 
 ### Accounts hash
 
-A 32-byte SHA-256 of all account public keys in the protected instruction. The guard recomputes this at execution time; any account substitution fails with `PayloadMismatch`.
+A 32-byte SHA-256 of all account public keys in the protected instruction. The guard recomputes this at execution time, so swapping a destination address after you sign produces a different hash and fails with `PayloadMismatch`.
 
 ---
 
@@ -88,19 +88,19 @@ The onchain entry point into the guard program. Called by external programs via 
 
 ### record_proof instruction
 
-A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]`, one position before the protected instruction.
+A guard program instruction that carries WebAuthn data: `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]`, one position before the protected instruction.
 
 ---
 
 ### Pre-signed transaction attack
 
-An attack where a valid transaction is constructed, signed legitimately, and submitted later by an attacker. Trana defeats this: the proof is bound to a specific nonce and expires within 120 seconds.
+An attack where a valid transaction is constructed, signed legitimately, and submitted later by an attacker. Trana defeats this. The proof is bound to a specific nonce and expires in 120 seconds.
 
 ---
 
 ### Durable nonce
 
-A Solana mechanism that allows transactions to remain valid indefinitely by replacing the blockhash. Trana defeats durable nonce replay via proof expiry and the registry nonce.
+A Solana mechanism that allows transactions to remain valid indefinitely by replacing the blockhash. Trana defeats this via the 120-second proof expiry and the registry nonce.
 
 ---
 
@@ -118,7 +118,14 @@ The global fee configuration PDA, seeded at `["config"]` on the guard program. S
 
 ### Policy
 
-The enum passed to `guard::cpi::enforce()`. Four variants: `Require` (always requires passkey), `NotBefore { slot }` (required until a slot is reached), `NotAfter { slot }` (required after a slot passes), `Limit { param_offset, limit }` (required when a u64 parameter is >= limit). For conditional policies, if the condition isn't met `enforce()` returns `Ok(())` immediately with no proof needed.
+The enum passed to `guard::cpi::enforce()`.
+
+- `Require`: always requires a passkey proof.
+- `Limit { param_offset, limit }`: required when a `u64` parameter in the instruction is >= limit.
+- `NotBefore { slot }`: required until the given slot is reached.
+- `NotAfter { slot }`: required after the given slot passes.
+
+For conditional policies, `enforce()` returns `Ok(())` when the condition is not met. No proof needed.
 
 ---
 
