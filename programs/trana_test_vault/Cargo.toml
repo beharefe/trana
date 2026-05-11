@@ -3,6 +3,7 @@ name = "trana_test_vault"
 version = "0.1.0"
 description = "Demo vault — passkey-gated SOL custody, for end-to-end testing and devnet demos"
 edition = "2021"
+publish = false
 
 # ⚠️  DEMO PROGRAM — not for production use
 # This program exists so you can hand someone the vault address on explorer,
