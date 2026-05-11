@@ -3,7 +3,6 @@ import { Keypair, PublicKey } from "@solana/web3.js"
 import type { TranaGuard } from "../../target/types/trana_guard"
 import { airdrop, sendV0 } from "./transactions"
 import { generateTestPasskey } from "../../packages/sdk/src/testing/index"
-import { buildProofInstructions } from "./proof"
 
 export type { TestPasskeyHandle } from "../../packages/sdk/src/testing/index"
 export { generateTestPasskey }
@@ -16,7 +15,7 @@ export function getProgram(): anchor.Program<TranaGuard> {
 
 export function registryPda(owner: PublicKey, programId: PublicKey): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("2fa"), owner.toBuffer()],
+    [Buffer.from("passkey"), owner.toBuffer()],
     programId,
   )
   return pda
@@ -33,7 +32,7 @@ export function configPda(programId: PublicKey): PublicKey {
 export type ConfigContext = {
   treasury:    PublicKey
   registerFee: number
-  recoveryFee: number
+  addKeyFee:   number
 }
 
 /** Initialize the config PDA if it doesn't exist, otherwise read existing values. */
@@ -46,19 +45,19 @@ export async function ensureConfig(
     return {
       treasury:    data.treasury,
       registerFee: (data.registerFee as anchor.BN).toNumber(),
-      recoveryFee: (data.recoveryFee as anchor.BN).toNumber(),
+      addKeyFee:   (data.addKeyFee   as anchor.BN).toNumber(),
     }
   } catch {
     const treasury    = payer.publicKey
     const registerFee = 5_000_000
-    const recoveryFee = 10_000_000
+    const addKeyFee   = 10_000_000
     const ix = await program.methods
-      .initConfig(new anchor.BN(registerFee), new anchor.BN(recoveryFee), treasury)
+      .initConfig(new anchor.BN(registerFee), new anchor.BN(addKeyFee), treasury)
       .accounts({ authority: payer.publicKey })
       .instruction()
     const payerKeypair = (payer as unknown as { payer: Keypair }).payer
     await sendV0(program.provider.connection, [ix], payer.publicKey, [payerKeypair])
-    return { treasury, registerFee, recoveryFee }
+    return { treasury, registerFee, addKeyFee }
   }
 }
 
@@ -79,7 +78,7 @@ export async function registerPasskey(
   treasury: PublicKey,
 ): Promise<void> {
   const ix = await program.methods
-    .registerTwoFa(
+    .registerPasskey(
       { secp256R1Passkey: {} },
       Buffer.from(passkey.pubkey),
       Buffer.from(passkey.credentialId),
@@ -90,37 +89,29 @@ export async function registerPasskey(
 }
 
 /**
- * Replace an existing passkey using the OLD passkey as proof.
- * Calls recover_two_fa — requires secp256r1 + record_proof from the current key.
- *
- * Transaction shape:
- *   ix[N-2]: secp256r1  (signed by oldPasskey)
- *   ix[N-1]: record_proof
- *   ix[N]:   recover_two_fa
+ * Emergency recovery: clear all passkeys and register a fresh one.
+ * Calls recover_registry — owner wallet signature only, no passkey proof.
  */
 export async function recoverPasskey(
   program:    anchor.Program<TranaGuard>,
   owner:      Keypair,
-  oldPasskey: ReturnType<typeof generateTestPasskey>,
+  _oldPasskey: ReturnType<typeof generateTestPasskey>,
   newPasskey: { pubkey: Uint8Array; credentialId: Uint8Array },
-  treasury:   PublicKey,
-  nonce = 0n,
+  _treasury:   PublicKey,
+  _nonce = 0n,
 ): Promise<void> {
   const recoverIx = await program.methods
-    .recoverTwoFa(
+    .recoverRegistry(
       { secp256R1Passkey: {} },
       Buffer.from(newPasskey.pubkey),
       Buffer.from(newPasskey.credentialId),
     )
-    .accounts({ owner: owner.publicKey, treasury })
+    .accounts({ owner: owner.publicKey })
     .instruction()
 
-  const proof = buildProofInstructions(
-    oldPasskey, recoverIx, program.programId, owner.publicKey, nonce, "trana.require",
-  )
   await sendV0(
     program.provider.connection,
-    [proof.secp256r1Ix, proof.recordProofIx, recoverIx],
+    [recoverIx],
     owner.publicKey,
     [owner],
   )
