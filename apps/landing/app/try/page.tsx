@@ -912,22 +912,6 @@ export default function TryPage() {
               <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--bone-4)" }}>
                 {slot !== null ? `#${slot.toLocaleString()}` : "…"}
               </span>
-              <button
-                className="flex md:hidden items-center justify-center w-[22px] h-[22px] cursor-pointer"
-                style={{ border: "1px solid var(--rule-2)", color: "var(--bone-3)", background: "transparent" }}
-                onClick={() => setSideOpen(o => !o)}
-                aria-label={sideOpen ? "Close menu" : "Open menu"}
-              >
-                {sideOpen ? (
-                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
-                    <path d="M1 1 11 11M11 1 1 11"/>
-                  </svg>
-                ) : (
-                  <svg width="11" height="7" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" aria-hidden>
-                    <path d="M0 1h14M0 5h14M0 9h14"/>
-                  </svg>
-                )}
-              </button>
             </div>
           </div>
 
@@ -951,8 +935,8 @@ export default function TryPage() {
             ))}
           </div>
 
-          {/* Sidebar footer */}
-          <div className="mt-auto flex justify-between items-center px-[14px] py-[12px] border-t font-mono text-[10.5px]"
+          {/* Sidebar footer — desktop only (sidebar hidden on mobile) */}
+          <div className="hidden md:flex mt-auto justify-between items-center px-[14px] py-[12px] border-t font-mono text-[10.5px]"
                style={{ borderColor: "var(--rule)", color: "var(--bone-4)" }}>
             <a
               href="/"
@@ -972,29 +956,51 @@ export default function TryPage() {
 
           {/* Topbar */}
           <div
-            className="sticky top-[60px] z-10 flex items-center gap-3 flex-wrap px-6 sm:px-8 py-[14px] border-b"
+            className="sticky top-[60px] z-10 flex items-center gap-3 px-4 sm:px-8 py-[14px] border-b"
             style={{ borderColor: "var(--rule)", background: "rgba(10,10,11,0.82)", backdropFilter: "blur(8px)" }}
           >
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-2 font-mono text-[11.5px] tracking-[0.04em] flex-1 min-w-0" style={{ color: "var(--bone-3)" }}>
+            {/* Breadcrumb — desktop only */}
+            <div className="hidden md:flex items-center gap-2 font-mono text-[11.5px] tracking-[0.04em] flex-1 min-w-0" style={{ color: "var(--bone-3)" }}>
               <span>devnet</span>
               <span style={{ color: "var(--bone-4)" }}>/</span>
               <span>{crumbA}</span>
               <span style={{ color: "var(--bone-4)" }}>/</span>
               <span style={{ color: "var(--bone)" }}>{crumbB}</span>
             </div>
+            {/* Spacer on mobile */}
+            <div className="md:hidden flex-1" />
             {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <a
                 href="https://faucet.solana.com" target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em]"
+                className="hidden sm:inline-flex items-center gap-[6px] px-3 py-[7px] font-mono text-[11px] tracking-[0.04em]"
                 style={{ border: "1px solid var(--rule-2)", color: "var(--bone-2)" }}
               >
-                <span className="hidden sm:inline">Get devnet SOL</span>
-                <span>↗</span>
+                Get devnet SOL ↗
               </a>
               <WalletButton />
             </div>
+          </div>
+
+          {/* Mobile tab strip — replaces sidebar nav on small screens */}
+          <div className="try-tabs-mobile md:hidden sticky top-[109px] z-10" style={{ background: "rgba(10,10,11,0.92)", backdropFilter: "blur(8px)" }}>
+            {NAV_ITEMS.map(n => (
+              <button
+                key={n.route}
+                onClick={"soon" in n && n.soon ? undefined : () => setRoute(n.route)}
+                disabled={"soon" in n && !!n.soon}
+                className="shrink-0 flex items-center gap-[6px] px-3 py-[6px] font-mono text-[10.5px] tracking-[0.1em] uppercase whitespace-nowrap transition-colors disabled:opacity-30"
+                style={{
+                  border: `1px solid ${route === n.route ? "rgba(198,255,58,0.40)" : "var(--rule-2)"}`,
+                  background: route === n.route ? "rgba(198,255,58,0.06)" : "transparent",
+                  color: route === n.route ? "var(--lime)" : "var(--bone-3)",
+                  cursor: "soon" in n && n.soon ? "default" : "pointer",
+                }}
+              >
+                <span style={{ color: route === n.route ? "var(--lime)" : "var(--bone-4)" }}>{n.ix}</span>
+                {n.label}
+              </button>
+            ))}
           </div>
 
           {/* Page content */}
@@ -1514,7 +1520,7 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
           <span className="font-mono" style={{ color: policyColor }}>{policyLabel}</span>
         </div>
       </div>
-      <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1fr)" }}>
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         {children}
       </div>
     </div>
@@ -1522,12 +1528,12 @@ function Panel({ dot, title, subtitle, policyLabel, policyColor, children }: {
 }
 
 function PanelBody({ children }: { children: React.ReactNode }) {
-  return <div className="p-6 min-w-0">{children}</div>
+  return <div className="p-5 sm:p-6 min-w-0">{children}</div>
 }
 
 function PanelAside({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-6 min-w-0 border-l" style={{ borderColor: "var(--rule)", background: "rgba(255,255,255,0.012)" }}>
+    <div className="p-5 sm:p-6 min-w-0 border-t md:border-t-0 md:border-l" style={{ borderColor: "var(--rule)", background: "rgba(255,255,255,0.012)" }}>
       {children}
     </div>
   )
