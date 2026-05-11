@@ -71,16 +71,20 @@ export function SiteNav() {
           <nav className="hidden md:flex items-center gap-[26px]">
             {NAV_LINKS.map(({ href, label }) => {
               const active = isActive(href)
+              const isTry = href === "/try"
               return (
                 <Link
                   key={href}
                   href={resolvedHref(href)}
                   className="relative font-mono text-[11.5px] tracking-[0.14em] uppercase transition-colors"
-                  style={{ color: active ? "var(--bone)" : "var(--bone-3)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "var(--bone)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = active ? "var(--bone)" : "var(--bone-3)")}
+                  style={{
+                    color: isTry ? "var(--lime)" : active ? "var(--bone)" : "var(--bone-3)",
+                    fontWeight: isTry ? 600 : undefined,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = isTry ? "var(--lime)" : "var(--bone)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = isTry ? "var(--lime)" : active ? "var(--bone)" : "var(--bone-3)")}
                 >
-                  {active && (
+                  {active && !isTry && (
                     <span
                       className="absolute inset-x-0 pointer-events-none"
                       style={{ top: "50%", height: 1.5, background: "var(--lime)", transform: "translateY(-50%)" }}
@@ -95,26 +99,32 @@ export function SiteNav() {
 
           {/* Right side */}
           <div className="ml-auto flex items-center gap-[10px]">
-            {/* Live pill */}
-            <span
-              className="hidden sm:inline-flex items-center gap-2 h-7 px-3 rounded-full font-mono text-[10.5px] tracking-[0.18em] uppercase"
-              style={{ color: "var(--lime)", border: "1px solid rgba(198,255,58,0.30)", background: "rgba(198,255,58,0.05)" }}
-            >
-              <span className="relative w-[6px] h-[6px] rounded-full bg-[var(--lime)] animate-pulse-dot" />
-              <span>Live · devnet</span>
-            </span>
-
-            {/* CTA — desktop only */}
+            {/* Docs link */}
             <Link
-              href="/try"
+              href="/docs"
               className="hidden sm:flex items-center gap-2 h-8 px-[14px] font-mono text-[11px] tracking-[0.14em] uppercase transition-all"
               style={{ color: "var(--bone-2)", border: "1px solid var(--rule-2)" }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-3)"; (e.currentTarget as HTMLElement).style.color = "var(--bone)" }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-2)"; (e.currentTarget as HTMLElement).style.color = "var(--bone-2)" }}
             >
-              <span>Open /try</span>
-              <span>→</span>
+              Docs
             </Link>
+
+            {/* GitHub link — desktop only */}
+            <a
+              href="https://github.com/beharefe/trana-guard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:flex items-center gap-2 h-8 px-[14px] font-mono text-[11px] tracking-[0.14em] uppercase transition-all"
+              style={{ color: "var(--bone-2)", border: "1px solid var(--rule-2)" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-3)"; (e.currentTarget as HTMLElement).style.color = "var(--bone)" }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--rule-2)"; (e.currentTarget as HTMLElement).style.color = "var(--bone-2)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 19c-4 1-4-2-6-2m12 4v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/>
+              </svg>
+              <span>GitHub</span>
+            </a>
 
             {/* Hamburger */}
             <button
