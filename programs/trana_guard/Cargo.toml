@@ -16,6 +16,7 @@ exclude = [
   "tests/",
   ".github/",
   "*.sh",
+  "Cargo.lock"
 ]
 
 [lib]
