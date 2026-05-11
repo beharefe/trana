@@ -12,11 +12,7 @@
     "strict":           true,
     "esModuleInterop":  true,
     "skipLibCheck":     true,
-    "resolveJsonModule": true,
-    "baseUrl":          ".",
-    "paths": {
-      "@noble/curves/nist": ["../../node_modules/@noble/curves/nist.d.ts"]
-    }
+    "resolveJsonModule": true
   },
   "include": [
     "src/index.ts",
