@@ -174,6 +174,15 @@ export function SiteNav() {
               )
             })}
             <Link
+              href="/docs"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-3 py-[13px] border-b font-mono text-[12px] tracking-[0.14em] uppercase"
+              style={{ borderColor: "var(--rule)", color: "var(--bone-2)" }}
+            >
+              <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: "var(--bone-5)" }} />
+              Docs
+            </Link>
+            <Link
               href="/try"
               onClick={() => setOpen(false)}
               className="flex items-center justify-center gap-2 mt-4 mb-2 h-11 font-mono text-[12px] tracking-[0.14em] uppercase"
