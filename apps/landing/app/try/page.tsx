@@ -90,12 +90,15 @@ function parseErrMsg(e: unknown): string {
 
   const m = e.message
 
-  // {"InstructionError":[n,{"Custom":6007}]} — raw RPC error JSON
-  try {
-    const ix = JSON.parse(m)
-    const custom = ix?.InstructionError?.[1]?.Custom
-    if (typeof custom === "number") return codeToMsg(custom, String(custom))
-  } catch {}
+  // {"InstructionError":[n,{"Custom":6007}]} — may be embedded after a prefix like "tx failed: ..."
+  const jsonSnippet = m.match(/\{.*\}/)
+  if (jsonSnippet) {
+    try {
+      const ix = JSON.parse(jsonSnippet[0])
+      const custom = ix?.InstructionError?.[1]?.Custom
+      if (typeof custom === "number") return codeToMsg(custom, String(custom))
+    } catch {}
+  }
 
   // "custom program error: 0x1777" — from logs or SendTransactionError message
   const custom = m.match(/custom program error: (0x[0-9a-f]+)/i)
