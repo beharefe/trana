@@ -238,3 +238,66 @@ Returns upgrade authority to a new pubkey and closes the `AuthorityRecord`. Requ
 | Leaked member key | Threshold still holds | Key alone is useless |
 
 They are complementary. Squads and Trana together give you multisig threshold **and** a biometric check for every signer.
+
+---
+
+## Upcoming — PDA guarding
+
+> **Status: not yet released.** This section describes a planned extension to `trana_authority`.
+
+Today `trana_authority` secures one specific CPI path: BPF Loader upgrades. The next primitive generalises this to **any PDA that acts as a signing authority**.
+
+### The problem
+
+Many programs use a PDA as their privileged signer — a token mint authority, a DAO treasury, a price-feed update authority, a protocol fee collector. Whoever controls the wallet that owns that PDA controls the privileged action. There is currently no way to require a biometric check before the PDA signs a CPI, without modifying the target program.
+
+### What PDA guarding adds
+
+A generalised `trana_authority` variant that can act as the authority for **any PDA-signed CPI**:
+
+```
+Before:
+  wallet_keypair ──► your_program::privileged_action()
+                           └── PDA signs CPI   (any CPI)
+
+After:
+  wallet_keypair ──► trana_authority::execute_cpi()
+                           │
+                           ├── trana_guard::cpi::enforce()   ← passkey required
+                           │
+                           └── your_program::privileged_action()
+                                     └── PDA signs CPI
+```
+
+### Planned use cases
+
+| Authority type | Example |
+|---|---|
+| Token mint authority | Require passkey before minting new supply |
+| DAO treasury signer | Require passkey before treasury disbursements |
+| Protocol fee recipient | Require passkey before changing fee destination |
+| Oracle update authority | Require passkey before publishing a price feed |
+| Program config authority | Require passkey before updating protocol parameters |
+
+### Planned design
+
+The `AuthorityRecord` PDA would carry a `cpi_target` field alongside `owner` and `target`. An `execute_cpi` instruction would:
+
+1. Verify the passkey proof via `trana_guard::cpi::enforce()`
+2. Deserialize a caller-supplied CPI descriptor (program ID, accounts, data)
+3. Call `invoke_signed` with the `AuthorityRecord` PDA as the signer
+
+Because the PDA seeds include `owner` and `target`, each protected authority gets its own independent PDA — one wallet can protect multiple distinct authorities without cross-contamination.
+
+### How it differs from `trana_guard`
+
+| | `trana_guard` | PDA guarding (upcoming) |
+|---|---|---|
+| Target program changes | Yes — 3 accounts + 1 CPI call | **No** |
+| Protects arbitrary CPIs | No — only `enforce()` call sites | **Yes** |
+| Policy support | All four policies | `Require` initially |
+| Works on unmodifiable programs | No | **Yes** |
+
+### Timeline
+
+PDA guarding is under design. It depends on finalising the CPI descriptor format and the account validation model. Follow the [Trana repository](https://github.com/beharefe/trana) for updates.
