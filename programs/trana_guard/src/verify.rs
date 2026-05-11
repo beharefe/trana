@@ -8,7 +8,7 @@ use anchor_lang::solana_program::sysvar::instructions::{
 use sha2::{Digest, Sha256};
 use crate::error::GuardError;
 use crate::events::ProofVerified;
-use crate::state::{ProofData, TwoFactorRegistry};
+use crate::state::{ProofData, PasskeyRegistry};
 
 const SECP256R1_ID: Pubkey = Pubkey::new_from_array([
     6, 146, 13, 236, 47, 234, 113, 181, 183, 35, 129, 77,
@@ -46,7 +46,7 @@ pub fn read_u64_from_protected_ix(
 
 pub fn verify_with_policy<'info>(
     ix_sysvar:              &AccountInfo<'info>,
-    registry:               &mut TwoFactorRegistry,
+    registry:               &mut PasskeyRegistry,
     owner:                  &Pubkey,
     trana_guard_program_id: &Pubkey,
     expected_policy:        &str,
@@ -61,7 +61,7 @@ pub fn verify_with_policy<'info>(
 /// to skip the redundant sysvar index read.
 pub(crate) fn verify_at_idx<'info>(
     ix_sysvar:              &AccountInfo<'info>,
-    registry:               &mut TwoFactorRegistry,
+    registry:               &mut PasskeyRegistry,
     owner:                  &Pubkey,
     trana_guard_program_id: &Pubkey,
     expected_policy:        &str,
@@ -91,7 +91,7 @@ pub(crate) fn verify_at_idx<'info>(
 
 fn run_verification<'info>(
     ix_sysvar:        &AccountInfo<'info>,
-    registry:         &mut TwoFactorRegistry,
+    registry:         &mut PasskeyRegistry,
     owner:            &Pubkey,
     trana_guard_program_id: &Pubkey,
     current_idx:      u16,
@@ -177,7 +177,8 @@ fn run_verification<'info>(
     let proof_message      = &data[msg_offset..msg_offset + msg_size];
     let proof_message_hash = sha256_bytes(proof_message);
 
-    require!(proof_pubkey       == registry.pubkey_bytes.as_slice(), GuardError::WrongSigner);
+    let known_key = registry.keys.iter().any(|k| k.pubkey_bytes.as_slice() == proof_pubkey);
+    require!(known_key,                                              GuardError::WrongSigner);
     require!(proof_message_hash == expected_e_value,                 GuardError::PayloadMismatch);
 
     // ── 7. Consume nonce ──────────────────────────────────────────────────────

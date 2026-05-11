@@ -5,7 +5,7 @@
 
 const { useState: useStateL, useEffect: useEffectL, useRef: useRefL, useMemo: useMemoL } = React;
 
-const PROGRAM_ID = '7TgRanaGuArD9TvJyf3KkpFw2HxQwvpKpUhNpVnDmLmS';
+const PROGRAM_ID = '8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa';
 const AUTHORITY_PDA = 'Tr4n4PdAauTh0r1tyXvJ9hnfQwzZqLmW8sKRyP1eNvBb';
 const SEED_PHRASE = 'pioneer ridge fabric outdoor enroll cabin orbit chimney plate hover music ladder';
 

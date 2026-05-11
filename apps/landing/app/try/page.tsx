@@ -8,10 +8,9 @@ import { SiteNav }                    from "@/components/SiteNav"
 import {
   TRANA_GUARD_ID,
   TRANA_AUTHORITY_ID,
-  DEMO_VAULT_AUTHORITY,
+  DEMO_POOL_PDA,
 } from "@/lib/devnet"
 import {
-  getPoolPda,
   getUserDepositPda,
   getRegistryPda,
   fetchPoolState,
@@ -287,7 +286,6 @@ export default function TryPage() {
   const [poolLamports, setPoolLamports]   = useState<number | null>(null)
   const [poolExists, setPoolExists]       = useState<boolean | null>(null)
   const [userDeposit, setUserDeposit]     = useState<UserDepositState | null>(null)
-  const [poolPda, setPoolPda]             = useState<PublicKey | null>(null)
 
   // passkey credential (persisted across retries within the session)
   const passkeyRef = useRef<{ credentialId: Uint8Array; pubkeyBytes: Uint8Array } | null>(null)
@@ -319,24 +317,12 @@ export default function TryPage() {
   const consoleRef  = useRef<HTMLDivElement>(null)
   const authRunning = useRef(false)
 
-  // ── Compute pool PDA when demo authority is set ───────────────────────────
-  useEffect(() => {
-    if (!DEMO_VAULT_AUTHORITY) return   // leave poolExists as null → shows "…"
-    try {
-      const auth = new PublicKey(DEMO_VAULT_AUTHORITY)
-      setPoolPda(getPoolPda(auth))
-    } catch {
-      setPoolExists(false)
-    }
-  }, [])
-
   // ── Fetch pool state ──────────────────────────────────────────────────────
   const refreshPool = useCallback(async () => {
-    if (!poolPda) return
-    const state = await fetchPoolState(connection, poolPda)
+    const state = await fetchPoolState(connection, DEMO_POOL_PDA)
     setPoolExists(state.exists)
     setPoolLamports(state.lamports)
-  }, [connection, poolPda])
+  }, [connection])
 
   useEffect(() => {
     refreshPool()
@@ -354,10 +340,10 @@ export default function TryPage() {
 
   // ── Fetch user deposit state ───────────────────────────────────────────────
   const refreshDeposit = useCallback(async () => {
-    if (!publicKey || !poolPda) return
-    const depositPda = getUserDepositPda(poolPda, publicKey)
+    if (!publicKey) return
+    const depositPda = getUserDepositPda(DEMO_POOL_PDA, publicKey)
     setUserDeposit(await fetchUserDeposit(connection, depositPda))
-  }, [connection, publicKey, poolPda])
+  }, [connection, publicKey])
 
   useEffect(() => {
     refreshDeposit()
@@ -386,7 +372,7 @@ export default function TryPage() {
     const lamports = BigInt(Math.round((parseFloat(wAmt) || 0) * 1e9))
     if (lamports <= 0n) return
     if (!connected || !publicKey) { openWalletModal(true); return }
-    if (!poolPda || !poolExists) {
+    if (!poolExists) {
       setWLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
@@ -397,12 +383,12 @@ export default function TryPage() {
 
     const rpId        = window.location.hostname
     const registryPda = getRegistryPda(publicKey)
-    const depositPda  = getUserDepositPda(poolPda, publicKey)
+    const depositPda  = getUserDepositPda(DEMO_POOL_PDA, publicKey)
     const GUARD       = new PublicKey(TRANA_GUARD_ID)
 
     setWLast({ s: "pending", msg: "Simulating…" })
     try {
-      const withdrawIx = buildWithdrawIx(poolPda, depositPda, publicKey, publicKey, registryPda, lamports)
+      const withdrawIx = buildWithdrawIx(DEMO_POOL_PDA, depositPda, publicKey, publicKey, registryPda, lamports)
 
       // ── Step 1: ensure registry exists ───────────────────────────────────
       const registryInfo = await connection.getAccountInfo(registryPda)
@@ -553,15 +539,15 @@ export default function TryPage() {
     const lamports = BigInt(Math.round((parseFloat(depAmt) || 0) * 1e9))
     if (lamports <= 0n) return
     if (!connected || !publicKey) { openWalletModal(true); return }
-    if (!poolPda || !poolExists) {
+    if (!poolExists) {
       setDepLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
 
     setDepLast({ s: "pending", msg: "Sending transaction…" })
     try {
-      const depositPda = getUserDepositPda(poolPda, publicKey)
-      const ix = buildDepositIx(poolPda, depositPda, publicKey, lamports)
+      const depositPda = getUserDepositPda(DEMO_POOL_PDA, publicKey)
+      const ix = buildDepositIx(DEMO_POOL_PDA, depositPda, publicKey, lamports)
       const tx = new Transaction().add(ix)
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
       tx.recentBlockhash = blockhash
@@ -1109,7 +1095,7 @@ export default function TryPage() {
                       <div className="flex flex-col gap-1 mb-4">
                         <MetaRow k="trana_guard"  v={shortAddr(TRANA_GUARD_ID)} />
                         <MetaRow k="vault"        v={shortAddr("8v6hfEZ32JLMJE4kk63zTzow7VbygewhrPhqiVdyxtaa")} />
-                        {poolPda && <MetaRow k="pool PDA" v={shortAddr(poolPda.toBase58())} />}
+                        <MetaRow k="pool PDA" v={shortAddr(DEMO_POOL_PDA.toBase58())} />
                       </div>
 
                       <Label>Last result</Label>
@@ -1160,7 +1146,7 @@ export default function TryPage() {
                       </div>
                       <MetaRow k="Pool balance"    v={poolExists === null ? "…" : poolExists ? `${(poolSol ?? 0).toFixed(2)} SOL` : "—"} />
                       <MetaRow k="Your deposit"    v={userDeposit?.balance && userDeposit.balance > 0n ? `${(Number(userDeposit.balance) / 1e9).toFixed(4)} SOL` : "—"} />
-                      {poolPda && <MetaRow k="Pool PDA" v={shortAddr(poolPda.toBase58())} />}
+                      <MetaRow k="Pool PDA" v={shortAddr(DEMO_POOL_PDA.toBase58())} />
                     </PanelAside>
                   </Panel>
                 )}

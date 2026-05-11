@@ -36,7 +36,7 @@ For a simple Colosseum recording:
 > "Your wallet proves you own the key.  
 > It cannot stop someone who stole it."
 
-*Open on you. Direct eye contact. Let the second sentence land with a pause.*
+*Open on you. Direct eye contact. Let the second sentence land with a full pause.*
 
 ---
 
@@ -47,22 +47,22 @@ For a simple Colosseum recording:
 > the attacker doesn't need your app.  
 > They send a raw transaction.  
 > Valid signature. Funds gone.  
-> This is not a wallet bug. It's a protocol gap."
+> This is not a wallet bug. It's a missing primitive."
 
 ---
 
 ### 🎥 CAMERA · 0:26–0:30
-*Cut back to you for the turn — this is the "good news" moment, your energy lifts slightly.*
+*Cut back to you for the turn — energy lifts slightly.*
 
-> "Until February."
+> "Until earlier this year."
 
 ---
 
 ### 📊 SLIDE 2 (Insight) · 0:30–0:48
-> "Solana shipped native P-256 verification on every validator.  
-> Every iPhone, every MacBook, every YubiKey already speaks P-256.  
-> The private key never leaves the hardware.  
-> For the first time — the chain can verify it directly.  
+> "Solana added native support for hardware-backed authentication  
+> directly in the validator runtime.  
+> Devices people already trust — phones, laptops, security keys —  
+> can now authorize actions directly onchain.  
 > No server. No bridge."
 
 ---
@@ -73,7 +73,7 @@ For a simple Colosseum recording:
 > "That's trana.  
 > One guarantee:  
 > this instruction cannot execute  
-> unless your passkey approved it —  
+> unless a real human authorized it —  
 > right now, for exactly this action."
 
 ---
@@ -82,7 +82,7 @@ For a simple Colosseum recording:
 *Cut to the slide and let the animation play. You narrate over it.*
 
 > "A wallet signs. Trana Guard evaluates the proof at the instruction level.  
-> Passkey says yes — program runs.  
+> Hardware says yes — program runs.  
 > It doesn't matter who has the key.  
 > There is no client-side component to bypass."
 
@@ -93,10 +93,10 @@ For a simple Colosseum recording:
 
 ---
 
-### 📊 SLIDE 6 (Authority) · 1:26–1:37
-> "Don't want to touch your code at all?  
-> Transfer your upgrade key to a Trana PDA.  
-> Stolen admin key can request a deploy. It cannot authorize one."
+### 📊 SLIDE 6 (Authority primitive) · 1:26–1:37
+> "Any Solana authority can require runtime authorization.  
+> Upgrade authorities. Mint authorities. Treasury signers. Bridge withdrawals.  
+> Stolen key can request a deploy. It cannot authorize one."
 
 ---
 
@@ -109,21 +109,22 @@ For a simple Colosseum recording:
 ---
 
 ### 📊 SLIDE 9 (Market) · 1:42–1:48
-> "As P-256 spreads cross-chain: two hundred billion."
+> "As hardware auth spreads cross-chain: two hundred billion."
 
 ---
 
 ### 🎥 CAMERA · 1:48–2:00
 *Finish on camera. No slide. Eye contact the whole close.*
 
-> "Devnet is live — you can try the vault demo today.  
-> I'm looking for protocol partners and auditors.  
+> "Devnet is live — try the vault demo today.  
+> The demo isn't 'look Face ID works.'  
+> The demo is: a stolen key still cannot execute.  
 >  
-> Wallets made signing easier.  
-> trana makes execution safer.  
+> Multisig protects coordination.  
+> trana protects execution.  
 >  
 > I'm Efe — Colosseum Breakout infra track winner,  
-> now building the authorization layer Solana was missing.  
+> now building the missing runtime primitive Solana needs.  
 > Thank you."
 
 ---
@@ -133,12 +134,26 @@ For a simple Colosseum recording:
 | Beat | Tip |
 |---|---|
 | "It cannot stop someone who stole it." | Full stop. 1-second pause. Let it land. |
-| "Until February." | Smile slightly — this is the turn. |
+| "Until earlier this year." | Slight smile — this is the turn. |
 | "No server. No bridge." | Two beats. Each one separate. |
 | "That's trana." | Slowest line in the whole script. |
 | "right now, for exactly this action." | Emphasise "right now" — that's the product. |
-| "trana makes execution safer." | Your last real sentence. Say it like a fact. |
+| "It doesn't matter who has the key." | Say it like it's obvious. Because it should be. |
+| "Stolen key can request a deploy. It cannot authorize one." | Two sentences. Pause between them. |
+| "Multisig protects coordination. trana protects execution." | These are equal weight. Don't rush either. |
+| "missing runtime primitive Solana needs." | Your last real sentence. Say it like a fact. |
 | "Thank you." | Look at lens. Don't look away. Don't smile too early. |
+
+---
+
+## Positioning reminders
+
+- The product is **runtime second-factor authorization** — not passkeys, not Face ID, not P-256
+- Passkeys are an implementation detail; the *category* is hardware-backed authorization
+- "Missing runtime primitive" — that is how judges should categorize this, not "security feature"
+- The demo point: **"a stolen key still cannot execute privileged actions"** — lead with that
+- Multisig is not competition — "Trana composes naturally with systems like Squads by gating final execution"
+- Open source core is a trust argument, not a liability — say it proudly
 
 ---
 
@@ -155,3 +170,6 @@ They live in the deck for Q&A — the 2-min arc doesn't need them.
 - ✅ "I" not "we" — solo founder
 - ❌ Do NOT say "Solana Foundation grantee" — not yet for Trana
 - ✅ "Devnet is live" — confirmed
+- ❌ Do NOT say "passkey" as the product — say "hardware-backed authorization"
+- ❌ Do NOT say "P-256" in the pitch — too cryptography-heavy
+- ✅ "hardware says yes" replaces "passkey says yes"
