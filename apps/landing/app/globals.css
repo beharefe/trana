@@ -229,6 +229,7 @@ body {
   }
 }
 
+
 /* ── Animation helper classes ───────────────────────────────── */
 @layer utilities {
   .animate-guard-shake {

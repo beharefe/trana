@@ -24,7 +24,7 @@ function expectAnchorError(err: unknown, code: number): void {
 async function buildEnforceIx(program: ReturnType<typeof getProgram>, owner: Keypair) {
   return program.methods
     .enforce({ require: {} })
-    .accounts({ owner: owner.publicKey })
+    .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
     .instruction()
 }
 
@@ -514,7 +514,7 @@ describe("trana", () => {
       // so PolicyMismatch (6007) fires before the params hash check (6002).
       const tamperedEnforceIx = await program.methods
         .enforce({ notBefore: { slot: new anchor.BN("18446744073709551615") } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
 
       await expect(
@@ -586,7 +586,7 @@ describe("trana", () => {
       // Use Policy::Limit so params contain a tamper-able amount field
       const enforceIx = await program.methods
         .enforce({ limit: { paramOffset: 0, limit: new anchor.BN(1_000) } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
       const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.limit")
 
@@ -710,7 +710,7 @@ describe("trana", () => {
       //   byte 8 = variant(3=Limit), rest = 0 → u64-LE = 3 ≥ 0 → enforcement triggers
       const enforceIx = await program.methods
         .enforce({ limit: { paramOffset: 0, limit: new anchor.BN(0) } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
       const proof = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.limit")
 
@@ -727,7 +727,7 @@ describe("trana", () => {
       // read_u64_from_protected_ix fires before verify_with_policy so no proof is needed
       const enforceIx = await program.methods
         .enforce({ limit: { paramOffset: 255, limit: new anchor.BN(0) } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
 
       await expect(
@@ -746,7 +746,7 @@ describe("trana", () => {
       // protocol instruction that actually carries the guarded amount field.
       const enforceIx = await program.methods
         .enforce({ limit: { paramOffset: 0, limit: new anchor.BN("18446744073709551615") } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
 
       const sig = await sendV0(program.provider.connection, [enforceIx], owner.publicKey, [owner])
@@ -1092,7 +1092,7 @@ describe("trana", () => {
       const proof         = buildProofInstructions(passkey, enforceIx, program.programId, owner.publicKey, 0n, "trana.require")
       const limitEnforceIx = await program.methods
         .enforce({ limit: { paramOffset: 0, limit: new anchor.BN(0) } })
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
 
       await expect(
@@ -1525,7 +1525,7 @@ describe("trana", () => {
 
       const removeIx = await program.methods
         .removePasskey(Buffer.from(passkey1.credentialId))
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
       const proof = buildProofInstructions(passkey1, removeIx, program.programId, owner.publicKey, 0n, "trana.require")
 
@@ -1544,7 +1544,7 @@ describe("trana", () => {
 
       const removeIx = await program.methods
         .removePasskey(Buffer.from(passkey3.credentialId))
-        .accounts({ owner: owner.publicKey })
+        .accounts({ owner: owner.publicKey, registry: registryPda(owner.publicKey, program.programId) })
         .instruction()
       const proof = buildProofInstructions(passkey1, removeIx, program.programId, owner.publicKey, 1n, "trana.require")
 

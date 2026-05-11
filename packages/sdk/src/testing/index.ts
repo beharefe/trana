@@ -19,6 +19,7 @@
  */
 
 import { p256 } from "@noble/curves/nist"
+import { randomBytes } from "@noble/hashes/utils"
 import { TransactionInstruction } from "@solana/web3.js"
 import { sha256Bytes } from "../core/sha256"
 import { buildSecp256r1Ix, buildWebAuthnMessage } from "../core/secp256r1"
@@ -52,7 +53,7 @@ export function generateTestPasskey(): TestPasskeyHandle {
   return {
     pubkey:       p256.getPublicKey(privKey, true),  // 33-byte compressed
     privKey,
-    credentialId: p256.utils.randomBytes(16),
+    credentialId: randomBytes(16),
   }
 }
 

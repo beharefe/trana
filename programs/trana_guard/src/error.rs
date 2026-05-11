@@ -40,4 +40,7 @@ pub enum GuardError {
 
     #[msg("No passkey with that credential ID found in the registry")]
     CredentialNotFound,
+
+    #[msg("Registry account is required for this policy but was not provided")]
+    RegistryRequired,
 }

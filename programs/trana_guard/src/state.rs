@@ -112,6 +112,22 @@ pub struct RegisterPasskey<'info> {
     pub treasury: UncheckedAccount<'info>,
 }
 
+/// Accounts for `recover_registry` — emergency reset, wallet-signature only.
+#[derive(Accounts)]
+pub struct RecoverRegistry<'info> {
+    #[account(
+        mut,
+        seeds = [b"passkey", owner.key().as_ref()],
+        bump,
+    )]
+    pub registry: Account<'info, PasskeyRegistry>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
 /// Accounts for `add_passkey` — appends a new passkey to an existing registry.
 /// Requires a proof from any currently registered key at ix[N-2..N-1].
 #[derive(Accounts)]
@@ -171,13 +187,11 @@ pub struct RecordProof<'info> {
 /// Accounts for the enforce() CPI primitive.
 #[derive(Accounts)]
 pub struct Enforce<'info> {
-    /// Registry PDA — nonce incremented on every successful verification.
-    #[account(
-        mut,
-        seeds = [b"passkey", owner.key().as_ref()],
-        bump,
-    )]
-    pub registry: Account<'info, PasskeyRegistry>,
+    /// CHECK: Registry PDA or any account when no proof is needed.
+    /// PDA derivation and deserialization are validated manually inside enforce()
+    /// only when the active policy actually requires a passkey proof.
+    #[account(mut)]
+    pub registry: UncheckedAccount<'info>,
 
     /// The wallet whose registered passkey must authorize this action.
     pub owner: Signer<'info>,

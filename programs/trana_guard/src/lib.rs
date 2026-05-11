@@ -163,6 +163,27 @@ pub mod trana_guard {
         Ok(())
     }
 
+    /// Emergency recovery: clear all passkeys and register a fresh one.
+    ///
+    /// Requires only the owner wallet signature — no passkey proof needed.
+    /// Use when all registered passkeys are lost/inaccessible.
+    /// Resets the nonce to 0.
+    pub fn recover_registry(
+        ctx:           Context<RecoverRegistry>,
+        key_kind:      KeyKind,
+        pubkey_bytes:  Vec<u8>,
+        credential_id: Vec<u8>,
+    ) -> Result<()> {
+        validate_key_inputs(&pubkey_bytes, &credential_id)?;
+        let r = &mut ctx.accounts.registry;
+        r.keys.clear();
+        r.nonce = 0;
+        r.owner = ctx.accounts.owner.key();
+        r.keys.push(PasskeyEntry { key_kind, pubkey_bytes, credential_id });
+        msg!("TRANA recover_registry | owner={}", r.owner);
+        Ok(())
+    }
+
     /// Add an additional passkey to an existing registry.
     ///
     /// Requires a proof signed by any currently registered passkey.
@@ -275,13 +296,15 @@ pub mod trana_guard {
     pub fn enforce(ctx: Context<Enforce>, policy: Policy) -> Result<()> {
         let owner_key = ctx.accounts.owner.key();
         let ix        = &ctx.accounts.instructions;
-        let registry  = &mut ctx.accounts.registry;
         let pid       = ctx.program_id;
+        let reg_info  = &ctx.accounts.registry;
 
         match policy {
             Policy::Require => {
                 msg!("TRANA require | policy={} | owner={}", POLICY_REQUIRE, owner_key);
-                verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_REQUIRE)
+                with_registry(reg_info, &owner_key, |reg| {
+                    verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_REQUIRE)
+                })
             }
 
             Policy::NotBefore { slot } => {
@@ -291,7 +314,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | current={} | required={} | owner={}",
                         POLICY_NOT_BEFORE, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_BEFORE)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_NOT_BEFORE)
+                    })?;
                 }
                 Ok(())
             }
@@ -303,7 +328,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | current={} | expiry={} | owner={}",
                         POLICY_NOT_AFTER, current_slot, slot, owner_key,
                     );
-                    verify::verify_with_policy(ix, registry, &owner_key, pid, POLICY_NOT_AFTER)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_with_policy(ix, reg, &owner_key, pid, POLICY_NOT_AFTER)
+                    })?;
                 }
                 Ok(())
             }
@@ -315,7 +342,9 @@ pub mod trana_guard {
                         "TRANA require | policy={} | amount={} | limit={} | owner={}",
                         POLICY_LIMIT, amount, limit, owner_key,
                     );
-                    verify::verify_at_idx(ix, registry, &owner_key, pid, POLICY_LIMIT, current_idx)?;
+                    with_registry(reg_info, &owner_key, |reg| {
+                        verify::verify_at_idx(ix, reg, &owner_key, pid, POLICY_LIMIT, current_idx)
+                    })?;
                 }
                 Ok(())
             }
@@ -324,6 +353,24 @@ pub mod trana_guard {
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
+
+/// Deserialize the registry, validate ownership, run `f`, then write back.
+/// Returns RegistryRequired if the account is missing or has wrong data.
+fn with_registry<F>(info: &UncheckedAccount, owner_key: &Pubkey, f: F) -> Result<()>
+where
+    F: FnOnce(&mut PasskeyRegistry) -> Result<()>,
+{
+    require!(info.owner == &crate::ID, GuardError::RegistryRequired);
+    let mut registry = {
+        let data = info.try_borrow_data()?;
+        PasskeyRegistry::try_deserialize(&mut data.as_ref())
+            .map_err(|_| error!(GuardError::RegistryRequired))?
+    };
+    require!(registry.owner == *owner_key, GuardError::InvalidProof);
+    f(&mut registry)?;
+    let mut data = info.try_borrow_mut_data()?;
+    registry.try_serialize(&mut data.as_mut()).map_err(|_| error!(GuardError::InvalidProof))
+}
 
 fn validate_key_inputs(pubkey_bytes: &[u8], credential_id: &[u8]) -> Result<()> {
     require!(

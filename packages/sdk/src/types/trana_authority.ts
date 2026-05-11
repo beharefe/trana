@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/trana_authority.json`.
  */
 export type TranaAuthority = {
-  "address": "KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE",
+  "address": "TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN",
   "metadata": {
     "name": "tranaAuthority",
     "version": "0.1.0",
@@ -110,9 +110,13 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  50,
-                  102,
-                  97
+                  112,
+                  97,
+                  115,
+                  115,
+                  107,
+                  101,
+                  121
                 ]
               },
               {
@@ -218,9 +222,13 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  50,
-                  102,
-                  97
+                  112,
+                  97,
+                  115,
+                  115,
+                  107,
+                  101,
+                  121
                 ]
               },
               {
@@ -336,16 +344,16 @@ export type TranaAuthority = {
       ]
     },
     {
-      "name": "twoFactorRegistry",
+      "name": "passkeyRegistry",
       "discriminator": [
-        132,
-        127,
-        42,
-        232,
-        223,
-        227,
-        161,
-        91
+        201,
+        107,
+        52,
+        207,
+        15,
+        250,
+        77,
+        253
       ]
     }
   ],
@@ -457,18 +465,13 @@ export type TranaAuthority = {
       }
     },
     {
-      "name": "twoFactorRegistry",
+      "name": "passkeyEntry",
       "docs": [
-        "Per-user onchain 2FA registry.",
-        "Seeds: `[b\"2fa\", owner]`"
+        "A single registered passkey credential."
       ],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
           {
             "name": "keyKind",
             "type": {
@@ -484,10 +487,44 @@ export type TranaAuthority = {
           {
             "name": "credentialId",
             "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "passkeyRegistry",
+      "docs": [
+        "Per-user passkey registry.",
+        "Seeds: `[b\"passkey\", owner]`",
+        "",
+        "Holds all registered passkeys for a wallet. Any entry can authorize",
+        "any `enforce()` call — sign with whichever device is available.",
+        "Add or remove entries at any time using `add_passkey` / `remove_passkey`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
           },
           {
             "name": "nonce",
+            "docs": [
+              "Incremented after every successful `enforce()`, `add_passkey`, or",
+              "`remove_passkey` call to prevent proof replay."
+            ],
             "type": "u64"
+          },
+          {
+            "name": "keys",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "passkeyEntry"
+                }
+              }
+            }
           }
         ]
       }
