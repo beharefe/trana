@@ -10,8 +10,10 @@
     "build": "npm run build --workspaces --if-present",
     "dev:web": "npm run dev --workspace=apps/web",
     "test": "npm run test --workspaces --if-present",
-    "anchor:build": "anchor build",
-    "anchor:test": "anchor test",
+    "anchor:build": "anchor build --features localnet",
+    "anchor:build:devnet": "anchor build --features devnet",
+    "anchor:build:mainnet": "anchor build --features mainnet-beta",
+    "anchor:test": "anchor test --features localnet",
     "anchor:deploy": "anchor deploy",
     "anchor:deploy:local": "anchor deploy",
     "prepare": "husky"

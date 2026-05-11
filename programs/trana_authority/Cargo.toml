@@ -25,7 +25,9 @@ name = "trana_authority"
 
 [features]
 default = []
-devnet = []
+localnet     = ["trana_guard/localnet"]
+devnet       = ["trana_guard/devnet"]
+mainnet-beta = ["trana_guard/mainnet-beta"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

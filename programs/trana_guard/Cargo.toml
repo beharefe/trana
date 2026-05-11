@@ -24,7 +24,9 @@ name = "trana_guard"
 
 [features]
 default = []
-devnet = []
+localnet     = []
+devnet       = []
+mainnet-beta = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

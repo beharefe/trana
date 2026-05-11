@@ -3,10 +3,27 @@
 
 use anchor_lang::prelude::*;
 
+// Exactly one network feature must be selected.
+//   CPI dep:      trana_guard = { version = "...", features = ["cpi", "devnet"] }
+//   anchor build: anchor build --features devnet   (or localnet / mainnet-beta)
+#[cfg(not(any(feature = "devnet", feature = "localnet", feature = "mainnet-beta")))]
+compile_error!("trana_guard: select a network feature — devnet, localnet, or mainnet-beta");
+
+#[cfg(all(feature = "devnet", feature = "localnet"))]
+compile_error!("trana_guard: devnet and localnet are mutually exclusive");
+#[cfg(all(feature = "devnet", feature = "mainnet-beta"))]
+compile_error!("trana_guard: devnet and mainnet-beta are mutually exclusive");
+#[cfg(all(feature = "localnet", feature = "mainnet-beta"))]
+compile_error!("trana_guard: localnet and mainnet-beta are mutually exclusive");
+
 #[cfg(feature = "devnet")]
 declare_id!("TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG");
 
-#[cfg(not(feature = "devnet"))]
+#[cfg(feature = "localnet")]
+declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
+
+// TODO: update to mainnet program ID before launch
+#[cfg(feature = "mainnet-beta")]
 declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
 
 pub mod error;
