@@ -14,6 +14,25 @@ const config: NextConfig = {
     "@solana/wallet-adapter-react-ui",
     "@tranaprotocol/sdk",
   ],
+  async redirects() {
+    if (process.env.NODE_ENV !== "production") return []
+    return [
+      {
+        // Strip accidental /docs prefix on docs subdomain
+        source: "/docs/:path*",
+        has: [{ type: "host", value: "docs.trana.so" }],
+        destination: "/:path*",
+        permanent: false,
+      },
+      {
+        // Main domain: /docs → docs subdomain
+        source: "/docs/:path*",
+        has: [{ type: "host", value: "trana.so" }],
+        destination: "https://docs.trana.so/:path*",
+        statusCode: 301,
+      },
+    ]
+  },
   webpack(config, { isServer }) {
     if (!isServer) {
       // react-modal (from wallet-adapter) hoisted react-dom@16 to the root which

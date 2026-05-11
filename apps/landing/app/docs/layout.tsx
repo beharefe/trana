@@ -12,7 +12,16 @@ export default async function DocsLayout({ children }: { children: ReactNode }) 
       navbar={
         <Navbar
           logo={<TranaWordmark size="22px" />}
-        />
+          projectLink="https://github.com/beharefe/trana"
+        >
+          <a
+            href="https://trana.so/try"
+            className="font-mono text-[11.5px] tracking-[0.14em] uppercase font-semibold"
+            style={{ color: "var(--lime)" }}
+          >
+            /try
+          </a>
+        </Navbar>
       }
       pageMap={pageMap}
       editLink={null}
