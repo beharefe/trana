@@ -38,8 +38,8 @@ custom-heap = []
 custom-panic = []
 
 [dependencies]
-anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
-anchor-spl  = { version = "0.32.0" }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.32.1" }
 trana_guard = { version = "0.1.0", path = "../trana_guard", features = ["cpi"] }
 
 [lints.rust]
