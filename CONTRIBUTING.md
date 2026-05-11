@@ -10,23 +10,23 @@ For questions, reach out at [efe@efebehar.dev](mailto:efe@efebehar.dev).
 
 - Check existing issues and PRs to avoid duplicate work
 - For significant changes, open an issue first to discuss the approach
-- Read the [architecture doc](docs/architecture.md) if you are touching the onchain programs
+- Read the [architecture doc](docs/content/architecture.mdx) if you are touching the onchain programs
 
 ---
 
 ## Setup
 
 ```bash
-# Prerequisites: Rust, Anchor CLI, Node.js >= 18, pnpm
+# Prerequisites: Rust, Anchor CLI, Node.js >= 18
 
 # Install dependencies
-pnpm install
+npm install
 
 # Build programs
 anchor build
 
 # Build SDK
-pnpm --filter @tranaprotocol/sdk build
+npm run build -w @tranaprotocol/sdk
 
 # Run tests
 anchor test
@@ -71,7 +71,7 @@ The programs in `programs/` are the security-critical core of Trana. Changes her
 The TypeScript SDK lives in `packages/sdk/`. Build it before running the landing app:
 
 ```bash
-pnpm --filter @tranaprotocol/sdk build
+npm run build -w @tranaprotocol/sdk
 ```
 
 The SDK is published to npm as `@tranaprotocol/sdk`. Do not publish manually -- releases are handled by maintainers.
