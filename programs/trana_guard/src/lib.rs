@@ -26,6 +26,11 @@ declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
 #[cfg(feature = "mainnet-beta")]
 declare_id!("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn");
 
+// Fallback so the compiler resolves `crate::ID` and shows only the compile_error!
+// above rather than a cascade of "ID not found" errors.
+#[cfg(not(any(feature = "devnet", feature = "localnet", feature = "mainnet-beta")))]
+declare_id!("11111111111111111111111111111111");
+
 pub mod error;
 pub mod events;
 pub mod state;
