@@ -897,9 +897,9 @@ export default function TryPage() {
       <div className="sec-wrap">
       <div className="try-app">
 
-        {/* ══ Sidebar ══ */}
+        {/* ══ Sidebar — desktop only ══ */}
         <aside
-          className="try-sidebar border-r flex flex-col"
+          className="try-sidebar border-r hidden md:flex flex-col"
           style={{ borderColor: "var(--rule)", background: "var(--ink)" }}
         >
           {/* Header */}
@@ -956,7 +956,7 @@ export default function TryPage() {
 
           {/* Topbar */}
           <div
-            className="sticky top-[60px] z-10 flex items-center gap-3 px-4 sm:px-8 py-[14px] border-b"
+            className="sticky top-[60px] z-10 flex items-center gap-3 px-5 sm:px-8 py-[14px] border-b"
             style={{ borderColor: "var(--rule)", background: "rgba(10,10,11,0.82)", backdropFilter: "blur(8px)" }}
           >
             {/* Breadcrumb — desktop only */}
@@ -982,33 +982,38 @@ export default function TryPage() {
             </div>
           </div>
 
-          {/* Mobile tab strip — replaces sidebar nav on small screens */}
-          <div className="try-tabs-mobile md:hidden sticky top-[109px] z-10" style={{ background: "rgba(10,10,11,0.92)", backdropFilter: "blur(8px)" }}>
-            {NAV_ITEMS.map(n => (
-              <button
-                key={n.route}
-                onClick={"soon" in n && n.soon ? undefined : () => setRoute(n.route)}
-                disabled={"soon" in n && !!n.soon}
-                className="shrink-0 flex items-center gap-[6px] px-3 py-[6px] font-mono text-[10.5px] tracking-[0.1em] uppercase whitespace-nowrap transition-colors disabled:opacity-30"
-                style={{
-                  border: `1px solid ${route === n.route ? "rgba(198,255,58,0.40)" : "var(--rule-2)"}`,
-                  background: route === n.route ? "rgba(198,255,58,0.06)" : "transparent",
-                  color: route === n.route ? "var(--lime)" : "var(--bone-3)",
-                  cursor: "soon" in n && n.soon ? "default" : "pointer",
-                }}
-              >
-                <span style={{ color: route === n.route ? "var(--lime)" : "var(--bone-4)" }}>{n.ix}</span>
-                {n.label}
-              </button>
-            ))}
-          </div>
+          {/* Mobile vault tab strip — full-width 50/50 Deposit | Withdraw */}
+          {isVault && (
+            <div className="md:hidden flex border-b" style={{ borderColor: "var(--rule)" }}>
+              {(["deposit", "withdraw"] as const).map((tab, i) => {
+                const active = vTab === tab
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setRoute((`vault/${tab}`) as Route)}
+                    className="flex-1 py-[13px] font-mono text-[11px] tracking-[0.14em] uppercase transition-colors"
+                    style={{
+                      borderRight: i === 0 ? `1px solid var(--rule)` : "none",
+                      background: active ? "rgba(198,255,58,0.05)" : "transparent",
+                      color: active ? "var(--lime)" : "var(--bone-3)",
+                      borderBottom: active ? "2px solid var(--lime)" : "2px solid transparent",
+                    }}
+                  >
+                    {tab === "deposit" ? "Deposit" : "Withdraw"}
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
           {/* Page content */}
-          <div className="px-5 sm:px-8 pt-9 pb-16">
+          <div className="px-5 sm:px-8 pt-5 md:pt-9 pb-16">
 
             {/* ── Vault routes ── */}
             {isVault && vMeta && (
               <>
+                {/* Title + cards — desktop only, mobile uses the topbar tab strip */}
+                <div className="hidden md:block">
                 <div className="font-mono text-[10.5px] tracking-[0.18em] uppercase mb-3" style={{ color: "var(--bone-3)" }}>
                   § The leaked-key demo
                 </div>
@@ -1050,6 +1055,7 @@ export default function TryPage() {
                     </button>
                   ))}
                 </div>
+                </div> {/* end hidden md:block */}
 
                 {/* ── Withdraw panel ── */}
                 {vTab === "withdraw" && (
