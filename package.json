@@ -14,7 +14,7 @@
     "anchor:test": "anchor test",
     "anchor:deploy": "anchor deploy",
     "anchor:deploy:local": "anchor deploy",
-    "prepare": "husky"
+    "prepare": "[ -n \"$CI\" ] || husky"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
@@ -41,7 +41,7 @@
     "typescript": "^5.7.0"
   },
   "overrides": {
-    "react":     "^19.0.0",
+    "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "engines": {
