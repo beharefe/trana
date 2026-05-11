@@ -277,6 +277,79 @@ export type TranaGuard = {
       ]
     },
     {
+      "name": "recoverRegistry",
+      "docs": [
+        "Emergency recovery: clear all passkeys and register a fresh one.",
+        "",
+        "Requires only the owner wallet signature — no passkey proof needed.",
+        "Use when all registered passkeys are lost/inaccessible.",
+        "Resets the nonce to 0."
+      ],
+      "discriminator": [
+        136,
+        166,
+        31,
+        45,
+        33,
+        116,
+        115,
+        12
+      ],
+      "accounts": [
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "keyKind",
+          "type": {
+            "defined": {
+              "name": "keyKind"
+            }
+          }
+        },
+        {
+          "name": "pubkeyBytes",
+          "type": "bytes"
+        },
+        {
+          "name": "credentialId",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
       "name": "registerPasskey",
       "docs": [
         "Register the first passkey for a wallet.",

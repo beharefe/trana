@@ -24,7 +24,7 @@
     "nextra": "4.5.1",
     "nextra-theme-docs": "4.5.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2",
