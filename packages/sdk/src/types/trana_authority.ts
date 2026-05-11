@@ -10,7 +10,8 @@ export type TranaAuthority = {
     "name": "tranaAuthority",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Trana Authority — PDA-based authority management with passkey second factor"
+    "description": "Trana Authority - PDA-based authority management with passkey second factor",
+    "repository": "https://github.com/beharefe/trana"
   },
   "instructions": [
     {
@@ -100,7 +101,7 @@ export type TranaAuthority = {
         },
         {
           "name": "tranaGuardProgram",
-          "address": "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
+          "address": "TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG"
         },
         {
           "name": "tranaRegistry",
@@ -110,13 +111,9 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  112,
-                  97,
-                  115,
-                  115,
-                  107,
-                  101,
-                  121
+                  50,
+                  102,
+                  97
                 ]
               },
               {
@@ -212,7 +209,7 @@ export type TranaAuthority = {
         },
         {
           "name": "tranaGuardProgram",
-          "address": "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
+          "address": "TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG"
         },
         {
           "name": "tranaRegistry",
@@ -222,13 +219,9 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  112,
-                  97,
-                  115,
-                  115,
-                  107,
-                  101,
-                  121
+                  50,
+                  102,
+                  97
                 ]
               },
               {

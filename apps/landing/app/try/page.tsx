@@ -376,6 +376,14 @@ export default function TryPage() {
       setWLast({ s: "err", msg: "Demo pool not initialized on devnet yet" })
       return
     }
+    if (!userDeposit?.exists || userDeposit.balance === 0n) {
+      setWLast({ s: "err", msg: "Nothing to withdraw — deposit into the pool first" })
+      return
+    }
+    if (userDeposit.balance < lamports) {
+      setWLast({ s: "err", msg: `Your deposit is ${(Number(userDeposit.balance) / 1e9).toFixed(4)} SOL — reduce the amount` })
+      return
+    }
     if (poolLamports !== null && BigInt(poolLamports) < lamports) {
       setWLast({ s: "err", msg: `Pool only has ${(poolLamports / 1e9).toFixed(4)} SOL — deposit more or reduce amount` })
       return

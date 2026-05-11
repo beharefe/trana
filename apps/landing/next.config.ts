@@ -1,4 +1,3 @@
-import path from "path"
 import type { NextConfig } from "next"
 import nextra from "nextra"
 
@@ -32,12 +31,6 @@ const config: NextConfig = {
         statusCode: 301,
       },
     ]
-  },
-  webpack(config, { isServer }) {
-    if (!isServer) {
-      config.resolve.alias["react-dom"] = path.resolve(__dirname, "node_modules/react-dom")
-    }
-    return config
   },
 }
 

@@ -60,7 +60,9 @@ export type TranaGuardClientOptions = {
 export type { TranaGuard }
 
 // Anchor account types derived from IDL
-export type TwoFactorRegistryAccount = anchor.IdlAccounts<TranaGuard>["twoFactorRegistry"]
+export type PasskeyRegistryAccount = anchor.IdlAccounts<TranaGuard>["passkeyRegistry"]
+/** @deprecated Use PasskeyRegistryAccount */
+export type TwoFactorRegistryAccount = PasskeyRegistryAccount
 export type TranaConfigAccount        = anchor.IdlAccounts<TranaGuard>["tranaConfig"]
 
 export type RegisterPasskeyResult = {
@@ -107,10 +109,10 @@ export class TranaGuardClient {
 
   // ── PDA derivation ──────────────────────────────────────────────────────────
 
-  /** Derive the `TwoFactorRegistry` PDA for a wallet. Seeds: `[b"2fa", owner]`. */
+  /** Derive the `PasskeyRegistry` PDA for a wallet. Seeds: `[b"passkey", owner]`. */
   registryPda(owner: PublicKey): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("2fa"), owner.toBuffer()],
+      [Buffer.from("passkey"), owner.toBuffer()],
       this.programId,
     )
     return pda
@@ -128,9 +130,9 @@ export class TranaGuardClient {
   // ── Account reads ───────────────────────────────────────────────────────────
 
   /** Fetch the registry for an owner. Returns `null` if not yet registered. */
-  async fetchRegistry(owner: PublicKey): Promise<TwoFactorRegistryAccount | null> {
+  async fetchRegistry(owner: PublicKey): Promise<PasskeyRegistryAccount | null> {
     try {
-      return await this.program.account.twoFactorRegistry.fetch(this.registryPda(owner))
+      return await this.program.account.passkeyRegistry.fetch(this.registryPda(owner))
     } catch {
       return null
     }
@@ -176,7 +178,7 @@ export class TranaGuardClient {
     const handle = await nativeRegister(rpId, owner.toBytes(), userDisplayName)
 
     const instruction = await this.program.methods
-      .registerTwoFa(
+      .registerPasskey(
         { secp256R1Passkey: {} },
         Buffer.from(handle.pubkeyBytes),
         Buffer.from(handle.credentialId),
@@ -238,7 +240,11 @@ export class TranaGuardClient {
       rpId,
     )
 
-    const pubkeyBytes = new Uint8Array(registry.pubkeyBytes as unknown as number[])
+    const matchedEntry = registry.keys.find(
+      k => Buffer.from(k.credentialId as unknown as number[]).equals(Buffer.from(credentialId))
+    )
+    if (!matchedEntry) throw new Error("credentialId not found in registry — was this passkey registered for this wallet?")
+    const pubkeyBytes = new Uint8Array(matchedEntry.pubkeyBytes as unknown as number[])
     const message     = buildWebAuthnMessage(authenticatorData, clientDataJSON)
 
     return {

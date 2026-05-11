@@ -19,6 +19,8 @@
     "prepare": "[ -n \"$CI\" ] || [ -n \"$VERCEL\" ] || husky"
   },
   "devDependencies": {
+    "react":     "^19.0.0",
+    "react-dom": "^19.0.0",
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.5",
     "@commitlint/cli": "^21.0.0",
@@ -43,8 +45,8 @@
     "typescript": "^5.7.0"
   },
   "overrides": {
-    "react":     "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react":     "$react",
+    "react-dom": "$react-dom"
   },
   "engines": {
     "node": ">=22"
