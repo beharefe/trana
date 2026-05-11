@@ -89,22 +89,43 @@ function parseErrMsg(e: unknown): string {
   }
 
   const m = e.message
+
+  // {"InstructionError":[n,{"Custom":6007}]} — raw RPC error JSON
+  try {
+    const ix = JSON.parse(m)
+    const custom = ix?.InstructionError?.[1]?.Custom
+    if (typeof custom === "number") return codeToMsg(custom, String(custom))
+  } catch {}
+
+  // "custom program error: 0x1777" — from logs or SendTransactionError message
   const custom = m.match(/custom program error: (0x[0-9a-f]+)/i)
   if (custom) return codeToMsg(parseInt(custom[1], 16), custom[1])
+
   if (m.toLowerCase().includes("not connected") || m.toLowerCase().includes("wallet not connected"))
     return "Wallet disconnected — reconnect and try again"
   if (m.includes("passkey") || m.includes("proof") || m.includes("Secp256r1"))
-    return "Proof required — passkey needed for this withdrawal"
+    return "Proof required — passkey needed for this action"
   if (m.includes("insufficient")) return "Insufficient funds"
   return m.slice(0, 120)
 }
 
-function codeToMsg(code: number, hex: string): string {
-  if (code === 0x1773) return "WrongSigner — passkey in registry doesn't match this device. Use a fresh wallet."
-  if (code === 0x1770) return "MissingProof — passkey proof required for this withdrawal"
-  if (code === 0x1771) return "Proof expired — try again"
-  if (code === 0x1772) return "PayloadMismatch — intent hash mismatch"
-  return `Program error ${hex}`
+function codeToMsg(code: number, fallback: string): string {
+  switch (code) {
+    case 6000: return "Missing passkey proof — add secp256r1 + record_proof instructions before this one"
+    case 6001: return "Proof expired — sign and submit faster, or try again"
+    case 6002: return "Payload mismatch — transaction parameters were tampered"
+    case 6003: return "Wrong signer — passkey not in registry. Register this device first"
+    case 6004: return "Invalid proof data"
+    case 6005: return "Nonce overflow"
+    case 6006: return "Policy mismatch — proof policy doesn't match the expected standard"
+    case 6007: return "Unauthorized — caller is not the config authority"
+    case 6008: return "Invalid treasury account"
+    case 6009: return "Max passkeys reached — registry already has 10 keys"
+    case 6010: return "Cannot remove the last registered passkey"
+    case 6011: return "Credential not found — no passkey with that ID in registry"
+    case 6012: return "Registry required — passkey registry account missing"
+    default:   return `Program error ${fallback}`
+  }
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
