@@ -1,25 +1,28 @@
 # Stolen keys can't drain guarded accounts.
 
-Secure your program with one CPI call.
+Passkey-enforced authorization for Solana programs. Two primitives. No backend required.
 
 > Any instruction that calls `guard::cpi::enforce()` cannot execute unless the wallet's registered passkey signed a hash that exactly describes this transaction.
 
 ---
 
-## The program requires your passkey. Not just your signature.
+## Two programs. Full stack.
 
-Wallet signing is all-or-nothing. Trana adds a second check at execution — inside the instruction itself.
-
-Proofs are tied to the exact accounts and params. They expire in 120 seconds. No backend required.
+| | `trana_guard` | `trana_authority` |
+|---|---|---|
+| **What it protects** | Individual instructions inside your program | Upgrade authority of any deployed program |
+| **Code changes required** | 3 accounts + 1 CPI call | **None** |
+| **Works on existing programs** | No | **Yes** |
+| **Best for** | Runtime policies — withdrawals, transfers, config | Deploy key protection, CI/CD security |
 
 ---
 
 ## How it works
 
 ```
-ix[0]:  secp256r1 precompile   ← Solana verifies the P-256 signature natively
-ix[1]:  guard::record_proof    ← carries WebAuthn authenticatorData + clientDataJSON
-ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
+ix[N-2]:  secp256r1 precompile   ← Solana verifies the P-256 signature natively
+ix[N-1]:  guard::record_proof    ← carries WebAuthn authenticatorData + clientDataJSON
+ix[N]:    your_program::action   → calls guard::cpi::enforce() internally
 ```
 
 | | |
@@ -27,12 +30,31 @@ ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
 | Onchain verification | SIMD-0075 secp256r1 precompile (mainnet since Feb 2025) |
 | Backend required | None — credentials stored in a PDA on-chain |
 | Supported devices | Touch ID, Face ID, YubiKey, Google Titan, Windows Hello |
-| Integration cost | 3 extra accounts + 1 helper method + 1 React hook |
+| Integration cost (`trana_guard`) | 3 extra accounts + 1 CPI call + 1 React hook |
+| Integration cost (`trana_authority`) | Register PDA + 1 CLI command |
 | Proof expiry | 120 seconds |
 
 ---
 
-- [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps
-- [Integration](/docs/integration) — full Rust/Anchor + SDK reference
-- [Architecture](/docs/architecture) — how the three layers fit together
-- [Glossary](/docs/glossary) — definitions for every technical term
+## Policies
+
+The guard supports four enforcement modes:
+
+| Policy | Fires when |
+|---|---|
+| `trana.require` | Always |
+| `trana.limit` | A `u64` parameter in the instruction is ≥ a threshold |
+| `trana.not_before` | Current slot is before a given slot |
+| `trana.not_after` | Current slot is after a given slot |
+
+Conditional policies are no-ops when their condition is false — no proof needed.
+
+---
+
+- [Quickstart](/quickstart) — add Trana Guard to your program in 4 steps
+- [Integration](/integration) — full Rust/Anchor + TypeScript reference
+- [Trana Authority](/authority) — protect any program's upgrade authority
+- [SDK Reference](/sdk) — all exports, hooks, and client methods
+- [Passkey management](/passkeys) — add, remove, and recover keys
+- [Architecture](/architecture) — how the three layers fit together
+- [Glossary](/glossary) — definitions for every technical term

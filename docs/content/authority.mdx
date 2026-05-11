@@ -1,0 +1,240 @@
+# Trana Authority
+
+Secure any program's upgrade authority behind a passkey — without touching the target program.
+
+> `trana_authority` wraps the BPF Loader upgrade path in a PDA that requires a Touch ID tap. The target program is unchanged. Zero code changes required.
+
+---
+
+## When to use it
+
+| | `trana_guard` | `trana_authority` |
+|---|---|---|
+| **What you secure** | Individual instructions inside your program | The upgrade authority of any deployed program |
+| **Code changes to target** | 3 accounts + 1 CPI call | **None** |
+| **Works on programs you didn't write** | No | **Yes** |
+| **Best for** | Runtime policy enforcement | CI/CD and deploy key protection |
+
+Use `trana_guard` when you need instruction-level policies (e.g. "require biometric for withdrawals over 1 SOL"). Use `trana_authority` when you want to protect the upgrade process for any program — including one you didn't write.
+
+---
+
+## How it works
+
+```
+Before:
+  wallet_keypair ──► bpf_loader::upgrade()   (anyone with the key can upgrade)
+
+After:
+  wallet_keypair ──► trana_authority::execute_upgrade()
+                              │
+                              ├── trana_guard::cpi::enforce()   ← passkey required
+                              │
+                              └── bpf_loader::upgrade()          ← PDA signs via CPI
+```
+
+The `trana_authority` PDA becomes the real upgrade authority. The wallet key alone is insufficient — `execute_upgrade` only proceeds if `trana_guard::cpi::enforce()` passes.
+
+---
+
+## Setup
+
+### 1. Register the authority PDA
+
+```ts
+import { TranaAuthorityClient } from "@tranaprotocol/sdk/authority"
+
+const client = new TranaAuthorityClient({ connection, cluster: "devnet" })
+
+const registerIx = await client.register({
+  owner:  walletPubkey,
+  target: programPubkey,   // the program you want to protect
+})
+
+const tx = new Transaction().add(registerIx)
+await sendAndConfirm(tx)
+```
+
+This creates an `AuthorityRecord` PDA at seeds `["trana-authority", owner, target]`.
+
+### 2. Transfer the upgrade authority
+
+After the PDA is created, hand the BPF Loader authority to it:
+
+```bash
+solana program set-upgrade-authority <PROGRAM_ID> \
+  --new-upgrade-authority <AUTHORITY_PDA>
+```
+
+Derive `<AUTHORITY_PDA>`:
+
+```ts
+const [pda] = await client.recordPda(walletPubkey, programPubkey)
+console.log("Authority PDA:", pda.toBase58())
+```
+
+From this point, the wallet key alone cannot upgrade the program.
+
+---
+
+## Upgrading a program
+
+Upgrading requires a passkey proof. The SDK's `authorizeAndSend` handles everything automatically.
+
+```ts
+import { TranaAuthorityClient } from "@tranaprotocol/sdk/authority"
+
+const client = new TranaAuthorityClient({ connection, cluster: "devnet" })
+
+const upgradeIx = await client.executeUpgrade({
+  owner:       walletPubkey,
+  program:     programPubkey,
+  programData: programDataPubkey,   // derived from program address
+  buffer:      bufferPubkey,        // uploaded .so buffer account
+  spill:       walletPubkey,        // rent reclaim destination
+})
+
+// authorizeAndSend prepends the (secp256r1, record_proof) pair automatically
+const { authorizeAndSend } = useTrana()
+await authorizeAndSend({
+  instruction: upgradeIx,
+  label: "Upgrade program",
+})
+```
+
+### Transaction shape
+
+```
+ix[N-2]: secp256r1 precompile     native P-256 sig verify
+ix[N-1]: trana_guard::record_proof
+ix[N]:   trana_authority::execute_upgrade  → enforce() → bpf_loader::upgrade()
+```
+
+All three execute atomically. If the passkey check fails, the upgrade is reverted.
+
+---
+
+## Reclaiming the authority
+
+To move upgrade authority back to a different key (e.g. a new multisig), use `reclaim_authority`. This operation also requires a passkey — even the escape hatch is second-factor protected.
+
+```ts
+const reclaimIx = await client.reclaimAuthority({
+  owner:        walletPubkey,
+  target:       programPubkey,
+  programData:  programDataPubkey,
+  newAuthority: newAuthorityPubkey,  // where authority goes after reclaim
+})
+
+await authorizeAndSend({
+  instruction: reclaimIx,
+  label: "Reclaim upgrade authority",
+})
+```
+
+`reclaim_authority` closes the `AuthorityRecord` PDA and returns rent to the owner.
+
+---
+
+## Program account
+
+### `AuthorityRecord`
+
+PDA seeds: `[b"trana-authority", owner, target]`
+
+| Field | Type | Description |
+|---|---|---|
+| `owner` | `Pubkey` | Wallet that controls this record |
+| `target` | `Pubkey` | Program being protected |
+| `bump` | `u8` | PDA bump seed |
+
+One PDA per `(owner, target)` pair. One wallet can protect multiple programs independently.
+
+---
+
+## Instructions
+
+### `register`
+
+Creates the `AuthorityRecord` PDA. No passkey required — wallet signature only.
+
+Call this once before transferring upgrade authority to the PDA.
+
+| Account | Role |
+|---|---|
+| `owner` | Signer — pays for PDA creation |
+| `target` | Program being protected (read-only) |
+| `authority_record` | New PDA (`init`) |
+| `system_program` | Required for account creation |
+
+---
+
+### `execute_upgrade`
+
+Upgrades the target program. Requires a passkey proof via `trana_guard::cpi::enforce(Policy::Require)`.
+
+| Account | Role |
+|---|---|
+| `owner` | Signer |
+| `authority_record` | `AuthorityRecord` PDA (`has_one = owner`) |
+| `program` | Program account being upgraded |
+| `program_data` | Program data account |
+| `buffer` | Uploaded `.so` buffer |
+| `spill` | Rent reclaim destination (usually `owner`) |
+| `bpf_loader` | `BPFLoaderUpgradeable111...` |
+| `trana_guard_program` | Guard program |
+| `trana_registry` | `PasskeyRegistry` PDA for `owner` |
+| `trana_instructions` | Instructions sysvar |
+
+---
+
+### `reclaim_authority`
+
+Returns upgrade authority to a new pubkey and closes the `AuthorityRecord`. Requires passkey.
+
+| Account | Role |
+|---|---|
+| `owner` | Signer |
+| `authority_record` | `AuthorityRecord` PDA (closed on success) |
+| `program` | Program whose authority is being reclaimed |
+| `program_data` | Program data account |
+| `new_authority` | Where upgrade authority will be transferred |
+| `bpf_loader` | `BPFLoaderUpgradeable111...` |
+| `trana_guard_program` | Guard program |
+| `trana_registry` | `PasskeyRegistry` PDA for `owner` |
+| `trana_instructions` | Instructions sysvar |
+
+---
+
+## Program IDs
+
+| Cluster | Program ID |
+|---|---|
+| Mainnet | `KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE` |
+| Devnet | `TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN` |
+
+---
+
+## Security properties
+
+**Leaked deploy key cannot upgrade alone.** The upgrade authority is the PDA, not the wallet key. The wallet key can call `execute_upgrade`, but the call reverts unless the passkey proof passes.
+
+**CI pipeline compromise is blocked.** An automated pipeline that exfiltrates the deploy key still cannot upgrade — there is no passkey to sign the proof.
+
+**Reclaim is equally protected.** `reclaim_authority` is gated by the same passkey check. An attacker who controls the wallet key cannot silently move authority away.
+
+**Inherits guard improvements automatically.** `trana_authority` delegates security entirely to `trana_guard::cpi::enforce()`. Any improvement to the guard (new policy types, key recovery) applies to authority protection without a redeployment.
+
+---
+
+## Comparison to multisig
+
+| | Squads Multisig | Trana Authority |
+|---|---|---|
+| Second factor type | More signatures (same kind) | Different factor (biometric device) |
+| Setup | Create multisig, add members | Register PDA, transfer authority |
+| Execution | Collect M-of-N signatures | One Touch ID tap |
+| Signing ceremony | Yes — coordinate signers | No |
+| Leaked member key | Threshold still holds | Key alone is useless |
+
+They are complementary. Squads and Trana together give you multisig threshold **and** a biometric check for every signer.

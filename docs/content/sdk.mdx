@@ -1,0 +1,533 @@
+# SDK Reference
+
+`@tranaprotocol/sdk` — TypeScript/React client for Trana Guard and Trana Authority.
+
+---
+
+## Installation
+
+```bash
+npm install @tranaprotocol/sdk
+```
+
+**Peer dependencies:** `@solana/web3.js`, `@coral-xyz/anchor`
+
+---
+
+## Package exports
+
+| Import path | Contents |
+|---|---|
+| `@tranaprotocol/sdk` | React hooks, provider, modal, core utilities |
+| `@tranaprotocol/sdk/guard` | `TranaGuardClient` |
+| `@tranaprotocol/sdk/authority` | `TranaAuthorityClient` |
+| `@tranaprotocol/sdk/testing` | Test utilities — **never import in production** |
+
+---
+
+## React integration
+
+### `TranaProvider`
+
+Wrap your application once. All `useTrana` calls below it share the same context.
+
+```tsx
+import { TranaProvider, TranaModal } from "@tranaprotocol/sdk"
+import { PublicKey } from "@solana/web3.js"
+
+const GUARD_ID = new PublicKey(process.env.NEXT_PUBLIC_TRANA_GUARD_PROGRAM_ID!)
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <TranaProvider config={{
+      tranaGuardProgramId: GUARD_ID,
+      policy:        "trana.limit",   // default policy for detectEnforcement fallback
+      expiryTtlSec:  120,             // proof TTL in seconds (default: 120)
+    }}>
+      {children}
+      <TranaModal />
+    </TranaProvider>
+  )
+}
+```
+
+`TranaModal` renders the registration flow, confirmation dialog, biometric prompt, and error states. Place it at the root so it can overlay anything.
+
+---
+
+### `useTrana`
+
+The main integration hook. Returns `authorizeAndSend`.
+
+```ts
+const { authorizeAndSend } = useTrana()
+```
+
+#### `authorizeAndSend(options)`
+
+Builds the full proof, shows the modal, and sends the transaction.
+
+```ts
+// Minimal — SDK derives intent from the instruction automatically
+await authorizeAndSend({
+  instruction: withdrawIx,
+  label:       "Withdraw 1.5 SOL",
+})
+
+// Custom transaction — priority fees, extra instructions
+await authorizeAndSend({
+  instruction: withdrawIx,
+  label:       "Withdraw 1.5 SOL",
+  buildTransaction: async ({ recentBlockhash }) => {
+    const tx = new Transaction({ recentBlockhash, feePayer: wallet.publicKey })
+    tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5_000 }))
+    tx.add(withdrawIx)
+    return tx
+  },
+})
+```
+
+**What the SDK does automatically:**
+1. Simulates the transaction to detect which policy fires
+2. Fetches the `PasskeyRegistry` PDA (nonce, registered keys)
+3. Computes the intent hash (SHA-256 binding all accounts, params, nonce, expiry)
+4. Shows the confirmation modal for the user to review
+5. Triggers `navigator.credentials.get()` — the OS biometric prompt
+6. Constructs `secp256r1Ix` and `recordProofIx`
+7. Inserts the pair immediately before `instruction` in the final transaction
+8. Signs with the wallet and sends
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `instruction` | `TransactionInstruction` | Yes | The protected instruction |
+| `label` | `string` | No | Human-readable action name shown in the modal |
+| `buildTransaction` | `async ({ recentBlockhash }) => Transaction` | No | Override transaction construction |
+
+---
+
+### `useTranaPasskeys`
+
+Lists the passkeys registered for the connected wallet and tracks backup status.
+
+```ts
+const { passkeys, hasBackup, isLoading } = useTranaPasskeys()
+
+// passkeys — PasskeyEntry[]
+// passkeys[0].credentialId  — Uint8Array
+// passkeys[0].pubkeyBytes   — Uint8Array (compressed P-256)
+// hasBackup — true when passkeys.length >= 2
+// isLoading — true while fetching registry
+```
+
+The hook subscribes to the `PasskeyRegistry` account and updates automatically when keys are added or removed.
+
+---
+
+### `useBackupNudge`
+
+Shows a one-time prompt after the first successful authorization to encourage adding a backup passkey.
+
+```tsx
+import { useBackupNudge } from "@tranaprotocol/sdk"
+
+function App() {
+  const { show, dismiss, openKeyManagement } = useBackupNudge({
+    onOpen: () => setKeyMgmtVisible(true),
+  })
+
+  return (
+    <>
+      {show && (
+        <BackupBanner
+          onDismiss={dismiss}
+          onSetupBackup={openKeyManagement}
+        />
+      )}
+    </>
+  )
+}
+```
+
+`show` is `true` once, 2 seconds after the first approval. Dismissal is stored in `localStorage` — the banner will not reappear in the same browser profile.
+
+---
+
+## `TranaGuardClient`
+
+Low-level client for the `trana_guard` program. Use this for passkey registration and management. Most apps only need this for the registration flow — `authorizeAndSend` handles enforcement automatically.
+
+```ts
+import { TranaGuardClient } from "@tranaprotocol/sdk/guard"
+
+const client = new TranaGuardClient({
+  connection,
+  cluster: "devnet",  // "devnet" | "localnet" | "mainnet-beta" | "custom"
+})
+```
+
+### Account derivation
+
+```ts
+// PasskeyRegistry PDA for a wallet
+const registryPda = client.registryPda(ownerPubkey)
+
+// TranaConfig (global fee config) PDA
+const configPda = client.configPda()
+```
+
+### Fetch accounts
+
+```ts
+// Read a wallet's PasskeyRegistry
+const registry = await client.fetchRegistry(ownerPubkey)
+// registry.nonce          — u64 (as bigint)
+// registry.keys           — PasskeyEntry[]
+// registry.keys[0].pubkeyBytes   — Uint8Array
+// registry.keys[0].credentialId  — Uint8Array
+
+// Read global fee config
+const config = await client.fetchConfig()
+// config.registerFee — bigint (lamports)
+// config.addKeyFee   — bigint (lamports)
+// config.treasury    — PublicKey
+```
+
+### `registerPasskey`
+
+Creates the `PasskeyRegistry` PDA and stores the first P-256 key. Call once per wallet. Triggers the OS passkey creation dialog.
+
+```ts
+const { instruction, handle } = await client.registerPasskey({
+  owner:           walletPubkey,
+  rpId:            window.location.hostname,
+  userDisplayName: walletPubkey.toBase58().slice(0, 8),
+})
+
+// instruction — TransactionInstruction (no proof required)
+// handle.pubkeyBytes  — compressed P-256 public key
+// handle.credentialId — WebAuthn credential ID (store this)
+
+const tx = new Transaction().add(instruction)
+await sendAndConfirm(tx)
+```
+
+### `addPasskey`
+
+Adds a backup passkey. Requires an existing key for authorization. Triggers two OS dialogs: new device registration, then existing device authentication.
+
+```ts
+const { secp256r1Ix, recordProofIx, instruction, handle } = await client.addPasskey({
+  owner:           walletPubkey,
+  credentialId,    // existing passkey's credential ID
+  rpId:            window.location.hostname,
+  userDisplayName: "Backup iPhone",
+})
+
+// Transaction must include all three in order
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, instruction)
+await sendAndConfirm(tx)
+```
+
+### `removePasskey`
+
+Removes a passkey. Must be authorized by a **different** registered key. Cannot remove the last key.
+
+```ts
+const { secp256r1Ix, recordProofIx, instruction } = await client.removePasskey({
+  owner:                   walletPubkey,
+  credentialIdToRemove:    lostHandle.credentialId,
+  authorizingCredentialId: otherHandle.credentialId,
+  rpId:                    window.location.hostname,
+})
+
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, instruction)
+await sendAndConfirm(tx)
+```
+
+### `buildProof`
+
+Build the `(secp256r1Ix, recordProofIx)` pair manually, without sending a transaction.
+
+```ts
+const { secp256r1Ix, recordProofIx } = await client.buildProof({
+  owner,
+  credentialId,
+  intent,         // TranaIntent — from buildIntent() or intentFromInstruction()
+  rpId:           window.location.hostname,
+})
+```
+
+---
+
+## `TranaAuthorityClient`
+
+Client for the `trana_authority` program. See [Authority](/authority) for the full workflow.
+
+```ts
+import { TranaAuthorityClient } from "@tranaprotocol/sdk/authority"
+
+const client = new TranaAuthorityClient({
+  connection,
+  cluster: "devnet",
+})
+```
+
+### Account derivation
+
+```ts
+const [pda, bump] = await client.recordPda(ownerPubkey, targetPubkey)
+```
+
+### Fetch account
+
+```ts
+const record = await client.fetchRecord(ownerPubkey, targetPubkey)
+// record.owner  — PublicKey
+// record.target — PublicKey
+// record.bump   — number
+```
+
+### `register`
+
+Creates the `AuthorityRecord` PDA. No passkey required.
+
+```ts
+const instruction = await client.register({
+  owner:  walletPubkey,
+  target: programPubkey,
+})
+```
+
+### `executeUpgrade`
+
+Builds the `execute_upgrade` instruction. Requires passkey proof — pass to `authorizeAndSend`.
+
+```ts
+const instruction = await client.executeUpgrade({
+  owner:       walletPubkey,
+  program:     programPubkey,
+  programData: programDataPubkey,
+  buffer:      bufferPubkey,
+  spill:       walletPubkey,
+})
+```
+
+### `reclaimAuthority`
+
+Builds the `reclaim_authority` instruction. Requires passkey proof.
+
+```ts
+const instruction = await client.reclaimAuthority({
+  owner:        walletPubkey,
+  target:       programPubkey,
+  programData:  programDataPubkey,
+  newAuthority: newAuthorityPubkey,
+})
+```
+
+---
+
+## Core utilities
+
+Import individually from `@tranaprotocol/sdk`:
+
+### Intent construction
+
+```ts
+import {
+  buildIntent,
+  hashIntent,
+  intentFromInstruction,
+} from "@tranaprotocol/sdk"
+```
+
+#### `buildIntent(input, opts)`
+
+Builds a `TranaIntent` — the structured object that gets hashed into the WebAuthn challenge.
+
+```ts
+const intent = buildIntent(
+  {
+    targetProgramId:           programPubkey,
+    instructionDiscriminator:  discriminator,  // 8-byte Anchor discriminator
+    accounts:                  instruction.keys.map(k => k.pubkey),
+    params:                    Buffer.from(instruction.data).slice(8),
+    policy:                    "trana.limit",
+  },
+  {
+    wallet:              walletPubkey,
+    tranaGuardProgramId: guardPubkey,
+    nonce:               registry.nonce,
+    expiryUnix:          Math.floor(Date.now() / 1000) + 120,
+  }
+)
+```
+
+#### `hashIntent(intent)`
+
+Returns the 32-byte SHA-256 of the intent — this is the WebAuthn challenge.
+
+```ts
+const challenge: Uint8Array = hashIntent(intent)
+```
+
+#### `intentFromInstruction(instruction, opts)`
+
+Derive intent directly from a `TransactionInstruction`.
+
+```ts
+const intent = intentFromInstruction(withdrawIx, {
+  wallet, tranaGuardProgramId, nonce, expiryUnix,
+})
+```
+
+---
+
+### Secp256r1 / proof construction
+
+```ts
+import {
+  buildSecp256r1Ix,
+  buildWebAuthnMessage,
+  buildRecordProofIx,
+} from "@tranaprotocol/sdk"
+```
+
+#### `buildSecp256r1Ix(pubkeyBytes, signature, message)`
+
+Constructs the SIMD-0075 native P-256 verification instruction.
+
+```ts
+const secp256r1Ix = buildSecp256r1Ix(
+  pubkeyBytes,   // 33-byte compressed P-256 public key
+  signature,     // 64-byte r‖s (low-S normalized)
+  message,       // authenticatorData ‖ SHA-256(clientDataJSON)
+)
+```
+
+#### `buildWebAuthnMessage(authenticatorData, clientDataJSON)`
+
+Constructs the message that was actually signed by the authenticator.
+
+```ts
+const message = buildWebAuthnMessage(authenticatorData, clientDataJSON)
+// returns: authenticatorData ‖ SHA-256(clientDataJSON)
+```
+
+#### `buildRecordProofIx(opts)`
+
+Constructs the `record_proof` data-carrier instruction.
+
+```ts
+const recordProofIx = buildRecordProofIx({
+  guardProgramId,
+  registryPubkey,
+  authenticatorData,
+  clientDataJSON,
+  expiryUnix,
+  policyId: "trana.limit",
+})
+```
+
+---
+
+### WebAuthn browser API
+
+```ts
+import { registerPasskey, signIntent } from "@tranaprotocol/sdk"
+```
+
+These are thin wrappers around `navigator.credentials.create()` and `navigator.credentials.get()`. Browser-only — do not call from Node.js.
+
+#### `registerPasskey(opts)`
+
+```ts
+const { pubkeyBytes, credentialId } = await registerPasskey({
+  rpId:            window.location.hostname,
+  userDisplayName: "My Wallet",
+  userId:          walletPubkey.toBytes(),
+})
+```
+
+#### `signIntent(credentialId, challenge, rpId)`
+
+```ts
+const { signature, authenticatorData, clientDataJSON } = await signIntent(
+  credentialId,
+  intentHash,    // 32-byte Uint8Array — the WebAuthn challenge
+  rpId,
+)
+```
+
+---
+
+## Types
+
+### `TranaCluster`
+
+```ts
+type TranaCluster = "devnet" | "localnet" | "mainnet-beta" | "custom"
+```
+
+### `PasskeyHandle`
+
+```ts
+type PasskeyHandle = {
+  pubkeyBytes:  Uint8Array   // 33-byte compressed P-256 public key
+  credentialId: Uint8Array   // WebAuthn credential ID (variable length, ≤128 bytes)
+}
+```
+
+### `Policy`
+
+```ts
+type Policy =
+  | { require: {} }
+  | { notBefore: { slot: bigint } }
+  | { notAfter:  { slot: bigint } }
+  | { limit: { paramOffset: number; limit: bigint } }
+```
+
+Convenience constructors:
+
+```ts
+import { Policy } from "@tranaprotocol/sdk"
+
+Policy.require()
+Policy.limit({ paramOffset: 0, limit: 1_000_000_000n })
+Policy.notBefore({ slot: 350_000_000n })
+Policy.notAfter({ slot: 350_000_000n })
+```
+
+### `TranaIntent`
+
+```ts
+type TranaIntent = {
+  version:                  1
+  domain:                   "trana:v1"
+  wallet:                   string       // base58
+  tranaGuardProgramId:      string
+  targetProgramId:          string
+  policyId:                 string       // "trana.require" | "trana.limit" | ...
+  instructionDiscriminator: string       // hex
+  accountsHash:             string       // hex SHA-256
+  paramsHash:               string       // hex SHA-256
+  nonce:                    string       // decimal u64
+  expiryUnix:               number       // unix timestamp
+  rawParamsHex:             string
+  accountsCount:            number
+}
+```
+
+---
+
+## Program IDs
+
+```ts
+import { PROGRAM_IDS } from "@tranaprotocol/sdk"
+
+PROGRAM_IDS["mainnet-beta"].guard      // GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn
+PROGRAM_IDS["mainnet-beta"].authority  // KoXvrg4DBLKa5U6LCUpWXJE1FHYqwaozqDqDcBXvGEE
+PROGRAM_IDS["devnet"].guard
+PROGRAM_IDS["devnet"].authority
+```

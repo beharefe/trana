@@ -24,9 +24,13 @@ Trana has three layers. The Solana runtime ties them together — all three exec
 
 ## Components
 
-### programs/guard — the authorization primitive
+### programs/trana_guard — the authorization primitive
 
-One deployed program. Five instructions.
+One deployed program. Seven instructions.
+
+`init_config` initializes the global `TranaConfig` PDA (fees, treasury, authority). Called once at deploy time.
+
+`update_config` updates fees or treasury address. Only callable by the config authority.
 
 `register_passkey` initializes the `PasskeyRegistry` PDA for a wallet and writes the first P-256 public key and credential ID. Only succeeds when the registry is empty — subsequent passkeys must be added via `add_passkey`.
 
@@ -37,6 +41,16 @@ One deployed program. Five instructions.
 `record_proof` is a data carrier. It holds WebAuthn binding bytes (`authenticatorData`, `clientDataJSON`, expiry, and policy) in instruction data and modifies no accounts.
 
 `enforce` is called by your program via CPI. It reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against any key in the registry, checks the intent hash, and increments the nonce. If anything fails, the whole transaction reverts.
+
+### programs/trana_authority — upgrade authority protection
+
+Wraps the BPF Loader upgrade path behind the same passkey check. Three instructions.
+
+`register` creates an `AuthorityRecord` PDA for an `(owner, target)` pair. No passkey required. After calling this, the user transfers the real upgrade authority to the PDA via the Solana CLI.
+
+`execute_upgrade` upgrades the target program. Calls `trana_guard::cpi::enforce(Policy::Require)`, then invokes the BPF Loader with the PDA as the signing authority.
+
+`reclaim_authority` returns upgrade authority to a new pubkey and closes the PDA. Also guarded by passkey — even the escape hatch requires a second factor.
 
 ### packages/sdk — TypeScript client
 
@@ -49,6 +63,8 @@ packages/sdk/src/
 │   └── types.ts       TranaCluster, PasskeyHandle, Policy
 ├── guard/
 │   └── client.ts      TranaGuardClient — registerPasskey, addPasskey, removePasskey, buildProof
+├── authority/
+│   └── client.ts      TranaAuthorityClient — register, executeUpgrade, reclaimAuthority
 └── react/
     ├── provider.tsx          TranaProvider — context and deferred promise hub
     ├── modal.tsx             TranaModal — registration, confirmation, approval, error

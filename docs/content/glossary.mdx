@@ -131,3 +131,51 @@ The enum passed to `guard::cpi::enforce()`. Four variants: `Require` (always req
 ### param_offset
 
 The byte offset of a `u64` parameter inside the protected instruction's data, measured **after** the 8-byte Anchor discriminator. Used with `Policy::Limit` to tell the guard which field to read. For `fn action(ctx, amount: u64)` the offset is `0`. For `fn action(ctx, recipient: Pubkey, amount: u64)` the offset is `32`. Compute it by summing the byte sizes of all parameters before the target `u64`: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
+
+---
+
+### trana_authority
+
+The second Trana program. Wraps the BPF Loader upgrade path so any program's upgrade authority can be secured with a passkey, without modifying the target program. See [Trana Authority](/authority).
+
+---
+
+### AuthorityRecord
+
+The on-chain PDA created by `trana_authority::register`. Seeds: `["trana-authority", owner, target]`. Stores `owner` (the wallet controlling the PDA) and `target` (the program being protected). One PDA per `(owner, target)` pair.
+
+---
+
+### execute_upgrade
+
+The `trana_authority` instruction that upgrades a program. Calls `trana_guard::cpi::enforce(Policy::Require)` before invoking the BPF Loader. The `AuthorityRecord` PDA signs the BPF Loader CPI — the wallet key alone cannot trigger an upgrade.
+
+---
+
+### reclaim_authority
+
+The `trana_authority` instruction that transfers upgrade authority from the `AuthorityRecord` PDA to a new pubkey and closes the PDA. Also gated by `trana_guard::cpi::enforce(Policy::Require)` — even the escape hatch requires a passkey.
+
+---
+
+### BPF Loader Upgradeable
+
+The Solana system program (`BPFLoaderUpgradeab1e11111111111111111111111`) responsible for deploying and upgrading programs. `trana_authority` uses this program via CPI, with the `AuthorityRecord` PDA as the signing authority.
+
+---
+
+### TranaConfig
+
+The global fee configuration PDA, seeded at `["config"]` on the guard program. Stores `authority`, `treasury`, `register_fee`, and `add_key_fee`. Anyone can read it on-chain to verify what fees are charged. Only the `authority` can update it via `update_config`.
+
+---
+
+### init_config
+
+The one-time setup instruction that creates the `TranaConfig` PDA. Called once at guard program deploy time by the program authority.
+
+---
+
+### update_config
+
+The guard instruction for changing fees or the treasury address. Only callable by the pubkey stored in `TranaConfig.authority`.
