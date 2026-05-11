@@ -2,7 +2,7 @@
 
 Onchain passkey authorization primitive for Solana.
 
-`trana_guard` enforces second-factor authorization at execution time. Integrate via CPI to require a WebAuthn/passkey proof before any high-risk instruction executes — enforced onchain, not in your app.
+`trana_guard` enforces second-factor authorization at execution time. Integrate via CPI to require a WebAuthn/passkey proof before any high-risk instruction executes - enforced onchain, not in your app.
 
 ## CPI Integration
 

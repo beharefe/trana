@@ -1,7 +1,7 @@
 [package]
 name = "trana_guard"
 version = "0.1.0"
-description = "Trana Guard — Onchain passkey authorization primitive for Solana"
+description = "Trana Guard - Onchain passkey authorization primitive for Solana"
 edition = "2021"
 authors = ["Trana, Inc."]
 license = "Apache-2.0"
