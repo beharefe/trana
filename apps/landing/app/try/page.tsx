@@ -143,11 +143,12 @@ const NAV_ITEMS = [
 
 const VAULT_META: Record<string, { title: string; lede: React.ReactNode }> = {
   "vault/withdraw": {
-    title: "The vault attack.",
+    title: "Passkey-gated withdrawal.",
     lede: (
-      <>We give you the <em>seed phrase</em> for the pool authority. With it,
-      you control the wallet that owns this vault.{" "}
-      <span style={{ color: "var(--plasma)" }}>Drain it.</span> If you can.</>
+      <>This vault enforces a passkey proof on withdrawals above the limit
+      or during a specified slot window.
+      Below the threshold it passes through. Above it,{" "}
+      <span style={{ color: "var(--plasma)" }}>your hardware must sign.</span></>
     ),
   },
   "vault/deposit": {
