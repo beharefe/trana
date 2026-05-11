@@ -135,7 +135,7 @@ export function CodeSection() {
             <h4 className="font-serif font-normal text-[22px] tracking-[-0.01em] mb-2" style={{ color: "var(--bone)" }}>Audited the macro.</h4>
             <p className="m-0 text-[14.5px] leading-[1.6] font-light" style={{ color: "var(--bone-2)" }}>
               <span className="font-mono" style={{ color: "var(--bone)" }}>require!</span> expands to a single CPI to a single instruction
-              on a single program. No magic accounts, no hidden upgrades.
+              on a single program. No&nbsp;magic&nbsp;accounts, no&nbsp;hidden&nbsp;upgrades.
               Read the lowering yourself.
             </p>
           </div>
@@ -144,7 +144,7 @@ export function CodeSection() {
             <p className="m-0 text-[14.5px] leading-[1.6] font-light" style={{ color: "var(--bone-2)" }}>
               On a missing or malformed proof, the action returns{" "}
               <span className="font-mono" style={{ color: "var(--plasma)" }}>GuardError::ProofRequired</span>. The transaction reverts at
-              the instruction boundary — nothing ever lands.
+              the instruction boundary. Nothing ever lands.
             </p>
           </div>
         </div>

@@ -327,11 +327,9 @@ export function Hero() {
             </h1>
 
             <p className="text-[19px] leading-[1.55] font-light mb-9 max-w-[540px]" style={{ color: "var(--bone-2)" }}>
-              Two primitives for the authorization layer of Solana.{" "}
               <span className="font-mono font-medium text-[16.5px]" style={{ color: "var(--bone)" }}>Guard</span>{" "}
               secures <em>what can execute</em> with one CPI call.{" "}
-              <span className="font-mono font-medium text-[16.5px]" style={{ color: "var(--bone)" }}>Authority</span>{" "}
-              secures <em>who can authorize</em> — upgrades, mints, freezes, any PDA — with zero changes to the target program.
+              <span className="font-mono font-medium text-[16.5px]" style={{ color: "var(--bone)" }}>Authority</span>&nbsp;secures <em>who can authorize</em>: upgrades, mints, freezes, any PDA. Zero changes to the target program.
             </p>
 
             <div className="flex gap-3 flex-wrap">

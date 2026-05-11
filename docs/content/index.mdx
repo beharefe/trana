@@ -8,7 +8,7 @@ Secure your program with one CPI call.
 
 ## The program requires your passkey. Not just your signature.
 
-Wallet signing is all-or-nothing. Trana adds a second check at execution — inside the instruction itself.
+Wallet signing is all-or-nothing. Trana adds a second check at execution, inside the instruction itself.
 
 Proofs are tied to the exact accounts and params. They expire in 120 seconds. No backend required.
 
@@ -25,14 +25,14 @@ ix[2]:  your_program::action   → calls guard::cpi::enforce() internally
 | | |
 |---|---|
 | Onchain verification | SIMD-0075 secp256r1 precompile (mainnet since Feb 2025) |
-| Backend required | None — credentials stored in a PDA on-chain |
+| Backend required | None (credentials stored in a PDA on-chain) |
 | Supported devices | Touch ID, Face ID, YubiKey, Google Titan, Windows Hello |
 | Integration cost | 3 extra accounts + 1 helper method + 1 React hook |
 | Proof expiry | 120 seconds |
 
 ---
 
-- [Quickstart](/docs/quickstart) — add Trana to your program in 5 steps
-- [Integration](/docs/integration) — full Rust/Anchor + SDK reference
-- [Architecture](/docs/architecture) — how the three layers fit together
-- [Glossary](/docs/glossary) — definitions for every technical term
+- [Quickstart](/docs/quickstart): add Trana to your program in 5 steps
+- [Integration](/docs/integration): full Rust/Anchor + SDK reference
+- [Architecture](/docs/architecture): how the three layers fit together
+- [Glossary](/docs/glossary): definitions for every technical term

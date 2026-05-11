@@ -4,7 +4,7 @@ Reference for adding Trana to a Solana Anchor program.
 
 ---
 
-## Onchain — Rust / Anchor
+## Onchain: Rust / Anchor
 
 ### 1. Dependency
 
@@ -24,7 +24,7 @@ use trana::Policy;
 
 ### 3. Three Trana accounts
 
-Add a `trana_cpi_ctx()` helper on the accounts struct — the enforce call becomes a single line at every use site.
+Add a `trana_cpi_ctx()` helper on the accounts struct; the enforce call becomes a single line at every use site.
 
 ```rust
 #[derive(Accounts)]
@@ -71,7 +71,7 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     require!(amount > 0,                           VaultError::ZeroAmount);
     require!(amount <= ctx.accounts.vault.balance, VaultError::InsufficientFunds);
 
-    // Passkey required when amount >= 1 SOL. Guard reads amount directly — caller can't fake it.
+    // Passkey required when amount >= 1 SOL. Guard reads amount directly; the caller can't fake it.
     trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
 
     let vault_info = ctx.accounts.vault.to_account_info();
@@ -98,7 +98,7 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
 
 The guard reads `u64` directly from your instruction data at `param_offset` bytes **after the 8-byte Anchor discriminator**. Conditional policies are no-ops when their condition is false.
 
-**`param_offset` layout** — byte position of your `u64` after the discriminator:
+**`param_offset` layout**: byte position of your `u64` after the discriminator:
 
 | Instruction signature | `param_offset` |
 |---|---|
@@ -121,9 +121,9 @@ ix[N-1]: trana::record_proof     WebAuthn data carrier
 ix[N]:   your instruction        calls trana::cpi::enforce() via CPI
 ```
 
-A few things worth knowing:
+Notes:
 
-- A `ComputeBudget` instruction can be prepended — it shifts all indices up and the guard adjusts automatically.
+- A `ComputeBudget` instruction can be prepended; it shifts all indices up and the guard adjusts automatically.
 - Multiple protected instructions work in one transaction. Each needs its own `(secp256r1, record_proof, protected)` triplet, with proofs signed at consecutive nonces.
 - V0 transactions with lookup tables work. The Instructions sysvar exposes fully-resolved pubkeys, so account hashes computed client-side match on-chain.
 - The three instructions in each triplet must be contiguous with nothing between them.
@@ -132,7 +132,7 @@ A few things worth knowing:
 
 ---
 
-## Client — TypeScript
+## Client: TypeScript
 
 ### Setup
 
@@ -161,7 +161,7 @@ export function TranaRoot({ children }: { children: React.ReactNode }) {
 ```ts
 const { authorizeAndSend } = useTrana()
 
-// Simple — SDK derives intent and builds the transaction:
+// Simple: SDK derives intent and builds the transaction:
 await authorizeAndSend({
   instruction: withdrawIx,
   label: "Withdraw 1.5 SOL",
@@ -202,9 +202,9 @@ import {
 |---|---|---|
 | `MissingProof` | `0x1770` | No `record_proof` at `ix[N-1]` or no `secp256r1` at `ix[N-2]` |
 | `ProofExpired` | `0x1771` | `proof.expiry < clock.unix_timestamp` |
-| `PayloadMismatch` | `0x1772` | Intent hash mismatch — accounts, params, cluster, or nonce changed |
+| `PayloadMismatch` | `0x1772` | Intent hash mismatch: accounts, params, cluster, or nonce changed |
 | `WrongSigner` | `0x1773` | Pubkey in `secp256r1` doesn't match the registry |
 | `PolicyMismatch` | `0x1777` | Policy string in `record_proof` doesn't match enforced policy |
 | `ClusterMismatch` | `0x177a` | `proof.cluster` doesn't match the cluster baked into this binary |
-| `RegistryDisabled` | — | `trana_registry.enabled == false` — fails at account validation |
-| `PasskeyNotRegistered` | — | No registry PDA found — your constraint, not the guard's |
+| `RegistryDisabled` | — | `trana_registry.enabled == false`, fails at account validation |
+| `PasskeyNotRegistered` | — | No registry PDA found. Your constraint, not the guard's. |

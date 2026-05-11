@@ -6,16 +6,14 @@ import { useState } from "react"
 
 type CertKey = "guard" | "authority"
 
-const CERT_DATA: Record<CertKey, { pid: string; hash: string; fp: string }> = {
+const CERT_DATA: Record<CertKey, { pid: string; hash: string }> = {
   guard: {
     pid:  "TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG",
     hash: "SHA-256 · 9F:18:3A:CC:…",
-    fp:   "TRAq9hnfQwzZqLmW8sKRyP1eNvBbChewX8boPDuBbVX",
   },
   authority: {
     pid:  "TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN",
     hash: "SHA-256 · 12:7A:E8:4F:…",
-    fp:   "TRNA9zKpFw2HxQwvpKpUhNpVnDmLmSv7TgRanaGuArD",
   },
 }
 
@@ -37,7 +35,7 @@ export function TrustSection() {
             </h2>
             <p className="mt-5 text-[17px] leading-[1.55] font-light max-w-[640px]" style={{ color: "var(--bone-2)" }}>
               Program ID. Audit reports. License. The same fields you&apos;d expect
-              on a TLS chain — pinned to slots, not screenshots.
+              on a TLS chain, pinned to slots, not screenshots.
             </p>
           </div>
         </div>
@@ -90,8 +88,20 @@ export function TrustSection() {
             {[
               {
                 k: "Program ID",
-                v: <span style={{ color: "var(--lime)", wordBreak: "break-all" }}>{d.pid}</span>,
-                desc: "Verifiable on-chain · deployed on Solana devnet",
+                v: (
+                  <a
+                    href={`https://solscan.io/account/${d.pid}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--lime)", wordBreak: "break-all", textDecoration: "none" }}
+                    onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
+                    onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}
+                  >
+                    {d.pid}
+                    <span style={{ marginLeft: "5px", fontSize: "11px", opacity: 0.65 }}>↗</span>
+                  </a>
+                ),
+                desc: "Verifiable on-chain · view on Solscan devnet",
               },
               {
                 k: "License",
@@ -131,15 +141,6 @@ export function TrustSection() {
             })}
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center gap-4 flex-wrap px-[14px] sm:px-[22px] py-[14px] font-mono text-[10.5px] tracking-[0.18em] uppercase" style={{ color: "var(--bone-3)" }}>
-            <span className="inline-flex items-center gap-2" style={{ color: "var(--bone-2)" }}>
-              <span className="w-[6px] h-[6px] rounded-full" style={{ background: "var(--lime)" }} />
-              FINGERPRINT VALID
-            </span>
-            <span style={{ color: "var(--bone-5)" }}>·</span>
-            <span className="break-all">{d.fp}</span>
-          </div>
         </div>
 
       </div>

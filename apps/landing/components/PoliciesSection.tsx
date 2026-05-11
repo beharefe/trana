@@ -29,7 +29,7 @@ const POLICIES = [
     name: "policy::NotBefore",
     tag:  "time lock",
     accentKey: "amber",
-    desc: "Locks the gate until slot N. Unlock windows, vesting cliffs, delayed admin actions — enforced by the cluster clock.",
+    desc: "Locks the gate until slot N. Use it for unlock windows, vesting cliffs, and delayed admin actions. The cluster clock enforces it.",
     config: [
       { k: "unlock    ", v: "slot 317_500_000" },
       { k: "eta       ", v: "~ 36h 14m" },
@@ -40,7 +40,7 @@ const POLICIES = [
     name: "policy::NotAfter",
     tag:  "automatic sunset",
     accentKey: "plasma",
-    desc: "Expires the gate at slot N. Session keys, time-boxed approvals, revocable delegation — sunsets without a transaction.",
+    desc: "Expires the gate at slot N. Session keys, time-boxed approvals, revocable delegation. All expire without a transaction.",
     config: [
       { k: "expiry    ", v: "slot 317_412_900" },
       { k: "remaining ", v: "3_679 slots" },
@@ -71,7 +71,7 @@ export function PoliciesSection() {
             </h2>
             <p className="mt-5 text-[17px] leading-[1.55] font-light max-w-[640px]" style={{ color: "var(--bone-2)" }}>
               Each policy is a firewall rule. Stack them, branch them, sunset them.
-              Every evaluation happens on-chain, every block.
+              Every&nbsp;evaluation&nbsp;happens on-chain, every block.
             </p>
           </div>
         </div>

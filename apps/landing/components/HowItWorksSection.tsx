@@ -14,9 +14,8 @@ export function HowItWorksSection() {
               A firewall <em>between</em> your<br />instruction and execution.
             </h2>
             <p className="mt-5 text-[17px] leading-[1.55] font-light max-w-[640px]" style={{ color: "var(--bone-2)" }}>
-              Guard sits between the transaction and your program logic. Every sensitive
-              instruction evaluates a policy before it can run. No proof, no execution —
-              the transaction reverts at the instruction boundary.
+              Guard sits between the transaction and your program logic. Every&nbsp;sensitive&nbsp;instruction evaluates a policy before it can run. No&nbsp;proof,&nbsp;no&nbsp;execution.
+              The transaction reverts at the instruction boundary.
             </p>
           </div>
         </div>
@@ -67,7 +66,7 @@ export function HowItWorksSection() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-[18px]">
           <Callout label="PROTOCOL NOTE" title={<>Three instructions, <em>one outcome</em>.</>}>
             <p className="m-0 text-[14px] leading-[1.6] font-light" style={{ color: "var(--bone-2)" }}>
-              Solana&apos;s secp256r1 verifier is a native precompile — not callable by CPI.
+              Solana&apos;s secp256r1 verifier is a native precompile, not callable by CPI.
               Guard reads sibling top-level instructions via the Instructions sysvar,
               so the precompile and <span className="font-mono" style={{ color: "var(--bone)" }}>record_proof</span> sit alongside your action in the same transaction.
             </p>
@@ -90,7 +89,7 @@ export function HowItWorksSection() {
           <Callout label="WHY NOW · SIMD-0075" title={<>Native <em>secp256r1</em>.</>}>
             <p className="m-0 text-[14px] leading-[1.6] font-light" style={{ color: "var(--bone-2)" }}>
               Solana shipped a P-256 verifier as a native precompile.
-              The same curve WebAuthn uses — passkeys verify on-chain in one instruction.
+              The same curve WebAuthn uses. Passkeys verify on-chain in one instruction.
             </p>
             <div className="mt-[14px] grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
               {[["spec", "SIMD-0075"], ["curve", "secp256r1 / P-256"], ["activated", "2025 · mainnet-beta"], ["author", "Orion"]].map(([k, v]) => [

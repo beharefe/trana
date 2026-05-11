@@ -67,7 +67,7 @@ function Footer() {
             </h2>
             <p className="mt-4 text-[15.5px] leading-[1.55] font-light max-w-[480px]" style={{ color: "var(--bone-3)" }}>
               Ship-ready notice when the program freezes for audit.
-              Plus: deep-dive posts on the secp256r1 ceremony and policy composition.
+              Deep dives on the secp256r1 ceremony and policy composition.
               One email per release. No marketing.
             </p>
           </div>
@@ -85,7 +85,7 @@ function Footer() {
             </div>
             <p className="text-[13px] leading-[1.55] font-light m-0" style={{ color: "var(--bone-3)" }}>
               Execution-time authorization for Solana programs.
-              A security primitive — not a wallet, not a SaaS.
+              A security primitive, not a wallet, not a SaaS.
             </p>
           </div>
 

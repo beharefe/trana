@@ -16,8 +16,7 @@ export function TwoPrimitivesSection() {
             </h2>
             <p className="mt-5 text-[17px] leading-[1.55] font-light max-w-[640px]" style={{ color: "var(--bone-2)" }}>
               Guard secures <em>what can execute</em>. Authority secures <em>who can authorize</em>.
-              Together they cover every privileged action on Solana — from a custom withdraw
-              to a program upgrade.
+              Together they cover every privileged action on Solana: withdrawals, program upgrades, mint authority, admin keys.
             </p>
           </div>
         </div>
@@ -111,7 +110,7 @@ function AuthorityCard() {
 
       <h3 className="font-serif font-normal text-[44px] leading-none tracking-[-0.02em] mb-2.5" style={{ color: "var(--bone)" }}>Authority</h3>
       <p className="text-[15.5px] leading-[1.55] mb-6 max-w-[38ch] font-light" style={{ color: "var(--bone-2)" }}>
-        Wraps any transferable authority — for code you don&apos;t own.
+        Wraps any transferable authority, including code you don&apos;t own.
       </p>
 
       <div className="border-t mb-6" style={{ borderColor: "var(--rule)" }}>
@@ -138,7 +137,7 @@ function AuthorityCard() {
 
       <p className="flex items-center gap-[10px] font-mono text-[11px] leading-[1.4] mt-auto pt-1.5" style={{ color: "var(--bone-3)" }}>
         <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: "var(--plasma)", boxShadow: "0 0 0 3px rgba(255,107,72,0.12)" }} />
-        Even the leaked admin key can request — not authorize.
+        The leaked admin key can request. It cannot authorize.
       </p>
     </article>
   )

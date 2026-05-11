@@ -64,7 +64,7 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     require!(amount > 0,                           VaultError::ZeroAmount);
     require!(amount <= ctx.accounts.vault.balance, VaultError::InsufficientFunds);
 
-    // Passkey required when amount >= 1 SOL. Guard reads amount directly — caller can't fake it.
+    // Passkey required when amount >= 1 SOL. Guard reads amount directly; the caller can't fake it.
     trana::cpi::enforce(ctx.accounts.trana_cpi_ctx(), Policy::Limit { param_offset: 0, limit: 1_000_000_000 })?;
 
     let vault_info = ctx.accounts.vault.to_account_info();
@@ -80,7 +80,7 @@ pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
 }
 ```
 
-The guard reads `amount` directly from the instruction data — the caller can't fake it. Below the 1 SOL threshold the enforce call returns `Ok(())` immediately with no proof required.
+The guard reads `amount` directly from the instruction data. The caller can't fake it. Below the 1 SOL threshold the enforce call returns `Ok(())` immediately with no proof required.
 
 **`param_offset`** is the byte offset of the target `u64` after the 8-byte Anchor discriminator. For `fn withdraw(ctx, amount: u64)` the offset is `0`. For `fn transfer(ctx, recipient: Pubkey, amount: u64)` the offset is `32` (one Pubkey). Sum the byte sizes of all params before your u64: `Pubkey`=32, `u64`=8, `u32`=4, `bool`/`u8`=1.
 
@@ -138,7 +138,7 @@ The SDK handles everything on the client side: simulation, first-time registrati
 | `Policy::NotBefore { slot }` | current slot < slot |
 | `Policy::NotAfter { slot }` | current slot > slot |
 
-When a conditional policy doesn't fire, `enforce()` returns `Ok(())` — no proof required.
+When a conditional policy doesn't fire, `enforce()` returns `Ok(())`. No proof required.
 
 ---
 

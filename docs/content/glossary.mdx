@@ -28,13 +28,13 @@ An authentication standard from the FIDO Alliance combining **WebAuthn** (browse
 
 ### WebAuthn
 
-The Web Authentication API — a W3C standard for interacting with FIDO2 authenticators. Two operations: `navigator.credentials.create()` (registration) and `navigator.credentials.get()` (assertion). A WebAuthn assertion produces a signature, `authenticatorData`, and `clientDataJSON` — all three are bundled into the transaction as `record_proof`.
+The Web Authentication API, a W3C standard for interacting with FIDO2 authenticators. Two operations: `navigator.credentials.create()` (registration) and `navigator.credentials.get()` (assertion). A WebAuthn assertion produces a signature, `authenticatorData`, and `clientDataJSON`. All three are bundled into the transaction as `record_proof`.
 
 ---
 
 ### Passkey
 
-A FIDO2 credential synced across devices via the platform's cloud service — iCloud Keychain on Apple, Google Password Manager on Android. Enterprise deployments often prefer hardware-bound keys (YubiKey) that don't sync. Both work with Trana.
+A FIDO2 credential synced across devices via the platform's cloud service: iCloud Keychain on Apple, Google Password Manager on Android. Enterprise deployments often prefer hardware-bound keys (YubiKey) that don't sync. Both work with Trana.
 
 ---
 
@@ -46,7 +46,7 @@ The COSE identifier for ECDSA with P-256 and SHA-256. COSE algorithm -7 is the d
 
 ### Execution-time authorization
 
-A security model where protected actions require explicit approval at the moment they execute — not just when a transaction is signed. A pre-signed transaction or replayed signature cannot bypass enforcement because the check happens inside the program at runtime.
+A security model where protected actions require explicit approval at the moment they execute, not just when a transaction is signed. A pre-signed transaction or replayed signature cannot bypass enforcement because the check happens inside the program at runtime.
 
 ---
 
@@ -58,7 +58,7 @@ A 32-byte SHA-256 that cryptographically binds a passkey signature to a specific
 
 ### Accounts hash
 
-A 32-byte SHA-256 of all account public keys in the protected instruction. The guard recomputes this at execution time — any account substitution fails with `PayloadMismatch`.
+A 32-byte SHA-256 of all account public keys in the protected instruction. The guard recomputes this at execution time; any account substitution fails with `PayloadMismatch`.
 
 ---
 
@@ -88,7 +88,7 @@ The onchain entry point into the guard program. Called by external programs via 
 
 ### record_proof instruction
 
-A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]` — one position before the protected instruction.
+A guard program instruction that acts as a data carrier. Carries `authenticator_data`, `client_data_json`, expiry timestamp, cluster, and policy ID. Must appear at `ix[N-1]`, one position before the protected instruction.
 
 ---
 
@@ -130,4 +130,4 @@ The byte offset of a `u64` parameter inside the protected instruction's data, me
 
 ### ClusterMismatch
 
-Error `0x177a`. Returned by `enforce()` when `proof.cluster` does not match the cluster string baked into the program binary at build time. Prevents a valid mainnet proof from being replayed against a devnet deployment of the same program — even if both binaries share the same program ID.
+Error `0x177a`. Returned by `enforce()` when `proof.cluster` does not match the cluster string baked into the program binary at build time. Prevents a valid mainnet proof from being replayed against a devnet deployment of the same program, even if both binaries share the same program ID.

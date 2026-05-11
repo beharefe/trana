@@ -1,6 +1,6 @@
 # Architecture
 
-Trana has three layers. The Solana runtime ties them together — all three execute in a single transaction or none of them do.
+Trana has three layers. The Solana runtime ties them together: all three execute in a single transaction or none of them do.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -24,7 +24,7 @@ Trana has three layers. The Solana runtime ties them together — all three exec
 
 ## Components
 
-### programs/guard — the authorization primitive
+### programs/guard: the authorization primitive
 
 One deployed program. Three instructions.
 
@@ -34,7 +34,7 @@ One deployed program. Three instructions.
 
 `enforce` is called by your program via CPI. It reads the two preceding instructions from the Instructions sysvar, verifies the P-256 signature against the registry pubkey, checks the intent hash, and increments the nonce. If anything fails, the whole transaction reverts.
 
-### packages/sdk — TypeScript client
+### packages/sdk: TypeScript client
 
 ```
 packages/sdk/src/
@@ -115,7 +115,7 @@ SHA-256(
 
 Three things prevent replay: the nonce (incremented on-chain after every approval), the expiry timestamp (proof rejected if `clock.unix_timestamp >= expiry`), and exact field binding (changing any account, parameter, or cluster produces a different hash and fails verification).
 
-The expected cluster (`"mainnet-beta"`, `"devnet"`, `"localnet"`) is a compile-time constant baked into the program binary via Cargo feature flags — not stored in a mutable config account. A proof signed for devnet will fail with `ClusterMismatch` when submitted to a mainnet binary, even if both binaries share the same program ID.
+The expected cluster (`"mainnet-beta"`, `"devnet"`, `"localnet"`) is a compile-time constant baked into the program binary via Cargo feature flags, not in a mutable config account. A proof signed for devnet will fail with `ClusterMismatch` when submitted to a mainnet binary, even if both binaries share the same program ID.
 
 ---
 
