@@ -52,7 +52,7 @@ export function generateTestPasskey(): TestPasskeyHandle {
   return {
     pubkey:       p256.getPublicKey(privKey, true),  // 33-byte compressed
     privKey,
-    credentialId: new Uint8Array(16).fill(0xca),     // arbitrary, non-empty
+    credentialId: p256.utils.randomBytes(16),
   }
 }
 
