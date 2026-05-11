@@ -3,6 +3,7 @@ name = "trana_authority"
 version = "0.1.0"
 description = "Trana Authority — PDA-based authority management with passkey second factor"
 edition = "2021"
+publish = false
 authors = ["Trana, Inc."]
 license = "Apache-2.0"
 repository = "https://github.com/beharefe/trana"
