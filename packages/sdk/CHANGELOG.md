@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/beharefe/trana/compare/v1.4.0...v1.4.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **repo:** use absolute paths in run.mjs, suppress build warnings, verify programs before start ([1fca023](https://github.com/beharefe/trana/commit/1fca0234cf5a08c3c84390cfe854b8283bab323b))
+
 # [1.4.0](https://github.com/beharefe/trana/compare/v1.3.0...v1.4.0) (2026-05-14)
 
 
