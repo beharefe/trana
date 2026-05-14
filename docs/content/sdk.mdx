@@ -1,0 +1,210 @@
+# SDK Reference
+
+TypeScript client for the `trana_guard` and `trana_authority` programs.
+
+```bash
+npm install @tranaprotocol/sdk
+```
+
+---
+
+## Import paths
+
+| Path | Contents |
+|---|---|
+| `@tranaprotocol/sdk` | Both clients + all core types (tree-shake friendly) |
+| `@tranaprotocol/sdk/guard` | `TranaGuardClient` only |
+| `@tranaprotocol/sdk/authority` | `TranaAuthorityClient` only |
+| `@tranaprotocol/sdk/testing` | Test helpers — never ship to prod |
+
+---
+
+## TranaGuardClient
+
+Manages passkey registration and proof building for the guard program.
+
+```ts
+import { TranaGuardClient, Policy } from "@tranaprotocol/sdk"
+
+const client = new TranaGuardClient({ connection, cluster: "devnet" })
+```
+
+| Option | Type | Default |
+|---|---|---|
+| `connection` | `Connection` | required |
+| `cluster` | `"devnet" \| "localnet" \| "mainnet-beta" \| "custom"` | `"devnet"` |
+| `programId` | `PublicKey` | well-known ID for cluster |
+
+### registerPasskey
+
+Browser only — triggers the native OS passkey dialog.
+
+```ts
+const { instruction, handle } = await client.registerPasskey({
+  owner:           wallet.publicKey,
+  rpId:            window.location.hostname,
+  userDisplayName: wallet.publicKey.toBase58().slice(0, 8),
+})
+
+// include instruction in a transaction and send it
+await wallet.sendTransaction(new Transaction().add(instruction), connection)
+
+// persist handle — needed for every future buildProof() call
+localStorage.setItem("tranaHandle", JSON.stringify({
+  pubkeyBytes:  Array.from(handle.pubkeyBytes),
+  credentialId: Array.from(handle.credentialId),
+}))
+```
+
+### buildProof
+
+Browser only — triggers the passkey signing dialog, returns two instructions.
+
+```ts
+const { secp256r1Ix, recordProofIx } = await client.buildProof({
+  protectedIx:  withdrawIx,
+  owner:        wallet.publicKey,
+  credentialId: handle.credentialId,
+  policy:       Policy.Limit(1_000_000_000n),
+  rpId:         window.location.hostname,
+})
+
+// The triplet order is required — the guard reads ix[N-2] relative to your instruction
+const tx = new Transaction().add(secp256r1Ix, recordProofIx, withdrawIx)
+await wallet.sendTransaction(tx, connection)
+```
+
+| Option | Type | Notes |
+|---|---|---|
+| `protectedIx` | `TransactionInstruction` | The instruction your program enforces |
+| `owner` | `PublicKey` | Wallet that owns the registry |
+| `credentialId` | `Uint8Array` | From `handle.credentialId` |
+| `policy` | `Policy` | Must match what your program passes to `enforce()` |
+| `rpId` | `string` | Usually `window.location.hostname` |
+| `nonce` | `bigint` | Auto-fetched from registry if omitted |
+| `expiryTtlSec` | `number` | Default 120 s |
+
+### fetchRegistry
+
+```ts
+const registry = await client.fetchRegistry(wallet.publicKey)
+// null if the owner hasn't registered yet
+```
+
+### registryPda
+
+```ts
+const pda = client.registryPda(wallet.publicKey)
+// seeds: ["passkey", owner] — pass as tranaRegistry in your accounts struct
+```
+
+---
+
+## TranaAuthorityClient
+
+Manages upgrade authority transfers guarded by a passkey second factor.
+
+```ts
+import { TranaAuthorityClient } from "@tranaprotocol/sdk/authority"
+
+const client = new TranaAuthorityClient({ connection, cluster: "devnet" })
+```
+
+### register
+
+Binds a passkey to an upgrade authority record. No passkey dialog — wallet signature only.
+
+```ts
+const ix = await client.register({ owner: wallet.publicKey, target: programId })
+await wallet.sendTransaction(new Transaction().add(ix), connection)
+```
+
+### executeUpgrade
+
+Passkey required. Performs a BPF upgrade while the authority record holds the upgrade key.
+
+```ts
+const ix = await client.executeUpgrade({ owner, program, programData, buffer, spill })
+```
+
+### fetchRecord
+
+```ts
+const record = await client.fetchRecord(wallet.publicKey, programId)
+```
+
+---
+
+## Policy
+
+Mirrors the on-chain `Policy` enum. Evaluation is always enforced on-chain.
+
+```ts
+import { Policy } from "@tranaprotocol/sdk"
+
+Policy.Require()                          // always require proof
+Policy.Limit(1_000_000_000n)              // require when param >= 1 SOL (paramOffset = 0)
+Policy.Limit(1_000_000_000n, 32)          // same, param starts at byte 32
+Policy.NotBefore(slot)                    // require until slot is reached
+Policy.NotAfter(slot)                     // require after slot passes
+```
+
+`paramOffset` is the byte position of your `u64` after the 8-byte Anchor discriminator:
+
+| Instruction signature | `paramOffset` |
+|---|---|
+| `fn withdraw(ctx, amount: u64)` | `0` |
+| `fn transfer(ctx, recipient: Pubkey, amount: u64)` | `32` |
+| `fn action(ctx, flag: bool, amount: u64)` | `1` |
+
+---
+
+## PasskeyHandle
+
+Returned by `registerPasskey()`. Store it — both fields are required for signing.
+
+```ts
+type PasskeyHandle = {
+  pubkeyBytes:  Uint8Array  // 33-byte compressed P-256 public key (stored on-chain)
+  credentialId: Uint8Array  // WebAuthn credential handle (NOT a secret)
+}
+```
+
+`credentialId` is not a secret. Store it in `localStorage`, a database, or a user profile.
+
+---
+
+## Program IDs
+
+| Program | Devnet | Mainnet |
+|---|---|---|
+| `trana_guard` | `GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn` | — |
+| `trana_authority` | `TRNA8iyPm9AuBGiTeSirJm6F4jsxvq66LqfFeU7G4AN` | — |
+
+```ts
+import { PROGRAM_IDS, createConnection } from "@tranaprotocol/sdk"
+
+const connection = createConnection("devnet")
+const guardId    = PROGRAM_IDS.guard.devnet
+```
+
+---
+
+## Testing
+
+Use `@tranaprotocol/sdk/testing` in Mocha/Jest tests to build valid proofs without a browser.
+
+```ts
+import { generateTestPasskey, buildTestProofIx } from "@tranaprotocol/sdk/testing"
+
+const passkey = generateTestPasskey()               // software P-256 keypair
+const { secp256r1Ix, recordProofIx } = buildTestProofIx({
+  passkey,
+  protectedIx,
+  owner:   walletKeypair.publicKey,
+  policy:  Policy.Require(),
+  nonce:   0n,
+})
+```
+
+Never import `@tranaprotocol/sdk/testing` in production code — it bypasses the WebAuthn ceremony entirely.
