@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/beharefe/trana/compare/v1.4.3...v1.4.4) (2026-05-14)
+
+
+### Bug Fixes
+
+* **repo:** add --features localnet to trana_guard build, restore skipPreflight ([009e646](https://github.com/beharefe/trana/commit/009e6462a4b77e4bb5488183911b791c97d0e0cd))
+
 ## [1.4.3](https://github.com/beharefe/trana/compare/v1.4.2...v1.4.3) (2026-05-14)
 
 
