@@ -26,7 +26,7 @@ npm install
 anchor build
 
 # Build SDK
-npm run build -w @tranaprotocol/sdk
+npm run build -w @beharefe/sdk
 
 # Run tests
 anchor test
@@ -38,7 +38,7 @@ anchor test
 
 ```
 programs/          Rust/Anchor onchain programs
-packages/sdk/      TypeScript SDK (@tranaprotocol/sdk)
+packages/sdk/      TypeScript SDK (@beharefe/sdk)
 apps/landing/      Next.js landing page and docs (trana.so)
 tests/             Integration tests (TypeScript, runs against local validator)
 docs/              Architecture, decisions, and integration guides
@@ -71,10 +71,10 @@ The programs in `programs/` are the security-critical core of Trana. Changes her
 The TypeScript SDK lives in `packages/sdk/`. Build it before running the landing app:
 
 ```bash
-npm run build -w @tranaprotocol/sdk
+npm run build -w @beharefe/sdk
 ```
 
-The SDK is published to npm as `@tranaprotocol/sdk`. Do not publish manually -- releases are handled by maintainers.
+The SDK is published to npm as `@beharefe/sdk`. Do not publish manually -- releases are handled by maintainers.
 
 ---
 

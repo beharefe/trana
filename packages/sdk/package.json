@@ -1,5 +1,5 @@
 {
-  "name": "@tranaprotocol/sdk",
+  "name": "@beharefe/sdk",
   "version": "1.0.1",
   "description": "Solana passkey guard — TypeScript SDK",
   "license": "Apache-2.0",

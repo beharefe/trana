@@ -5,7 +5,7 @@ Onchain second-factor authorization for Solana.
 Any Anchor program can add passkey enforcement to any instruction via a single CPI call. No custody change. No trusted bridge. No server key.
 
 [![crates.io](https://img.shields.io/crates/v/trana-guard.svg)](https://crates.io/crates/trana-guard)
-[![npm](https://img.shields.io/npm/v/@tranaprotocol/sdk.svg)](https://www.npmjs.com/package/@tranaprotocol/sdk)
+[![npm](https://img.shields.io/npm/v/@beharefe/sdk.svg)](https://www.npmjs.com/package/@beharefe/sdk)
 
 ---
 
@@ -15,7 +15,7 @@ Any Anchor program can add passkey enforcement to any instruction via a single C
 ┌─────────────────────────────────────────────────────┐
 │  dApp / Frontend  (React)                           │
 └──────────────────┬──────────────────────────────────┘
-                   │  @tranaprotocol/sdk
+                   │  @beharefe/sdk
 ┌──────────────────▼──────────────────────────────────┐
 │  packages/sdk                                       │
 │  Intent hash  │  WebAuthn  │  Tx builder            │
@@ -230,7 +230,7 @@ programs/
   trana_authority/    PDA upgrade authority
   trana_test_vault/   Demo shared pool
 packages/
-  sdk/                @tranaprotocol/sdk -- TypeScript/React client
+  sdk/                @beharefe/sdk -- TypeScript/React client
 tests/
   guard.test.ts               trana_guard integration tests
   trana_authority.test.ts     Upgrade authority tests (real BPF loader)

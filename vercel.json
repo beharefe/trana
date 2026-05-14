@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build -w @tranaprotocol/sdk && npm run build -w landing",
+  "buildCommand": "npm run build -w @beharefe/sdk && npm run build -w landing",
   "outputDirectory": ".next",
   "installCommand": "npm ci",
   "framework": "nextjs",

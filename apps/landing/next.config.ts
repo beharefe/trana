@@ -11,7 +11,7 @@ const config: NextConfig = {
     "@solana/wallet-adapter-base",
     "@solana/wallet-adapter-react",
     "@solana/wallet-adapter-react-ui",
-    "@tranaprotocol/sdk",
+    "@beharefe/sdk",
   ],
   async redirects() {
     if (process.env.NODE_ENV !== "production") return []
