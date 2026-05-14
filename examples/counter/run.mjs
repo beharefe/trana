@@ -96,7 +96,10 @@ step("Ready → http://localhost:5173\n")
 const vite = spawn("npm", ["run", "dev"], { cwd: appDir, stdio: "inherit" })
 vite.on("exit", code => { if (code) die(`Vite exited (${code})`) })
 
-const cleanup = () => { validator.kill(); vite.kill(); process.exit(0) }
+// Stream program logs to the terminal so you can see trana_guard CPI traces live
+const solanaLogs = spawn("solana", ["logs", "--url", RPC], { stdio: "inherit" })
+
+const cleanup = () => { validator.kill(); vite.kill(); solanaLogs.kill(); process.exit(0) }
 process.on("SIGINT", cleanup)
 process.on("SIGTERM", cleanup)
 

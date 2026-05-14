@@ -13,6 +13,7 @@ export default function App() {
   const [handle,     setHandle]     = useState<{ credentialId: Uint8Array } | null>(null)
   const [status,     setStatus]     = useState("")
   const [busy,       setBusy]       = useState(false)
+  const [logs,       setLogs]       = useState<string[]>([])
 
   const client = new TranaGuardClient({ connection, cluster: "localnet" })
 
@@ -40,9 +41,16 @@ export default function App() {
     tx.feePayer        = keypair.publicKey
     // skipPreflight: secp256r1 is a native precompile — RPC simulation can't resolve
     // it as a program account even when the feature gate is active. Execution works.
-    return sendAndConfirmTransaction(connection, tx, [keypair], {
+    const sig = await sendAndConfirmTransaction(connection, tx, [keypair], {
       commitment: "confirmed", skipPreflight: true,
     })
+    // Fetch and display transaction logs
+    const info = await connection.getTransaction(sig, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    })
+    setLogs(info?.meta?.logMessages ?? [])
+    return sig
   }, [keypair])
 
   const registerPasskey = useCallback(async () => {
@@ -74,9 +82,7 @@ export default function App() {
   }, [keypair, sign, reload])
 
   const increment = useCallback(async () => {
-    // Auto-register if no passkey on this device yet
     if (!handle) { await registerPasskey(); return }
-
     setBusy(true); setStatus("Touch your passkey…")
     try {
       const ix = incrementIx(keypair.publicKey)
@@ -91,7 +97,6 @@ export default function App() {
       await reload()
       setStatus("Incremented ✓")
     } catch (e: any) {
-      // MissingProof means no registry on-chain — register then retry
       if (e.message?.includes("MissingProof") || e.message?.includes("6000")) {
         setStatus("No passkey found — registering…")
         await registerPasskey()
@@ -121,16 +126,35 @@ export default function App() {
       )}
 
       {status && <p style={s.status}>{status}</p>}
+
+      {logs.length > 0 && (
+        <div style={s.logs}>
+          <p style={s.logsTitle}>Transaction logs</p>
+          {logs.map((line, i) => (
+            <p key={i} style={{
+              ...s.logLine,
+              ...(line.includes("Program log:") ? s.logHighlight : {}),
+              ...(line.includes("success") ? s.logSuccess : {}),
+              ...(line.includes("failed") || line.includes("error") ? s.logError : {}),
+            }}>{line}</p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 const s: Record<string, React.CSSProperties> = {
-  page:  { display: "flex", flexDirection: "column", alignItems: "center", gap: 20, padding: 48, fontFamily: "system-ui, sans-serif" },
-  title: { margin: 0, fontSize: 28 },
-  addr:  { color: "#aaa", fontSize: 12, fontFamily: "monospace", margin: 0 },
-  count: { fontSize: 96, fontWeight: 700, margin: 0, lineHeight: 1 },
-  btn:   { padding: "12px 28px", fontSize: 16, borderRadius: 8, border: "none", background: "#512da8", color: "#fff", cursor: "pointer" },
-  link:  { background: "none", border: "none", textDecoration: "underline", cursor: "pointer", fontSize: "inherit" },
-  status: { color: "#888", fontSize: 13 },
+  page:        { display: "flex", flexDirection: "column", alignItems: "center", gap: 20, padding: 48, fontFamily: "system-ui, sans-serif" },
+  title:       { margin: 0, fontSize: 28 },
+  addr:        { color: "#aaa", fontSize: 12, fontFamily: "monospace", margin: 0 },
+  count:       { fontSize: 96, fontWeight: 700, margin: 0, lineHeight: 1 },
+  btn:         { padding: "12px 28px", fontSize: 16, borderRadius: 8, border: "none", background: "#512da8", color: "#fff", cursor: "pointer" },
+  status:      { color: "#888", fontSize: 13 },
+  logs:        { width: "100%", maxWidth: 680, background: "#0d1117", borderRadius: 8, padding: "12px 16px", marginTop: 8 },
+  logsTitle:   { color: "#666", fontSize: 11, fontFamily: "monospace", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 1 },
+  logLine:     { margin: "2px 0", fontSize: 11, fontFamily: "monospace", color: "#8b949e", whiteSpace: "pre-wrap", wordBreak: "break-all" },
+  logHighlight:{ color: "#c9d1d9" },
+  logSuccess:  { color: "#3fb950" },
+  logError:    { color: "#f85149" },
 }

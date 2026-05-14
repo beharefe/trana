@@ -208,3 +208,40 @@ const { secp256r1Ix, recordProofIx } = buildTestProofIx({
 ```
 
 Never import `@tranaprotocol/sdk/testing` in production code — it bypasses the WebAuthn ceremony entirely.
+
+---
+
+## Transaction logs
+
+Every successful enforce produces a log trace you can inspect with `solana logs`:
+
+```bash
+solana logs --url http://127.0.0.1:8899   # localnet
+solana logs --url https://api.devnet.solana.com
+```
+
+A successful `Policy::Require` increment looks like this:
+
+```
+Program GYhng7... invoke [1]
+Program log: Instruction: RecordProof
+Program GYhng7... success
+
+Program <your_program> invoke [1]
+Program log: Instruction: Increment
+Program GYhng7... invoke [2]               ← CPI from your program
+Program log: Instruction: Enforce
+Program log: TRANA require | policy=trana.require | owner=<wallet>
+Program log: TRANA enforce | policy=trana.require | target=<your_program> | nonce=2
+Program GYhng7... success
+Program <your_program> success
+```
+
+| Log line | What it means |
+|---|---|
+| `Instruction: RecordProof` | Proof data carrier landed at `ix[N-1]` |
+| `Instruction: Enforce` | Your program called `enforce()` via CPI |
+| `TRANA require \| policy=trana.require` | Policy evaluated — proof required |
+| `TRANA enforce \| target=… \| nonce=2` | Proof verified, nonce incremented to prevent replay |
+
+The `nonce` increments on every successful enforce — this is how replay attacks are blocked. A proof signed for nonce 2 cannot be reused at nonce 3.
