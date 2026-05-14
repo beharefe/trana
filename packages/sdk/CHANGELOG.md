@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/beharefe/trana/compare/v1.3.0...v1.4.0) (2026-05-14)
+
+
+### Features
+
+* **repo:** single npm start command for counter example ([522cc83](https://github.com/beharefe/trana/commit/522cc83939258d2faa1b88fa6e9a103ee2bdaa24))
+
 # [1.3.0](https://github.com/beharefe/trana/compare/v1.2.0...v1.3.0) (2026-05-14)
 
 
