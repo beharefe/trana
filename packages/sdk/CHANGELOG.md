@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/beharefe/trana/compare/v1.0.0...v1.0.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **landing:** use workspace wildcard for sdk dep to survive major version bumps ([eb94de9](https://github.com/beharefe/trana/commit/eb94de9920776da4833b831c6f49e8d3cce914cb))
+
 # 1.0.0 (2026-05-14)
 
 
