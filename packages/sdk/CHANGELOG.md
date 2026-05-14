@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/beharefe/trana/compare/v1.1.0...v1.2.0) (2026-05-14)
+
+
+### Features
+
+* **repo:** add counter example with passkey-gated increment ([abd6945](https://github.com/beharefe/trana/commit/abd6945c830deedbb68fbfa3e628ead88116124c))
+
 # [1.1.0](https://github.com/beharefe/trana/compare/v1.0.1...v1.1.0) (2026-05-14)
 
 
