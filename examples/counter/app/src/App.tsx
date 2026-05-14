@@ -24,8 +24,15 @@ export default function App() {
     ])
     setCounter(c)
     setRegistered(registry !== null)
-    const stored = localStorage.getItem(`trana:${keypair.publicKey.toBase58()}`)
-    if (stored) setHandle({ credentialId: Uint8Array.from(JSON.parse(stored).credentialId) })
+    const key = `trana:${keypair.publicKey.toBase58()}`
+    const stored = localStorage.getItem(key)
+    if (registry !== null && stored) {
+      setHandle({ credentialId: Uint8Array.from(JSON.parse(stored).credentialId) })
+    } else if (registry === null) {
+      // Registry gone (validator reset) — clear stale handle so we re-register
+      localStorage.removeItem(key)
+      setHandle(null)
+    }
   }, [keypair.publicKey.toBase58()])
 
   useEffect(() => {
@@ -97,7 +104,13 @@ export default function App() {
       await reload()
       setStatus("Incremented ✓")
     } catch (e: any) {
-      if (e.message?.includes("MissingProof") || e.message?.includes("6000")) {
+      const needsReg = e.message?.includes("MissingProof")
+        || e.message?.includes("6000")
+        || e.message?.includes("Registry not found")
+        || e.message?.includes("RegistryRequired")
+      if (needsReg) {
+        localStorage.removeItem(`trana:${keypair.publicKey.toBase58()}`)
+        setHandle(null)
         setStatus("No passkey found — registering…")
         await registerPasskey()
       } else {
@@ -110,7 +123,7 @@ export default function App() {
   return (
     <div style={s.page}>
       <h1 style={s.title}>Trana Counter</h1>
-      <p style={s.addr}>{keypair.publicKey.toBase58().slice(0, 20)}…</p>
+      <p style={s.addr}>{keypair.publicKey.toBase58()}</p>
 
       {counter === "loading" ? (
         <p>Loading…</p>
