@@ -2,5 +2,6 @@
   "buildCommand": "npm run build -w @tranaprotocol/sdk && npm run build -w landing",
   "outputDirectory": ".next",
   "installCommand": "npm ci",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "ignoreCommand": "git log -1 --pretty=%B | grep -q '\\[skip ci\\]'"
 }
