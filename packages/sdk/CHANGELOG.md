@@ -1,3 +1,11 @@
+# [1.3.0](https://github.com/beharefe/trana/compare/v1.2.0...v1.3.0) (2026-05-14)
+
+
+### Features
+
+* **repo:** auto-fund in-browser wallet and sync program ID in counter example ([23adec3](https://github.com/beharefe/trana/commit/23adec3ff9aa714ab3b98a29524c6f3b030442dc))
+* **repo:** auto-register passkey on increment if missing ([168b055](https://github.com/beharefe/trana/commit/168b055fc046cc0163c6b95798ece57cbfd8244c))
+
 # [1.2.0](https://github.com/beharefe/trana/compare/v1.1.0...v1.2.0) (2026-05-14)
 
 
