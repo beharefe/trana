@@ -1,11 +1,18 @@
 [toolchain]
-anchor_version  = "0.32.1"
+anchor_version = "0.32.1"
 package_manager = "npm"
 
+[features]
+resolution = true
+skip-lint = false
+
 [programs.localnet]
-counter     = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+counter = "BF3AS5PQSbGvipTZo99CzPJmnLUJkyq3z8cY8RTimwTv"
 trana_guard = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
+
+[registry]
+url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
-wallet  = "~/.config/solana/id.json"
+wallet = "~/.config/solana/id.json"

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use trana_guard::{cpi::accounts::Enforce, program::TranaGuard, Policy};
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("BF3AS5PQSbGvipTZo99CzPJmnLUJkyq3z8cY8RTimwTv");
 
 #[program]
 pub mod counter {

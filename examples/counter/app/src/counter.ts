@@ -7,9 +7,11 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js"
 
-// Update these after running `anchor build && anchor keys sync` in examples/counter/
-export const COUNTER_PROGRAM_ID = new PublicKey("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS")
-export const TRANA_GUARD_ID     = new PublicKey("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn")
+// Set by `npm run sync` (reads target/deploy/counter-keypair.json → app/.env.local)
+export const COUNTER_PROGRAM_ID = new PublicKey(
+  import.meta.env.VITE_COUNTER_PROGRAM_ID ?? "BF3AS5PQSbGvipTZo99CzPJmnLUJkyq3z8cY8RTimwTv",
+)
+export const TRANA_GUARD_ID = new PublicKey("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn")
 
 // ── Discriminators ────────────────────────────────────────────────────────────
 
