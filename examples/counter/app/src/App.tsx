@@ -38,12 +38,7 @@ export default function App() {
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
     tx.recentBlockhash = blockhash
     tx.feePayer        = keypair.publicKey
-    // skipPreflight: secp256r1 precompile is not resolved during simulation on some
-    // validator versions even when the feature gate is active — execution works fine.
-    return sendAndConfirmTransaction(connection, tx, [keypair], {
-      commitment:    "confirmed",
-      skipPreflight: true,
-    })
+    return sendAndConfirmTransaction(connection, tx, [keypair], { commitment: "confirmed" })
   }, [keypair])
 
   const registerPasskey = useCallback(async () => {

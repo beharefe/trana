@@ -41,7 +41,13 @@ ok(`Counter: ${programId}`)
 step("Starting validator…")
 const validator = spawn(
   "solana-test-validator",
-  ["--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO, "--reset", "--quiet"],
+  [
+    // Clone the secp256r1 native precompile from devnet so simulation works locally
+    "--url",   "https://api.devnet.solana.com",
+    "--clone", "Secp256r1SigVerify1111111111111111111111111",
+    "--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO,
+    "--reset", "--quiet",
+  ],
   { stdio: ["ignore", "ignore", "inherit"] },
 )
 validator.on("exit", code => { if (code) die(`Validator exited (${code})`) })
