@@ -21,7 +21,7 @@ const ENV            = { ...process.env, RUSTFLAGS: "-Awarnings", CARGO_TERM_COL
 
 if (!existsSync(TRANA_SO)) {
   step("Building trana_guard (first time — ~2 min)…")
-  run("anchor build -p trana_guard", { cwd: REPO_ROOT })
+  run("anchor build -p trana_guard -- --features localnet", { cwd: REPO_ROOT })
 }
 
 step("Building counter…")
@@ -41,13 +41,7 @@ ok(`Counter: ${programId}`)
 step("Starting validator…")
 const validator = spawn(
   "solana-test-validator",
-  [
-    // Clone the secp256r1 native precompile from devnet so simulation works locally
-    "--url",   "https://api.devnet.solana.com",
-    "--clone", "Secp256r1SigVerify1111111111111111111111111",
-    "--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO,
-    "--reset", "--quiet",
-  ],
+  ["--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO, "--reset", "--quiet"],
   { stdio: ["ignore", "ignore", "inherit"] },
 )
 validator.on("exit", code => { if (code) die(`Validator exited (${code})`) })

@@ -38,7 +38,11 @@ export default function App() {
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
     tx.recentBlockhash = blockhash
     tx.feePayer        = keypair.publicKey
-    return sendAndConfirmTransaction(connection, tx, [keypair], { commitment: "confirmed" })
+    // skipPreflight: secp256r1 is a native precompile — RPC simulation can't resolve
+    // it as a program account even when the feature gate is active. Execution works.
+    return sendAndConfirmTransaction(connection, tx, [keypair], {
+      commitment: "confirmed", skipPreflight: true,
+    })
   }, [keypair])
 
   const registerPasskey = useCallback(async () => {
