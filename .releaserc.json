@@ -8,7 +8,8 @@
     }],
     ["@semantic-release/npm", {
       "pkgRoot": "packages/sdk",
-      "npmPublish": true
+      "npmPublish": true,
+      "access": "public"
     }],
     ["@semantic-release/git", {
       "assets": ["packages/sdk/package.json", "packages/sdk/CHANGELOG.md"],
