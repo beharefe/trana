@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/beharefe/trana/compare/v1.4.2...v1.4.3) (2026-05-14)
+
+
+### Bug Fixes
+
+* **repo:** clone secp256r1 from devnet instead of skipping preflight ([36770bb](https://github.com/beharefe/trana/commit/36770bbda056e0833ccbe060be527857aa3139ad))
+
 ## [1.4.2](https://github.com/beharefe/trana/compare/v1.4.1...v1.4.2) (2026-05-14)
 
 
