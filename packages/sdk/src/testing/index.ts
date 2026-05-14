@@ -15,7 +15,7 @@
  * Only use these in tests, never in production.
  *
  * Import via:
- *   import { generateTestPasskey, buildTestProofIx } from "@beharefe/sdk/testing"
+ *   import { generateTestPasskey, buildTestProofIx } from "@tranaprotocol/sdk/testing"
  */
 
 import { p256 } from "@noble/curves/nist"
