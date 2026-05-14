@@ -1,3 +1,10 @@
+## [1.4.6](https://github.com/beharefe/trana/compare/v1.4.5...v1.4.6) (2026-05-14)
+
+
+### Bug Fixes
+
+* **sdk:** use cluster-resolved programId for Anchor Program, fix devnet address in PROGRAM_IDS ([deb449e](https://github.com/beharefe/trana/commit/deb449e0e065690b76f96b4c267accdf2263f79c))
+
 ## [1.4.5](https://github.com/beharefe/trana/compare/v1.4.4...v1.4.5) (2026-05-14)
 
 
