@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "packages/sdk/**"
-      - ".releaserc.json"
-      - ".github/workflows/release.yml"
 
 # GitHub Actions natively respects [skip ci] / [ci skip] commit messages —
 # no manual head_commit.message check needed.
