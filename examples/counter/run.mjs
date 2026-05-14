@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { execSync, spawn }                        from "node:child_process"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { resolve }                                 from "node:path"
+import { execSync, spawn }                             from "node:child_process"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { resolve }                                        from "node:path"
 import { fileURLToPath }                           from "node:url"
 import {
   Connection, Keypair, PublicKey, SystemProgram,
@@ -14,8 +14,11 @@ const DIR            = fileURLToPath(new URL(".", import.meta.url))
 const REPO_ROOT      = resolve(DIR, "../..")
 const TRANA_SO       = resolve(REPO_ROOT, "target/deploy/trana_guard.so")
 const TRANA_GUARD_ID = new PublicKey("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn")
+const SECP256R1_ADDR = "Secp256r1SigVerify1111111111111111111111111"
 const RPC            = "http://127.0.0.1:8899"
 const ENV            = { ...process.env, RUSTFLAGS: "-Awarnings", CARGO_TERM_COLOR: "never" }
+const CACHE          = resolve(DIR, ".cache")
+const SECP256R1_FILE = resolve(CACHE, "secp256r1.json")
 
 // ── 1. Build ──────────────────────────────────────────────────────────────────
 
@@ -38,10 +41,24 @@ ok(`Counter: ${programId}`)
 
 // ── 2. Validator ──────────────────────────────────────────────────────────────
 
+// secp256r1 is a native precompile — fresh test-validator genesis doesn't include
+// its program account even when the feature gate is active. Fetch it from devnet
+// once and cache it; --account loads it at the right address on every start.
+if (!existsSync(SECP256R1_FILE)) {
+  step("Fetching secp256r1 program account from devnet (one-time)…")
+  if (!existsSync(CACHE)) mkdirSync(CACHE)
+  run(`solana account ${SECP256R1_ADDR} --url https://api.devnet.solana.com --output json-compact -o ${SECP256R1_FILE}`)
+  ok("secp256r1 cached at .cache/secp256r1.json")
+}
+
 step("Starting validator…")
 const validator = spawn(
   "solana-test-validator",
-  ["--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO, "--reset", "--quiet"],
+  [
+    "--account", SECP256R1_ADDR, SECP256R1_FILE,
+    "--bpf-program", TRANA_GUARD_ID.toBase58(), TRANA_SO,
+    "--reset", "--quiet",
+  ],
   { stdio: ["ignore", "ignore", "inherit"] },
 )
 validator.on("exit", code => { if (code) die(`Validator exited (${code})`) })
