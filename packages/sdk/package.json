@@ -1,6 +1,6 @@
 {
   "name": "@tranaprotocol/sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Solana passkey guard — TypeScript SDK",
   "license": "Apache-2.0",
   "repository": {
@@ -11,44 +11,53 @@
   "type": "module",
   "exports": {
     ".": {
-      "types":   "./dist/index.d.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./guard": {
-      "types":   "./dist/guard/index.d.ts",
+      "types": "./dist/guard/index.d.ts",
       "default": "./dist/guard/index.js"
     },
     "./authority": {
-      "types":   "./dist/authority/index.d.ts",
+      "types": "./dist/authority/index.d.ts",
       "default": "./dist/authority/index.js"
     },
     "./testing": {
-      "types":   "./dist/testing/index.d.ts",
+      "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     }
   },
-  "main":  "./dist/index.js",
+  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "sync-idl":       "node ../../scripts/sync-idl.js",
-    "build":          "npm run sync-idl && tsc -p tsconfig.build.json",
-    "dev":            "tsc -p tsconfig.build.json --watch",
-    "check":          "tsc --noEmit",
+    "sync-idl": "node ../../scripts/sync-idl.js",
+    "build": "npm run sync-idl && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "check": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",
-    "@noble/curves":     "^1.4.0",
-    "@solana/web3.js":   "1.98.4",
-    "buffer":            "^6.0.3"
+    "@noble/curves": "^1.4.0",
+    "@solana/web3.js": "1.98.4",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
-    "typescript":  "^5.7.0",
+    "typescript": "^5.7.0",
     "@types/node": "^22.0.0"
   },
   "peerDependencies": {
     "@solana/web3.js": "1.98.4"
   },
-  "keywords": ["solana", "passkey", "webauthn", "2fa", "anchor", "secp256r1"]
+  "keywords": [
+    "solana",
+    "passkey",
+    "webauthn",
+    "2fa",
+    "anchor",
+    "secp256r1"
+  ]
 }
