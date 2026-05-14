@@ -1,3 +1,10 @@
+## [1.4.5](https://github.com/beharefe/trana/compare/v1.4.4...v1.4.5) (2026-05-14)
+
+
+### Bug Fixes
+
+* **repo:** load secp256r1 program account from devnet cache into test validator ([0603762](https://github.com/beharefe/trana/commit/060376260dfe713c54bb37a1b115abf9492b69e0))
+
 ## [1.4.4](https://github.com/beharefe/trana/compare/v1.4.3...v1.4.4) (2026-05-14)
 
 
