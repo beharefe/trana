@@ -1,0 +1,11 @@
+[toolchain]
+anchor_version  = "0.32.1"
+package_manager = "npm"
+
+[programs.localnet]
+counter     = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+trana_guard = "GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"
+
+[provider]
+cluster = "localnet"
+wallet  = "~/.config/solana/id.json"
