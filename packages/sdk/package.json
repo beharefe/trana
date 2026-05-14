@@ -1,6 +1,6 @@
 {
   "name": "@tranaprotocol/sdk",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Solana passkey guard — TypeScript SDK",
   "license": "Apache-2.0",
   "repository": {

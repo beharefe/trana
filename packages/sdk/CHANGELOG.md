@@ -1,3 +1,20 @@
+# [1.1.0](https://github.com/beharefe/trana/compare/v1.0.1...v1.1.0) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ci:** skip vercel deployments on semantic-release commits ([ac3ec07](https://github.com/beharefe/trana/commit/ac3ec07e5d415058ce68ed74cfd6c0ab781bf264))
+
+
+### Features
+
+* **sdk:** rename package from @tranaprotocol/sdk to @beharefe/sdk ([ea49e4a](https://github.com/beharefe/trana/commit/ea49e4a15671e7878beb0dfb0287866ce5d917d1))
+
+
+### Reverts
+
+* **sdk:** restore @tranaprotocol/sdk package name ([16329d2](https://github.com/beharefe/trana/commit/16329d2be47a6583d3ce69c6131191578c5403e4))
+
 ## [1.0.1](https://github.com/beharefe/trana/compare/v1.0.0...v1.0.1) (2026-05-14)
 
 
