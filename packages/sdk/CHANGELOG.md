@@ -1,3 +1,11 @@
+## [1.4.7](https://github.com/beharefe/trana/compare/v1.4.6...v1.4.7) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ci:** only trigger release on sdk/ changes, not every push to main ([67784ea](https://github.com/beharefe/trana/commit/67784ea6b228e5edd1dd13c5f3afd8a7508e28ae))
+* **repo:** update counter example to @tranaprotocol/sdk@1.4.6 ([61781b9](https://github.com/beharefe/trana/commit/61781b936c400041c4556233c570e7d1698dd29b))
+
 ## [1.4.6](https://github.com/beharefe/trana/compare/v1.4.5...v1.4.6) (2026-05-14)
 
 
