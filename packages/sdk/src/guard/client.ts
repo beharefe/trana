@@ -104,7 +104,13 @@ export class TranaGuardClient {
       dummyWallet(),
       { commitment: "confirmed", skipPreflight: false },
     )
-    this.program = new anchor.Program<TranaGuard>(IDL, provider)
+    // Override the IDL's baked-in address with the cluster-resolved program ID.
+    // The IDL contains the devnet address; without this, instructions built via
+    // this.program.methods.X() target the wrong program on localnet.
+    this.program = new anchor.Program<TranaGuard>(
+      { ...(IDL as any), address: this.programId.toBase58() },
+      provider,
+    )
   }
 
   // ── PDA derivation ──────────────────────────────────────────────────────────

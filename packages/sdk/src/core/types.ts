@@ -46,7 +46,7 @@ export function createConnection(
 /** On-chain program IDs by cluster. */
 export const PROGRAM_IDS = {
   guard: {
-    devnet:         new PublicKey("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"),
+    devnet:         new PublicKey("TRAqChewX8boPDuBbVXjS7iCQAnh9gDThfBRwXauwsG"),
     localnet:       new PublicKey("GYhng7fbz51319ZwD1uBunBZs777C3KjmS52rYRcKfXn"),
     "mainnet-beta": null, // IN PROGRESS: not yet deployed
   },
