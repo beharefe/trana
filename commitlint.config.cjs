@@ -22,6 +22,9 @@ module.exports = {
         // ── Apps ──────────────────────────────────────────
         "landing",          // apps/landing
 
+        // -- Examples ──────────────────────────────────────
+        "examples", // usage examples
+
         // ── Cross-cutting ─────────────────────────────────
         "tests",            // tests/ (Anchor integration tests)
         "ci",               // .github/workflows, release config

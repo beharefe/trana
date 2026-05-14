@@ -1,4 +1,4 @@
-# Trana Guard
+# Trana
 
 Onchain second-factor authorization for Solana.
 
@@ -11,22 +11,20 @@ Any Anchor program can add passkey enforcement to any instruction via a single C
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│  dApp / Frontend  (React)                           │
-└──────────────────┬──────────────────────────────────┘
-                   │  @tranaprotocol/sdk
-┌──────────────────▼──────────────────────────────────┐
-│  packages/sdk                                       │
-│  Intent hash  │  WebAuthn  │  Tx builder            │
-└──────────────────┬──────────────────────────────────┘
-                   │  Signed transaction
-┌──────────────────▼──────────────────────────────────┐
-│  Solana Runtime                                     │
-│  ix[N-2]  secp256r1 precompile  (SIMD-0075)         │
-│  ix[N-1]  trana_guard::record_proof  (data carrier) │
-│  ix[N]    your_program::action  → trana::enforce()  │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    FE["dApp / Frontend (React)"]
+    SDK["packages/sdk\nIntent hash · WebAuthn · Tx builder"]
+    R1["ix[N-2]  secp256r1 precompile (SIMD-0075)"]
+    R2["ix[N-1]  trana_guard::record_proof"]
+    R3["ix[N]    your_program::action → trana::enforce()"]
+
+    FE -->|"@tranaprotocol/sdk"| SDK
+    SDK -->|"signed transaction"| R1
+
+    subgraph Solana Runtime
+        R1 --> R2 --> R3
+    end
 ```
 
 ---
@@ -231,6 +229,8 @@ programs/
   trana_test_vault/   Demo shared pool
 packages/
   sdk/                @tranaprotocol/sdk -- TypeScript/React client
+examples/
+  counter/            Passkey-gated counter -- minimal end-to-end integration
 tests/
   guard.test.ts               trana_guard integration tests
   trana_authority.test.ts     Upgrade authority tests (real BPF loader)
@@ -245,6 +245,8 @@ docs/
   decisions.md            Non-obvious design decisions
   zero-trust.md           Security model and attack surface
 ```
+
+See [`examples/`](examples/) for runnable end-to-end integrations.
 
 ---
 
