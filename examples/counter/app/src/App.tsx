@@ -70,7 +70,9 @@ export default function App() {
   }, [keypair, sign, reload])
 
   const increment = useCallback(async () => {
-    if (!handle) return
+    // Auto-register if no passkey on this device yet
+    if (!handle) { await registerPasskey(); return }
+
     setBusy(true); setStatus("Touch your passkey…")
     try {
       const ix = incrementIx(keypair.publicKey)
@@ -84,9 +86,17 @@ export default function App() {
       await sign(new Transaction().add(secp256r1Ix, recordProofIx, ix))
       await reload()
       setStatus("Incremented ✓")
-    } catch (e: any) { setStatus(`Error: ${e.message}`) }
+    } catch (e: any) {
+      // MissingProof means no registry on-chain — register then retry
+      if (e.message?.includes("MissingProof") || e.message?.includes("6000")) {
+        setStatus("No passkey found — registering…")
+        await registerPasskey()
+      } else {
+        setStatus(`Error: ${e.message}`)
+      }
+    }
     finally { setBusy(false) }
-  }, [keypair, handle, sign, reload])
+  }, [keypair, handle, sign, reload, registerPasskey])
 
   return (
     <div style={s.page}>
@@ -100,15 +110,9 @@ export default function App() {
       ) : (
         <>
           <p style={s.count}>{counter.count.toString()}</p>
-          {!registered ? (
-            <button style={s.btn} onClick={registerPasskey} disabled={busy}>Register Passkey</button>
-          ) : !handle ? (
-            <p>No passkey on this device.{" "}
-              <button style={s.link} onClick={registerPasskey} disabled={busy}>Register here</button>
-            </p>
-          ) : (
-            <button style={s.btn} onClick={increment} disabled={busy}>Increment</button>
-          )}
+          <button style={s.btn} onClick={increment} disabled={busy}>
+            {!registered || !handle ? "Register Passkey & Increment" : "Increment"}
+          </button>
         </>
       )}
 
