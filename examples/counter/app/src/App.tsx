@@ -14,7 +14,7 @@ export default function App() {
   const [handle,     setHandle]     = useState<{ credentialId: Uint8Array } | null>(null)
   const [status,     setStatus]     = useState("")
   const [busy,       setBusy]       = useState(false)
-  const [logs,       setLogs]       = useState<string[]>([])
+  const [logsMap,    setLogsMap]    = useState<Record<string, string[]>>({})
 
   const keypair = wallets[activeIdx]
   const client  = new TranaGuardClient({ connection, cluster: "localnet" })
@@ -43,7 +43,6 @@ export default function App() {
   useEffect(() => {
     setCounter("loading")
     setStatus("Funding wallet…")
-    setLogs([])
     ensureFunded(connection, keypair.publicKey)
       .then(() => { setStatus(""); return reload(keypair) })
       .catch(e => setStatus(`Validator not reachable: ${e.message}`))
@@ -72,7 +71,8 @@ export default function App() {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
     })
-    setLogs(info?.meta?.logMessages ?? [])
+    const pk = keypair.publicKey.toBase58()
+    setLogsMap(prev => ({ ...prev, [pk]: info?.meta?.logMessages ?? [] }))
     return sig
   }, [keypair])
 
@@ -175,10 +175,10 @@ export default function App() {
 
       {status && <p style={s.status}>{status}</p>}
 
-      {logs.length > 0 && (
+      {(logsMap[keypair.publicKey.toBase58()] ?? []).length > 0 && (
         <div style={s.logs}>
           <p style={s.logsTitle}>Transaction logs</p>
-          {logs.map((line, i) => (
+          {(logsMap[keypair.publicKey.toBase58()] ?? []).map((line, i) => (
             <p key={i} style={{
               ...s.logLine,
               ...(line.includes("Program log:") ? s.logHighlight : {}),
