@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/beharefe/trana/compare/v1.4.1...v1.4.2) (2026-05-14)
+
+
+### Bug Fixes
+
+* **repo:** skip preflight for secp256r1 precompile simulation bug ([6048aa1](https://github.com/beharefe/trana/commit/6048aa1f16fb9bf1ace9f1152646cada611844e1))
+
 ## [1.4.1](https://github.com/beharefe/trana/compare/v1.4.0...v1.4.1) (2026-05-14)
 
 
