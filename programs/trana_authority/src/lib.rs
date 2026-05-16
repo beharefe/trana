@@ -225,7 +225,7 @@ pub struct ExecuteUpgrade<'info> {
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         seeds::program = trana_guard_program.key(),
         bump,
     )]
@@ -272,7 +272,7 @@ pub struct ReclaimAuthority<'info> {
 
     #[account(
         mut,
-        seeds = [b"2fa", owner.key().as_ref()],
+        seeds = [b"passkey", owner.key().as_ref()],
         seeds::program = trana_guard_program.key(),
         bump,
     )]

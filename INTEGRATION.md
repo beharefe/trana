@@ -56,12 +56,12 @@ pub struct Withdraw<'info> {
     pub trana_guard_program: Program<'info, Trana>,
     #[account(
         mut,
-        seeds  = [b"2fa", owner.key().as_ref()],
+        seeds  = [b"passkey", owner.key().as_ref()],
         bump,
         seeds::program = trana_guard_program.key(),
         constraint = trana_registry.enabled @ VaultError::PasskeyNotRegistered,
     )]
-    pub trana_registry: Account<'info, trana::TwoFactorRegistry>,
+    pub trana_registry: Account<'info, trana::PasskeyRegistry>,
     /// CHECK: Solana Instructions sysvar
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub trana_instructions: UncheckedAccount<'info>,

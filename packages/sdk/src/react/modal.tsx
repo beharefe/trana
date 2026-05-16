@@ -138,7 +138,7 @@ function buildRegisterIx(
   treasury:            PublicKey,
 ): TransactionInstruction {
   const [registryPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("2fa"), walletPubkey.toBuffer()],
+    [Buffer.from("passkey"), walletPubkey.toBuffer()],
     tranaGuardProgramId,
   )
   const u32le = (n: number) => { const b = Buffer.allocUnsafe(4); new DataView(b.buffer, b.byteOffset, 4).setUint32(0, n, true); return b }

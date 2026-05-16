@@ -2,7 +2,7 @@ import { Connection, PublicKey, AccountInfo } from "@solana/web3.js"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const REGISTRY_SEED = Buffer.from("2fa")
+export const REGISTRY_SEED = Buffer.from("passkey")
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ export type RegistryState = {
 
 /**
  * Derive the registry PDA for a given wallet + Trana Guard program.
- * Seeds: [b"2fa", walletPubkey]
+ * Seeds: [b"passkey", walletPubkey]
  */
 export function findRegistryPda(
   walletPubkey:   PublicKey,
@@ -34,9 +34,9 @@ export function findRegistryPda(
 // ── Deserialization ───────────────────────────────────────────────────────────
 
 /**
- * Parse a raw TwoFactorRegistry account buffer.
+ * Parse a raw PasskeyRegistry account buffer.
  *
- * TwoFactorRegistry layout (after 8-byte Anchor discriminator):
+ * PasskeyRegistry layout (after 8-byte Anchor discriminator):
  *   owner:         Pubkey    (32 bytes)
  *   key_kind:      u8        (1 byte  — 0 = Secp256r1Passkey, 1 = Ed25519)
  *   pubkey_bytes:  Vec<u8>   (4-byte LE len + bytes)

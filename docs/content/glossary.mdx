@@ -68,15 +68,15 @@ A 32-byte SHA-256 of the raw instruction parameter bytes. Any change to amounts,
 
 ---
 
-### TwoFactorRegistry
+### PasskeyRegistry
 
-The on-chain PDA storing a user's registered P-256 public key and enforcement nonce. Seeds: `["2fa", wallet_pubkey]` on the guard program. Fields: `owner`, `pubkey_bytes` (33-byte compressed P-256), `credential_id` (up to 128 bytes), `enabled`, `nonce`.
+The on-chain PDA storing a user's registered P-256 public keys and enforcement nonce. Seeds: `["passkey", wallet_pubkey]` on the guard program. Fields: `owner`, `pubkey_bytes` (33-byte compressed P-256), `credential_id` (up to 128 bytes), `enabled`, `nonce`.
 
 ---
 
 ### Enforcement nonce
 
-A u64 counter in the TwoFactorRegistry, incremented after every successful `enforce()` call. A captured proof becomes invalid after the next enforcement because the nonce no longer matches.
+A u64 counter in the PasskeyRegistry, incremented after every successful `enforce()` call. A captured proof becomes invalid after the next enforcement because the nonce no longer matches.
 
 ---
 

@@ -3,6 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js"
 import type { TranaGuard } from "../../target/types/trana_guard"
 import { airdrop, sendV0 } from "./transactions"
 import { generateTestPasskey } from "../../packages/sdk/src/testing/index"
+import { buildProofInstructions } from "./proof"
 
 export type { TestPasskeyHandle } from "../../packages/sdk/src/testing/index"
 export { generateTestPasskey }
@@ -86,6 +87,59 @@ export async function registerPasskey(
     .accounts({ owner: owner.publicKey, treasury })
     .instruction()
   await sendV0(program.provider.connection, [ix], owner.publicKey, [owner])
+}
+
+export async function addPasskey(
+  program:      anchor.Program<TranaGuard>,
+  owner:        Keypair,
+  signingKey:   ReturnType<typeof generateTestPasskey>,
+  newKey:       { pubkey: Uint8Array; credentialId: Uint8Array },
+  treasury:     PublicKey,
+  nonce:        bigint,
+): Promise<void> {
+  const addIx = await program.methods
+    .addPasskey(
+      { secp256R1Passkey: {} },
+      Buffer.from(newKey.pubkey),
+      Buffer.from(newKey.credentialId),
+    )
+    .accounts({ owner: owner.publicKey, treasury })
+    .instruction()
+
+  const { secp256r1Ix, recordProofIx } = buildProofInstructions(
+    signingKey,
+    addIx,
+    program.programId,
+    owner.publicKey,
+    nonce,
+    "trana.require",
+  )
+
+  await sendV0(program.provider.connection, [secp256r1Ix, recordProofIx, addIx], owner.publicKey, [owner])
+}
+
+export async function removePasskey(
+  program:      anchor.Program<TranaGuard>,
+  owner:        Keypair,
+  signingKey:   ReturnType<typeof generateTestPasskey>,
+  credentialId: Uint8Array,
+  nonce:        bigint,
+): Promise<void> {
+  const removeIx = await program.methods
+    .removePasskey(Buffer.from(credentialId))
+    .accounts({ owner: owner.publicKey })
+    .instruction()
+
+  const { secp256r1Ix, recordProofIx } = buildProofInstructions(
+    signingKey,
+    removeIx,
+    program.programId,
+    owner.publicKey,
+    nonce,
+    "trana.require",
+  )
+
+  await sendV0(program.provider.connection, [secp256r1Ix, recordProofIx, removeIx], owner.publicKey, [owner])
 }
 
 /**

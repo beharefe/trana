@@ -23,7 +23,7 @@ Trana is designed to trust nothing except two things the user directly controls:
 
 **The Solana secp256r1 precompile (SIMD-0075).** Added to the Solana validator in February 2025, this is a native instruction that verifies P-256 (secp256r1) signatures. It is part of the validator software itself — not a Trana smart contract. Its correctness is guaranteed by Solana Labs and the validator client teams.
 
-**The user's TwoFactorRegistry PDA.** This account stores the user's registered P-256 public key. It is owned by the guard program and can only be modified by the wallet owner. It contains a nonce that increments on every successful enforcement.
+**The user's PasskeyRegistry PDA.** This account stores the user's registered P-256 public key. It is owned by the guard program and can only be modified by the wallet owner. It contains a nonce that increments on every successful enforcement.
 
 Everything else — the SDK, the dApp frontend, the RPC node, Trana as an organization — is explicitly untrusted. Enforcement doesn't depend on any of them behaving correctly.
 
@@ -129,7 +129,7 @@ Trana is honest about what it doesn't protect against.
 <thead><tr><th>Component</th><th>Trusted?</th><th>Reason</th></tr></thead>
 <tbody>
 <tr><td>Solana secp256r1 precompile</td><td>Yes</td><td>Part of validator software</td></tr>
-<tr><td>TwoFactorRegistry PDA</td><td>Yes</td><td>Onchain state, user-controlled</td></tr>
+<tr><td>PasskeyRegistry PDA</td><td>Yes</td><td>Onchain state, user-controlled</td></tr>
 <tr><td>Trana SDK</td><td>No</td><td>Client-side, can be forked or modified</td></tr>
 <tr><td>dApp frontend</td><td>No</td><td>Can be compromised (XSS, supply chain)</td></tr>
 <tr><td>RPC node</td><td>No</td><td>Can censor, delay, return wrong state</td></tr>
