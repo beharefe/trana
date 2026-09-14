@@ -12,6 +12,7 @@ import {
   TransactionInstruction,
   type SendOptions,
 } from "@solana/web3.js"
+import { Buffer } from "buffer"
 import { TRANA_GUARD_ID, TRANA_VAULT_ID } from "./devnet"
 
 const POOL_SEED    = Buffer.from("trana-pool")

@@ -22,9 +22,8 @@
 	},
 	"kv_namespaces": [
 		{
-			"binding": "trana",
-			"id": "52c1d99f86c642d281636a58ae67ba72",
-			"remote": true
+			"binding": "VINEXT_KV_CACHE",
+			"id": "52c1d99f86c642d281636a58ae67ba72"
 		}
 	]
 }

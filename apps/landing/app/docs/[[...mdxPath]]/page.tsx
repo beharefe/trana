@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
+import { getDocsMDXComponents } from "../../../mdx-components"
 import Introduction from "../../../content/index.mdx"
 import Quickstart from "../../../content/quickstart.mdx"
 import SdkReference from "../../../content/sdk.mdx"
@@ -36,8 +37,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function Page({ params }: PageProps) {
-  const entry = getEntry((await params).mdxPath)
+  const mdxPath = (await params).mdxPath
+  const entry = getEntry(mdxPath)
   if (!entry) notFound()
   const Content = entry.Component
-  return <Content />
+  const { wrapper: Wrapper, ...components } = getDocsMDXComponents()
+  const filePath = `content/${mdxPath?.join("/") || "index"}.mdx`
+
+  return (
+    <Wrapper toc={[]} metadata={{ title: entry.title, filePath }} sourceCode="">
+      <Content components={components} />
+    </Wrapper>
+  )
 }
