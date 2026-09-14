@@ -1,22 +1,43 @@
-import { generateStaticParamsFor, importPage } from "nextra/pages"
-import { getDocsMDXComponents } from "../../../mdx-components"
+import type { Metadata } from "next"
+import { notFound } from "next/navigation"
+import Introduction from "../../../content/index.mdx"
+import Quickstart from "../../../content/quickstart.mdx"
+import SdkReference from "../../../content/sdk.mdx"
+import Integration from "../../../content/integration.mdx"
+import Architecture from "../../../content/architecture.mdx"
+import Glossary from "../../../content/glossary.mdx"
 
-export const generateStaticParams = generateStaticParamsFor("mdxPath")
+const docs = {
+  "": { title: "How it works", Component: Introduction },
+  quickstart: { title: "Quickstart", Component: Quickstart },
+  sdk: { title: "SDK Reference", Component: SdkReference },
+  integration: { title: "Integration", Component: Integration },
+  architecture: { title: "Architecture", Component: Architecture },
+  glossary: { title: "Glossary", Component: Glossary },
+} as const
 
-export async function generateMetadata(props: { params: Promise<{ mdxPath?: string[] }> }) {
-  const params = await props.params
-  const { metadata } = await importPage(params.mdxPath)
-  return metadata
+type DocsSlug = keyof typeof docs
+type PageProps = { params: Promise<{ mdxPath?: string[] }> }
+
+function getEntry(mdxPath: string[] | undefined) {
+  const slug = mdxPath?.join("/") ?? ""
+  return docs[slug as DocsSlug]
 }
 
-const Wrapper = getDocsMDXComponents().wrapper
+export function generateStaticParams() {
+  return Object.keys(docs).map((slug) => ({ mdxPath: slug ? [slug] : [] }))
+}
 
-export default async function Page(props: { params: Promise<{ mdxPath?: string[] }> }) {
-  const params = await props.params
-  const { default: MDXContent, toc, metadata, sourceCode } = await importPage(params.mdxPath)
-  return (
-    <Wrapper toc={toc} metadata={metadata} sourceCode={sourceCode}>
-      <MDXContent {...props} params={params} />
-    </Wrapper>
-  )
+export const dynamicParams = false
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const entry = getEntry((await params).mdxPath)
+  return entry ? { title: entry.title } : {}
+}
+
+export default async function Page({ params }: PageProps) {
+  const entry = getEntry((await params).mdxPath)
+  if (!entry) notFound()
+  const Content = entry.Component
+  return <Content />
 }

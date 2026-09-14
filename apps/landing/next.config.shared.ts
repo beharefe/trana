@@ -1,0 +1,32 @@
+import type { NextConfig } from "next"
+
+const config = {
+  pageExtensions: ["ts", "tsx", "mdx"],
+  transpilePackages: [
+    "@solana/wallet-adapter-base",
+    "@solana/wallet-adapter-react",
+    "@solana/wallet-adapter-react-ui",
+    "@tranaprotocol/sdk",
+  ],
+  async redirects() {
+    if (process.env.NODE_ENV !== "production") return []
+    return [
+      {
+        // Strip accidental /docs prefix on docs subdomain
+        source: "/docs/:path*",
+        has: [{ type: "host", value: "docs.trana.so" }],
+        destination: "/:path*",
+        permanent: false,
+      },
+      {
+        // Main domain: /docs → docs subdomain
+        source: "/docs/:path*",
+        has: [{ type: "host", value: "trana.so" }],
+        destination: "https://docs.trana.so/:path*",
+        statusCode: 301,
+      },
+    ]
+  },
+} satisfies NextConfig
+
+export default config

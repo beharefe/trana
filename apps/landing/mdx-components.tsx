@@ -1,4 +1,3 @@
-import { useMDXComponents as getNextraDocsMDXComponents } from "nextra-theme-docs"
 import type { MDXComponents } from "mdx/types"
 import { CodeBlock } from "@/components/CodeBlock"
 
@@ -23,18 +22,6 @@ const tableComponents: MDXComponents = {
     <td className="py-4 px-5 border-b border-[rgba(255,255,255,0.05)] align-top leading-relaxed text-muted">
       {children}
     </td>
-  ),
-}
-
-// ─── Docs pages (/docs/*) — nextra/shiki handles code, prose, lists ──────────
-
-const docsComponents: MDXComponents = {
-  ...tableComponents,
-  h1: ({ children }) => (
-    <h1 className="font-serif text-[2.5rem] font-normal leading-tight mb-6">{children}</h1>
-  ),
-  h2: ({ children }) => (
-    <h2 className="font-serif text-[1.75rem] font-normal leading-snug mt-12 mb-4 pb-2 border-b border-[rgba(255,255,255,0.08)]">{children}</h2>
   ),
 }
 
@@ -118,11 +105,6 @@ const contentComponents: MDXComponents = {
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
-
-export function getDocsMDXComponents(components?: MDXComponents) {
-  const nextraComponents = getNextraDocsMDXComponents()
-  return { ...nextraComponents, ...docsComponents, ...components }
-}
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return { ...contentComponents, ...components }
