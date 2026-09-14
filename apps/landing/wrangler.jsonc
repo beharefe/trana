@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "landing",
+  "name": "trana",
   "compatibility_date": "2026-09-14",
   "compatibility_flags": [
     "nodejs_compat"
@@ -23,7 +23,7 @@
   "kv_namespaces": [
     {
       "binding": "VINEXT_KV_CACHE",
-      "id": "<your-kv-namespace-id>"
+      "id": "trana"
     }
   ]
 }
