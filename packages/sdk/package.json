@@ -33,7 +33,7 @@
     "dist"
   ],
   "scripts": {
-    "sync-idl": "node ../../scripts/sync-idl.js",
+    "sync-idl": "node ../../scripts/sync-idl.mjs",
     "build": "npm run sync-idl && tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "check": "tsc --noEmit",

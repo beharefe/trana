@@ -111,9 +111,13 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  50,
-                  102,
-                  97
+                  112,
+                  97,
+                  115,
+                  115,
+                  107,
+                  101,
+                  121
                 ]
               },
               {
@@ -219,9 +223,13 @@ export type TranaAuthority = {
               {
                 "kind": "const",
                 "value": [
-                  50,
-                  102,
-                  97
+                  112,
+                  97,
+                  115,
+                  115,
+                  107,
+                  101,
+                  121
                 ]
               },
               {
