@@ -1,29 +1,30 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "trana",
-  "compatibility_date": "2026-09-14",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "main": "vinext/server/fetch-handler",
-  "assets": {
-    "directory": "dist/client",
-    "not_found_handling": "none",
-    "binding": "ASSETS"
-  },
-  "cache": {
-    "enabled": true
-  },
-  "version_metadata": {
-    "binding": "CF_VERSION_METADATA"
-  },
-  "images": {
-    "binding": "IMAGES"
-  },
-  "kv_namespaces": [
-    {
-      "binding": "VINEXT_KV_CACHE",
-      "id": "trana"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "trana",
+	"compatibility_date": "2026-09-14",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "vinext/server/fetch-handler",
+	"assets": {
+		"directory": "dist/client",
+		"not_found_handling": "none",
+		"binding": "ASSETS"
+	},
+	"cache": {
+		"enabled": true
+	},
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA"
+	},
+	"images": {
+		"binding": "IMAGES"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "trana",
+			"id": "52c1d99f86c642d281636a58ae67ba72",
+			"remote": true
+		}
+	]
 }
