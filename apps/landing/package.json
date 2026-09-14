@@ -18,7 +18,7 @@
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",
     "@solana/web3.js": "^1.98.4",
-    "@tranaprotocol/sdk": "*",
+    "@tranaprotocol/sdk": "npm:@tranaprotocol/sdk@latest",
     "@types/animejs": "^3.1.13",
     "@vinext/cloudflare": "^1.0.0-beta.7",
     "animejs": "^3.2.2",
